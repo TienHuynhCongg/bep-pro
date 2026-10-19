@@ -1,0 +1,346 @@
+{
+  "updatedAt": 1792444721563,
+  "tasks": [
+    {
+      "id": "task-1",
+      "title": "Kiểm tra & ghi nhiệt độ tủ mát (< 4°C) và tủ đông (< -18°C)",
+      "category": "An toàn ATTP",
+      "priority": "Gấp",
+      "completed": true,
+      "assignedShift": "Tất cả ca",
+      "completedAt": "03:16:29, 20/10/2026",
+      "completedBy": "Trần Văn Hưng (Trưởng Ca)",
+      "completedByRole": "manager"
+    },
+    {
+      "id": "task-2",
+      "title": "Sơ chế rau củ, củ quả và cá thịt nhập từ kho tươi buổi sáng",
+      "category": "Sơ chế",
+      "priority": "Thường",
+      "completed": true,
+      "assignedShift": "Ca Sáng",
+      "completedAt": "03:16:31, 20/10/2026",
+      "completedBy": "Trần Văn Hưng (Trưởng Ca)",
+      "completedByRole": "manager"
+    },
+    {
+      "id": "task-3",
+      "title": "Nấu nước dùng chính & chia định lượng sốt gia vị cho ca phục vụ",
+      "category": "Nấu nướng",
+      "priority": "Gấp",
+      "completed": true,
+      "assignedShift": "Ca Sáng",
+      "completedAt": "03:16:38, 20/10/2026",
+      "completedBy": "Lê Minh Tuấn (Phụ Bếp)",
+      "completedByRole": "staff"
+    },
+    {
+      "id": "task-4",
+      "title": "Bọc màng thực phẩm & dán nhãn ngày/hạn sử dụng (FIFO) các khay",
+      "category": "Kiểm kê",
+      "priority": "Thường",
+      "completed": true,
+      "assignedShift": "Tất cả ca",
+      "completedAt": "03:16:39, 20/10/2026",
+      "completedBy": "Lê Minh Tuấn (Phụ Bếp)",
+      "completedByRole": "staff"
+    },
+    {
+      "id": "task-5",
+      "title": "Vệ sinh lau chùi bề mặt bếp gas, bếp từ, vỉ nướng và hệ thống hút mùi",
+      "category": "Vệ sinh",
+      "priority": "Thường",
+      "completed": true,
+      "assignedShift": "Ca Chiều",
+      "completedAt": "03:16:41, 20/10/2026",
+      "completedBy": "Lê Minh Tuấn (Phụ Bếp)",
+      "completedByRole": "staff"
+    },
+    {
+      "id": "task-6",
+      "title": "Khử khuẩn sàn bếp, nghiệm thu thùng rác hữu cơ & khóa van gas tổng",
+      "category": "An toàn ATTP",
+      "priority": "Gấp",
+      "completed": true,
+      "assignedShift": "Tất cả ca",
+      "completedAt": "03:16:42, 20/10/2026",
+      "completedBy": "Lê Minh Tuấn (Phụ Bếp)",
+      "completedByRole": "staff"
+    }
+  ],
+  "logs": [
+    {
+      "id": "LOG-0824",
+      "timestamp": "19/10/2026, 14:15:20",
+      "dateStr": "19/10/2026",
+      "shiftName": "Ca Sáng (06:00 - 14:00)",
+      "staffName": "Chef Hoàng Nam",
+      "completedCount": 6,
+      "totalCount": 6,
+      "tasks": [
+        {
+          "id": "task-1",
+          "title": "Kiểm tra & ghi nhiệt độ tủ mát (< 4°C) và tủ đông (< -18°C)",
+          "category": "An toàn ATTP",
+          "priority": "Gấp",
+          "completed": true,
+          "assignedShift": "Tất cả ca"
+        },
+        {
+          "id": "task-2",
+          "title": "Sơ chế rau củ, củ quả và cá thịt nhập từ kho tươi buổi sáng",
+          "category": "Sơ chế",
+          "priority": "Thường",
+          "completed": true,
+          "assignedShift": "Ca Sáng"
+        },
+        {
+          "id": "task-3",
+          "title": "Nấu nước dùng chính & chia định lượng sốt gia vị cho ca phục vụ",
+          "category": "Nấu nướng",
+          "priority": "Gấp",
+          "completed": true,
+          "assignedShift": "Ca Sáng"
+        },
+        {
+          "id": "task-4",
+          "title": "Bọc màng thực phẩm & dán nhãn ngày/hạn sử dụng (FIFO) các khay",
+          "category": "Kiểm kê",
+          "priority": "Thường",
+          "completed": true,
+          "assignedShift": "Tất cả ca"
+        },
+        {
+          "id": "task-5",
+          "title": "Vệ sinh lau chùi bề mặt bếp gas, bếp từ, vỉ nướng và hệ thống hút mùi",
+          "category": "Vệ sinh",
+          "priority": "Thường",
+          "completed": true,
+          "assignedShift": "Ca Chiều"
+        },
+        {
+          "id": "task-6",
+          "title": "Khử khuẩn sàn bếp, nghiệm thu thùng rác hữu cơ & khóa van gas tổng",
+          "category": "An toàn ATTP",
+          "priority": "Gấp",
+          "completed": true,
+          "assignedShift": "Tất cả ca"
+        }
+      ],
+      "fields": [
+        {
+          "id": "field-1",
+          "label": "Tên Trực Ca / Đầu Bếp Phụ Trách",
+          "value": "Chef Hoàng Nam"
+        },
+        {
+          "id": "field-2",
+          "label": "Ca Làm Việc",
+          "value": "Ca Sáng (06:00 - 14:00)"
+        },
+        {
+          "id": "field-3",
+          "label": "Nhiệt Độ Tủ Mát / Tủ Đông (°C)",
+          "value": "Mát: 3.2°C, Đông: -18.5°C (Đạt chuẩn)"
+        },
+        {
+          "id": "field-4",
+          "label": "Đánh Giá Vệ Sinh ATTP",
+          "value": "Đạt chuẩn 100% (Sạch sẽ, gọn gàng)"
+        },
+        {
+          "id": "field-5",
+          "label": "Ghi Chú Phát Sinh / Nguyên Liệu Cần Báo Mua",
+          "value": "Kho đã hết bơ lạt Anchor và tiêu đen hạt vỡ. Đã thông báo thu mua."
+        }
+      ]
+    },
+    {
+      "id": "LOG-0823",
+      "timestamp": "18/10/2026, 22:05:40",
+      "dateStr": "18/10/2026",
+      "shiftName": "Ca Chiều (14:00 - 22:00)",
+      "staffName": "Trần Văn Hưng",
+      "completedCount": 5,
+      "totalCount": 6,
+      "tasks": [
+        {
+          "id": "task-1",
+          "title": "Kiểm tra & ghi nhiệt độ tủ mát (< 4°C) và tủ đông (< -18°C)",
+          "category": "An toàn ATTP",
+          "priority": "Gấp",
+          "completed": true,
+          "assignedShift": "Tất cả ca"
+        },
+        {
+          "id": "task-2",
+          "title": "Sơ chế rau củ, củ quả và cá thịt nhập từ kho tươi buổi sáng",
+          "category": "Sơ chế",
+          "priority": "Thường",
+          "completed": true,
+          "assignedShift": "Ca Sáng"
+        },
+        {
+          "id": "task-3",
+          "title": "Nấu nước dùng chính & chia định lượng sốt gia vị cho ca phục vụ",
+          "category": "Nấu nướng",
+          "priority": "Gấp",
+          "completed": true,
+          "assignedShift": "Ca Sáng"
+        },
+        {
+          "id": "task-4",
+          "title": "Bọc màng thực phẩm & dán nhãn ngày/hạn sử dụng (FIFO) các khay",
+          "category": "Kiểm kê",
+          "priority": "Thường",
+          "completed": true,
+          "assignedShift": "Tất cả ca"
+        },
+        {
+          "id": "task-5",
+          "title": "Vệ sinh lau chùi bề mặt bếp gas, bếp từ, vỉ nướng và hệ thống hút mùi",
+          "category": "Vệ sinh",
+          "priority": "Thường",
+          "completed": false,
+          "assignedShift": "Ca Chiều"
+        },
+        {
+          "id": "task-6",
+          "title": "Khử khuẩn sàn bếp, nghiệm thu thùng rác hữu cơ & khóa van gas tổng",
+          "category": "An toàn ATTP",
+          "priority": "Gấp",
+          "completed": true,
+          "assignedShift": "Tất cả ca"
+        }
+      ],
+      "fields": [
+        {
+          "id": "field-1",
+          "label": "Tên Trực Ca / Đầu Bếp Phụ Trách",
+          "value": "Trần Văn Hưng"
+        },
+        {
+          "id": "field-2",
+          "label": "Ca Làm Việc",
+          "value": "Ca Chiều (14:00 - 22:00)"
+        },
+        {
+          "id": "field-3",
+          "label": "Nhiệt Độ Tủ Mát / Tủ Đông (°C)",
+          "value": "Mát: 4.0°C, Đông: -18°C"
+        },
+        {
+          "id": "field-4",
+          "label": "Đánh Giá Vệ Sinh ATTP",
+          "value": "Đạt loại khá (Có lưu ý nhỏ)"
+        },
+        {
+          "id": "field-5",
+          "label": "Ghi Chú Phát Sinh / Nguyên Liệu Cần Báo Mua",
+          "value": "Khay inox số 3 ở bồn rửa cần thay gioăng cao su."
+        }
+      ]
+    }
+  ],
+  "staffList": [
+    {
+      "id": "staff-1",
+      "username": "admin",
+      "password": "123",
+      "fullName": "Chef Hoàng Nam (Bếp Trưởng)",
+      "role": "admin",
+      "station": "Toàn Bếp & Giám Sát",
+      "phone": "0901234567",
+      "status": "active",
+      "lastLogin": "03:08:05 20/10/2026",
+      "avatarColor": "bg-amber-600"
+    },
+    {
+      "id": "staff-2",
+      "username": "truongca",
+      "password": "123",
+      "fullName": "Trần Văn Hưng (Trưởng Ca)",
+      "role": "manager",
+      "station": "Khu Bếp Nóng & Ra Món",
+      "phone": "0912345678",
+      "status": "active",
+      "lastLogin": "03:08:01 20/10/2026",
+      "avatarColor": "bg-emerald-600"
+    },
+    {
+      "id": "staff-3",
+      "username": "nv_bep",
+      "password": "123",
+      "fullName": "Lê Minh Tuấn (Phụ Bếp)",
+      "role": "staff",
+      "station": "Khu Sơ Chế & Rửa",
+      "phone": "0987654321",
+      "status": "active",
+      "lastLogin": "03:08:17 20/10/2026",
+      "avatarColor": "bg-blue-600"
+    },
+    {
+      "fullName": "Tiến",
+      "username": "thc",
+      "password": "1",
+      "role": "staff",
+      "station": "Khu Bếp Nóng & Ra Món",
+      "phone": "",
+      "status": "active",
+      "avatarColor": "bg-blue-600",
+      "lastLogin": "02:35:51 20/10/2026",
+      "id": "staff-1792438551417"
+    }
+  ],
+  "toolbarItems": [
+    {
+      "id": "nav-checklist",
+      "label": "Checklist Nhân Viên",
+      "iconName": "ListChecks",
+      "targetType": "checklist",
+      "visible": true,
+      "colorTheme": "amber"
+    },
+    {
+      "id": "nav-history",
+      "label": "Lịch Sử Ca",
+      "iconName": "Archive",
+      "targetType": "history",
+      "visible": true,
+      "colorTheme": "emerald"
+    },
+    {
+      "id": "nav-analytics",
+      "label": "Thống Kê Ca",
+      "iconName": "BarChart3",
+      "targetType": "analytics",
+      "visible": false,
+      "colorTheme": "blue"
+    },
+    {
+      "id": "nav-chef-tasks",
+      "label": "Giao Việc Bếp Trưởng",
+      "iconName": "ChefHat",
+      "targetType": "chef_tasks",
+      "visible": true,
+      "colorTheme": "amber"
+    },
+    {
+      "id": "nav-staff",
+      "label": "Quản Lý Nhân Sự",
+      "iconName": "UserCheck",
+      "targetType": "staff",
+      "visible": true,
+      "colorTheme": "purple"
+    },
+    {
+      "id": "nav-admin",
+      "label": "Cấu Hình Admin",
+      "iconName": "Sliders",
+      "targetType": "admin",
+      "visible": true,
+      "colorTheme": "amber"
+    }
+  ],
+  "deleteRequests": []
+}

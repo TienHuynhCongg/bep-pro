@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#451a03" />
+      <stop offset="50%" stop-color="#78350f" />
+      <stop offset="100%" stop-color="#b45309" />
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fbbf24" />
+      <stop offset="100%" stop-color="#f59e0b" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="115" fill="url(#bg)" />
+  <rect x="24" y="24" width="464" height="464" rx="95" fill="none" stroke="#f59e0b" stroke-width="6" stroke-opacity="0.35" />
+  <!-- Chef Hat Icon -->
+  <path d="M168 290v60c0 16.5 13.5 30 30 30h116c16.5 0 30-13.5 30-30v-60" fill="none" stroke="url(#accent)" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M148 290c-30 0-54-24-54-54 0-27 20-50 46-53 8-42 45-73 90-73 24 0 46 9 62 25 13-8 28-13 44-13 44 0 80 36 80 80 0 44-36 88-68 88H148z" fill="#fffbeb" stroke="url(#accent)" stroke-width="20" stroke-linejoin="round"/>
+  <!-- Checkmark Badge -->
+  <circle cx="368" cy="364" r="68" fill="#10b981" stroke="#451a03" stroke-width="14"/>
+  <path d="M336 364l22 22 44-44" fill="none" stroke="#ffffff" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

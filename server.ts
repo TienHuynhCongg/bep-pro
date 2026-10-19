@@ -129,7 +129,7 @@ export function createKitchenApiMiddleware() {
 
   // GET /api/ios-app.mobileconfig - Tạo bộ cài App trực tiếp cho iOS (iPhone/iPad) 100% Free
   router.get('/api/ios-app.mobileconfig', (req, res) => {
-    const protocol = (req.headers['x-forwarded-proto'] as string) || 'http';
+    const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
     const host = req.headers.host || 'localhost:3000';
     const targetUrl = (req.query.url as string) || `${protocol}://${host}/`;
 
@@ -193,26 +193,33 @@ export function createKitchenApiMiddleware() {
   return router;
 }
 
-// Chạy độc lập khi deploy lên Cloud Server (Render, Railway, Fly.io, VPS...)
-const isDirectRun =
-  process.argv[1] &&
-  (process.argv[1].endsWith('server.ts') || process.argv[1].endsWith('server.js'));
-
-if (isDirectRun) {
+async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
 
   app.use(createKitchenApiMiddleware());
 
   const distPath = path.join(__dirname, 'dist');
-  if (fs.existsSync(distPath)) {
+  if (fs.existsSync(path.join(distPath, 'index.html'))) {
     app.use(express.static(distPath));
-    app.get('*', (_req, res) => {
+    app.use((_req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
+  } else {
+    const { createServer: createViteServer } = await import('vite');
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
   }
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Kitchen Log Pro Server đang chạy tại http://0.0.0.0:${PORT}`);
   });
+}
+
+const isRunningUnderViteCli = process.argv.some((arg) => arg.includes('vite'));
+if (!isRunningUnderViteCli) {
+  startServer();
 }
