@@ -25,6 +25,7 @@ interface LoginModalProps {
   onLogin: (user: StaffUser) => void;
   onLogout: () => void;
   onRegisterStaff: (newStaff: Omit<StaffUser, 'id'>) => void;
+  onOpenInstallApp?: () => void;
 }
 
 export const LoginModal: React.FC<LoginModalProps> = ({
@@ -35,6 +36,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   onLogin,
   onLogout,
   onRegisterStaff,
+  onOpenInstallApp,
 }) => {
   const [mode, setMode] = useState<'login' | 'register'>('login');
 
@@ -55,7 +57,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   const [regError, setRegError] = useState('');
   const [regSuccess, setRegSuccess] = useState('');
 
-  if (!isOpen) return null;
+  if (!isOpen && currentUser) return null;
 
   const handleLoginSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -153,16 +155,34 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/65 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn">
+    <div
+      className={`fixed inset-0 z-50 flex items-center justify-center p-4 animate-fadeIn ${
+        currentUser
+          ? 'bg-black/65 backdrop-blur-xs'
+          : 'bg-gradient-to-br from-stone-950 via-amber-950 to-stone-900'
+      }`}
+    >
       <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl border border-stone-200 overflow-hidden flex flex-col max-h-[92vh]">
         {/* Header */}
         <div className="bg-gradient-to-r from-amber-950 via-stone-900 to-amber-950 text-white p-6 relative">
-          <button
-            onClick={onClose}
-            className="absolute top-4 right-4 p-1.5 rounded-full text-amber-200 hover:text-white hover:bg-white/10 transition"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          {currentUser ? (
+            <button
+              onClick={onClose}
+              className="absolute top-4 right-4 p-1.5 rounded-full text-amber-200 hover:text-white hover:bg-white/10 transition"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          ) : (
+            onOpenInstallApp && (
+              <button
+                type="button"
+                onClick={onOpenInstallApp}
+                className="absolute top-4 right-4 px-2.5 py-1 rounded-xl text-[11px] font-extrabold bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-400/50 shadow-xs transition"
+              >
+                Tải App
+              </button>
+            )
+          )}
 
           <div className="flex items-center gap-3">
             <div className="p-3 bg-gradient-to-br from-amber-500 to-amber-700 rounded-2xl shadow-lg border border-amber-400/30 text-white">
@@ -173,7 +193,11 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                 {mode === 'login' ? 'Đăng Nhập Ca Bếp' : 'Đăng Ký Tài Khoản Mới'}
               </h3>
               <p className="text-xs text-amber-200/80">
-                {mode === 'login' ? 'Xác thực nhân viên & ghi nhận báo cáo' : 'Tạo tài khoản đầu bếp để thực hiện ca'}
+                {!currentUser
+                  ? 'Bắt buộc đăng nhập để truy cập hệ thống bếp'
+                  : mode === 'login'
+                  ? 'Xác thực nhân viên & ghi nhận báo cáo'
+                  : 'Tạo tài khoản đầu bếp để thực hiện ca'}
               </p>
             </div>
           </div>

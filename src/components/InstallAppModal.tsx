@@ -50,7 +50,7 @@ export const InstallAppModal: React.FC<InstallAppModalProps> = ({
   )}`;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+    <div className="fixed inset-0 z-[60] bg-black/75 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
       <div className="bg-white rounded-3xl max-w-lg w-full shadow-2xl border border-stone-200 overflow-hidden animate-fadeIn my-auto">
         {/* Header */}
         <div className="bg-gradient-to-r from-amber-950 via-stone-900 to-amber-900 text-white p-5 sm:p-6 flex items-center justify-between">

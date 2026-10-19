@@ -140,15 +140,8 @@ export default function App() {
     }
   });
 
-  // Current Logged-in User
-  const [currentUser, setCurrentUser] = useState<StaffUser | null>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.AUTH);
-      return saved ? JSON.parse(saved) : DEFAULT_STAFF_USERS[0];
-    } catch {
-      return DEFAULT_STAFF_USERS[0];
-    }
-  });
+  // Current Logged-in User (Starts at null to enforce mandatory login screen when opening app)
+  const [currentUser, setCurrentUser] = useState<StaffUser | null>(null);
 
   // Delete Requests (Manager -> Admin approval queue)
   const [deleteRequests, setDeleteRequests] = useState<DeleteRequest[]>(() => {
@@ -221,12 +214,8 @@ export default function App() {
   }, [staffList]);
 
   useEffect(() => {
-    if (currentUser) {
-      localStorage.setItem(STORAGE_KEYS.AUTH, JSON.stringify(currentUser));
-    } else {
-      localStorage.removeItem(STORAGE_KEYS.AUTH);
-    }
-  }, [currentUser]);
+    localStorage.removeItem(STORAGE_KEYS.AUTH);
+  }, []);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.DELETE_REQUESTS, JSON.stringify(deleteRequests));
@@ -1388,15 +1377,16 @@ export default function App() {
         }}
       />
 
-      {/* Login & Switch User Modal */}
+      {/* Login & Switch User Modal (Mandatory when currentUser is null) */}
       <LoginModal
-        isOpen={showLoginModal}
+        isOpen={showLoginModal || !currentUser}
         onClose={() => setShowLoginModal(false)}
         staffList={staffList}
         currentUser={currentUser}
         onLogin={handleLogin}
         onLogout={handleLogout}
         onRegisterStaff={handleAddStaff}
+        onOpenInstallApp={() => setShowInstallModal(true)}
       />
 
       {/* Install App Modal (iOS & Android + QR Code) */}
