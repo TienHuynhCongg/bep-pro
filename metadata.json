@@ -1,0 +1,6 @@
+{
+  "name": "Kitchen Log Pro - Quản Lý Bếp & Việc Hàng Ngày",
+  "description": "Hệ thống quản lý checklist công việc bếp nhà hàng, ghi nhận ca làm việc, kiểm tra vệ sinh an toàn thực phẩm và lưu trữ báo cáo hàng ngày.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

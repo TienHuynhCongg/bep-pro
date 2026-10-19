@@ -1,0 +1,9 @@
+{
+  "appId": "com.beppro.kitchenlog",
+  "appName": "Bếp Pro",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https"
+  }
+}
