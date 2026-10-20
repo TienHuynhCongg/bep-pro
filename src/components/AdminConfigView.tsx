@@ -19,6 +19,7 @@ import {
   ShieldCheck,
   ChevronDown,
   ChevronUp,
+  Download,
 } from 'lucide-react';
 
 interface AdminConfigViewProps {
@@ -26,6 +27,7 @@ interface AdminConfigViewProps {
   onUpdateAppConfig: (config: AppConfig) => void;
   navItems: NavItem[];
   onUpdateNavItems: (items: NavItem[]) => void;
+  onOpenInstallApp?: () => void;
 }
 
 export const AdminConfigView: React.FC<AdminConfigViewProps> = ({
@@ -33,6 +35,7 @@ export const AdminConfigView: React.FC<AdminConfigViewProps> = ({
   onUpdateAppConfig,
   navItems,
   onUpdateNavItems,
+  onOpenInstallApp,
 }) => {
   // Branding state
   const [brandingForm, setBrandingForm] = useState<AppConfig>(appConfig);
@@ -155,6 +158,100 @@ export const AdminConfigView: React.FC<AdminConfigViewProps> = ({
     }
   };
 
+  const handleDownloadInstallPDF = () => {
+    const origin =
+      typeof window !== 'undefined' && window.location.origin
+        ? window.location.origin
+        : 'https://bep-pro.onrender.com';
+
+    const lines = [
+      'HUONG DAN TAI & CAI DAT APP BEP PRO (iOS & ANDROID)',
+      '====================================================================',
+      `Ten he thong : ${appConfig.appTitle || 'KITCHEN LOG PRO'}`,
+      `Link truy cap: ${origin}`,
+      `Ngay xuat PDF: ${new Date().toLocaleString('vi-VN')}`,
+      '--------------------------------------------------------------------',
+      '',
+      '1. CAI DAT TREN IPHONE / IPAD (iOS - MIEN PHI 100%):',
+      '   - Cach 1 (Profile Cai Dat Nhanh):',
+      `     Mo Safari truy cap: ${origin}/api/ios-app.mobileconfig`,
+      '     Sau do vao Cai dat (Settings) -> Da tai ve ho so -> Bam Cai dat.',
+      '   - Cach 2 (Them truc tiep tu Safari):',
+      `     Buoc 1: Mo trinh duyet Safari truy cap ${origin}`,
+      '     Buoc 2: Bam nut Chia se (Share) o thanh duoi cung man hinh.',
+      '     Buoc 3: Chon "Them vao MH chinh" (Add to Home Screen) -> Bam Them.',
+      '',
+      '2. CAI DAT TREN DIEN THOAI ANDROID (Samsung, Oppo, Xiaomi...):',
+      `   - Buoc 1: Mo trinh duyet Chrome truy cap ${origin}`,
+      '   - Buoc 2: Bam bieu tuong menu 3 cham o goc phai tren cung.',
+      '   - Buoc 3: Chon "Cai dat ung dung" (Install App / Add to Home screen).',
+      '',
+      '3. TAI KHOAN DANG NHAP MAC DINH:',
+      '   - @admin (Bep Truong)  : username "admin"   | PIN: 123',
+      '   - @manager (Truong Ca) : username "manager" | PIN: 123',
+      '   - @staff (Nhan Vien)   : username "bep1"    | PIN: 123',
+      '',
+      '4. GHI CHU VAN HANH:',
+      '   - App tu dong giu dang nhap tren dien thoai sau khi dang nhap.',
+      '   - Viec Daily tu dong reset sau 24h; 14:30 chieu tu bao @manager.',
+      '====================================================================',
+    ];
+
+    const escapePdfText = (str: string) =>
+      str
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/đ/g, 'd')
+        .replace(/Đ/g, 'D')
+        .replace(/\\/g, '\\\\')
+        .replace(/\(/g, '\\(')
+        .replace(/\)/g, '\\)');
+
+    const contentStreamLines = [
+      'BT',
+      '/F1 11 Tf',
+      '50 770 Td',
+      '16 TL',
+      ...lines.map((line, idx) =>
+        idx === 0 ? `(${escapePdfText(line)}) Tj` : `T* (${escapePdfText(line)}) Tj`
+      ),
+      'ET',
+    ];
+    const streamContent = contentStreamLines.join('\n');
+
+    const objects: string[] = [
+      '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n',
+      '2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n',
+      '3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n',
+      `4 0 obj\n<< /Length ${streamContent.length} >>\nstream\n${streamContent}\nendstream\nendobj\n`,
+      '5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Courier-Bold >>\nendobj\n',
+    ];
+
+    let pdf = '%PDF-1.4\n';
+    const offsets: number[] = [0];
+    for (const obj of objects) {
+      offsets.push(pdf.length);
+      pdf += obj;
+    }
+    const xrefStart = pdf.length;
+    pdf += `xref\n0 ${objects.length + 1}\n`;
+    pdf += '0000000000 65535 f \n';
+    for (let i = 1; i <= objects.length; i++) {
+      pdf += `${offsets[i].toString().padStart(10, '0')} 00000 n \n`;
+    }
+    pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`;
+
+    const blob = new Blob([pdf], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'Huong_Dan_Tai_App_Bep_Pro.pdf';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+  };
+
   return (
     <div className="space-y-6">
       {/* Header Banner - Admin Hệ Thống */}
@@ -178,6 +275,16 @@ export const AdminConfigView: React.FC<AdminConfigViewProps> = ({
               </p>
             </div>
           </div>
+
+          <button
+            type="button"
+            onClick={handleDownloadInstallPDF}
+            className="px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-extrabold bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-400/50 shadow-lg transition flex items-center gap-2 shrink-0"
+            title="Tải file PDF hướng dẫn & đường dẫn cài App cho iOS và Android (Nhẹ, không gây lag)"
+          >
+            <Download className="w-4 h-4" />
+            <span>Tải PDF Cài App (iOS & Android)</span>
+          </button>
         </div>
       </div>
 

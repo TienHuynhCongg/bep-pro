@@ -25,7 +25,6 @@ interface LoginModalProps {
   onLogin: (user: StaffUser) => void;
   onLogout: () => void;
   onRegisterStaff: (newStaff: Omit<StaffUser, 'id'>) => void;
-  onOpenInstallApp?: () => void;
 }
 
 export const LoginModal: React.FC<LoginModalProps> = ({
@@ -36,7 +35,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   onLogin,
   onLogout,
   onRegisterStaff,
-  onOpenInstallApp,
 }) => {
   const [mode, setMode] = useState<'login' | 'register'>('login');
 
@@ -165,23 +163,13 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl border border-stone-200 overflow-hidden flex flex-col max-h-[92vh]">
         {/* Header */}
         <div className="bg-gradient-to-r from-amber-950 via-stone-900 to-amber-950 text-white p-6 relative">
-          {currentUser ? (
+          {currentUser && (
             <button
               onClick={onClose}
               className="absolute top-4 right-4 p-1.5 rounded-full text-amber-200 hover:text-white hover:bg-white/10 transition"
             >
               <X className="w-5 h-5" />
             </button>
-          ) : (
-            onOpenInstallApp && (
-              <button
-                type="button"
-                onClick={onOpenInstallApp}
-                className="absolute top-4 right-4 px-2.5 py-1 rounded-xl text-[11px] font-extrabold bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-400/50 shadow-xs transition"
-              >
-                Tải App
-              </button>
-            )
           )}
 
           <div className="flex items-center gap-3">

@@ -49,11 +49,15 @@ export const sendAssignedTaskNotification = (
   taskTitle: string,
   assignedStaffName: string,
   priority: string,
-  assignedBy: string
+  assignedBy: string,
+  isUrgent?: boolean,
+  assignedByRole?: string
 ) => {
   if ('vibrate' in navigator) {
     try {
-      navigator.vibrate([250, 100, 250, 100, 300]);
+      navigator.vibrate(
+        isUrgent ? [400, 100, 400, 100, 500] : [250, 100, 250, 100, 300]
+      );
     } catch {
       // ignore
     }
@@ -61,8 +65,19 @@ export const sendAssignedTaskNotification = (
 
   if ('Notification' in window && Notification.permission === 'granted') {
     try {
-      const title = `👨‍🍳 Giao việc mới cho: ${assignedStaffName}`;
-      const body = `[${priority}] "${taskTitle}" — Giao bởi ${assignedBy} lúc ${new Date().toLocaleTimeString('vi-VN')}`;
+      const roleLabel =
+        assignedByRole === 'manager'
+          ? 'Trưởng Ca (@manager)'
+          : assignedByRole === 'admin'
+          ? 'Bếp Trưởng (@admin)'
+          : assignedBy;
+
+      const title = isUrgent
+        ? `🚨 VIỆC GẤP MỚI TỪ TRƯỞNG CA: ${assignedBy}`
+        : `👨‍🍳 Giao việc mới cho: ${assignedStaffName}`;
+      const body = isUrgent
+        ? `[TRONG NGÀY GẤP - ${priority}] "${taskTitle}" — Giao bởi ${roleLabel} cho ${assignedStaffName} lúc ${new Date().toLocaleTimeString('vi-VN')}`
+        : `[${priority}] "${taskTitle}" — Giao bởi ${assignedBy} lúc ${new Date().toLocaleTimeString('vi-VN')}`;
 
       new Notification(title, {
         body,

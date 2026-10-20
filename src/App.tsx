@@ -28,7 +28,6 @@ import { StaffManagementView } from './components/StaffManagementView.tsx';
 import { CustomPageView } from './components/CustomPageView.tsx';
 import { NavConfigModal } from './components/NavConfigModal.tsx';
 import { LoginModal } from './components/LoginModal.tsx';
-import { InstallAppModal } from './components/InstallAppModal.tsx';
 import { MobileBottomNav } from './components/MobileBottomNav.tsx';
 import {
   sendTaskNotification,
@@ -140,8 +139,15 @@ export default function App() {
     }
   });
 
-  // Current Logged-in User (Starts at null to enforce mandatory login screen when opening app)
-  const [currentUser, setCurrentUser] = useState<StaffUser | null>(null);
+  // Current Logged-in User (Starts at null if not logged in, and persists across phone app restarts once logged in)
+  const [currentUser, setCurrentUser] = useState<StaffUser | null>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.AUTH);
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
 
   // Delete Requests (Manager -> Admin approval queue)
   const [deleteRequests, setDeleteRequests] = useState<DeleteRequest[]>(() => {
@@ -156,9 +162,6 @@ export default function App() {
   // Login Modal state
   const [showLoginModal, setShowLoginModal] = useState<boolean>(false);
 
-  // Install App (iOS & Android) Modal state
-  const [showInstallModal, setShowInstallModal] = useState<boolean>(false);
-  const [deferredInstallPrompt, setDeferredInstallPrompt] = useState<any>(null);
   const [serverConnected, setServerConnected] = useState<boolean>(false);
 
   // Active Tab
@@ -175,27 +178,6 @@ export default function App() {
   // Toast Notification
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
-  // Capture Android/Chrome PWA Install Prompt
-  useEffect(() => {
-    const handler = (e: Event) => {
-      e.preventDefault();
-      setDeferredInstallPrompt(e);
-    };
-    window.addEventListener('beforeinstallprompt', handler);
-    return () => window.removeEventListener('beforeinstallprompt', handler);
-  }, []);
-
-  const handleTriggerNativeInstall = async () => {
-    if (!deferredInstallPrompt) return;
-    await deferredInstallPrompt.prompt();
-    const choice = await deferredInstallPrompt.userChoice;
-    if (choice.outcome === 'accepted') {
-      setDeferredInstallPrompt(null);
-      setShowInstallModal(false);
-      showToast('📲 Đang cài đặt App Bếp Pro ra màn hình chính!');
-    }
-  };
-
   // Trạng thái nhắc @manager kiểm tra lúc 14:30 chiều
   const [manager1430AlertActive, setManager1430AlertActive] = useState<boolean>(() => {
     try {
@@ -208,14 +190,26 @@ export default function App() {
     }
   });
 
+  // Trạng thái thông báo nổi khi Trưởng Ca (@manager / @admin) giao việc gấp mới
+  const [urgentManagerTaskAlert, setUrgentManagerTaskAlert] = useState<{
+    taskTitle: string;
+    assignedBy: string;
+    assignedByRole?: string;
+    time: string;
+  } | null>(null);
+
   // Save to LocalStorage effects
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.STAFF, JSON.stringify(staffList));
   }, [staffList]);
 
   useEffect(() => {
-    localStorage.removeItem(STORAGE_KEYS.AUTH);
-  }, []);
+    if (currentUser) {
+      localStorage.setItem(STORAGE_KEYS.AUTH, JSON.stringify(currentUser));
+    } else {
+      localStorage.removeItem(STORAGE_KEYS.AUTH);
+    }
+  }, [currentUser]);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.DELETE_REQUESTS, JSON.stringify(deleteRequests));
@@ -426,12 +420,28 @@ export default function App() {
                 sendTaskNotification(notif.taskTitle, notif.staffName, true);
               } else if (notif.kind === 'TASK_ASSIGNED' && notif.taskTitle) {
                 const assignedName = notif.assignedStaffName || 'Toàn bộ ca';
-                showToast(`👨‍🍳 Việc mới giao cho ${assignedName}: "${notif.taskTitle}"`);
+                const isUrgentNotif =
+                  notif.isUrgent || notif.priority === 'Gấp' || notif.priority === 'Tối khẩn';
+                if (isUrgentNotif) {
+                  setUrgentManagerTaskAlert({
+                    taskTitle: notif.taskTitle,
+                    assignedBy: notif.assignedBy || 'Trưởng Ca',
+                    assignedByRole: notif.assignedByRole || 'manager',
+                    time: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+                  });
+                  showToast(
+                    `🚨 VIỆC GẤP MỚI TỪ TRƯỞNG CA (${notif.assignedBy || 'Trưởng Ca'}): "${notif.taskTitle}"`
+                  );
+                } else {
+                  showToast(`👨‍🍳 Việc mới giao cho ${assignedName}: "${notif.taskTitle}"`);
+                }
                 sendAssignedTaskNotification(
                   notif.taskTitle,
                   assignedName,
                   notif.priority || 'Thường',
-                  notif.assignedBy || 'Bếp Trưởng'
+                  notif.assignedBy || 'Trưởng Ca',
+                  isUrgentNotif,
+                  notif.assignedByRole
                 );
               } else if (notif.kind === 'DELETE_REQUEST' && notif.requesterName && notif.newRequestLabel) {
                 showToast(`🛡️ ${notif.requesterName} gửi yêu cầu xóa: "${notif.newRequestLabel}"`);
@@ -478,12 +488,28 @@ export default function App() {
           } else if (event.data?.type === 'TASK_ASSIGNED' && Array.isArray(event.data.tasks)) {
             setTasks(event.data.tasks);
             const assignedName = event.data.assignedStaffName || 'Toàn bộ ca';
-            showToast(`👨‍🍳 Việc mới giao cho ${assignedName}: "${event.data.taskTitle}"`);
+            const isUrgentNotif =
+              event.data.isUrgent || event.data.priority === 'Gấp' || event.data.priority === 'Tối khẩn';
+            if (isUrgentNotif) {
+              setUrgentManagerTaskAlert({
+                taskTitle: event.data.taskTitle,
+                assignedBy: event.data.assignedBy || 'Trưởng Ca',
+                assignedByRole: event.data.assignedByRole || 'manager',
+                time: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+              });
+              showToast(
+                `🚨 VIỆC GẤP MỚI TỪ TRƯỞNG CA (${event.data.assignedBy || 'Trưởng Ca'}): "${event.data.taskTitle}"`
+              );
+            } else {
+              showToast(`👨‍🍳 Việc mới giao cho ${assignedName}: "${event.data.taskTitle}"`);
+            }
             sendAssignedTaskNotification(
               event.data.taskTitle,
               assignedName,
               event.data.priority || 'Thường',
-              event.data.assignedBy || 'Bếp Trưởng'
+              event.data.assignedBy || 'Trưởng Ca',
+              isUrgentNotif,
+              event.data.assignedByRole
             );
           } else if (event.data?.type === 'DELETE_REQUEST_UPDATED' && Array.isArray(event.data.requests)) {
             setDeleteRequests(event.data.requests);
@@ -815,15 +841,32 @@ export default function App() {
   };
 
   const handleAddTask = (newTask: Omit<KitchenTask, 'id' | 'completed'>) => {
+    const nowShort = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+    const assignedBy = newTask.createdBy || currentUser?.fullName || 'Trưởng Ca';
+    const assignedByRole = newTask.createdByRole || currentUser?.role || 'manager';
+
     const task: KitchenTask = {
       ...newTask,
       taskType: newTask.taskType || 'daily',
       id: `task-${Date.now()}`,
       completed: false,
+      createdBy: assignedBy,
+      createdByRole: assignedByRole,
+      createdAt: newTask.createdAt || nowShort,
     };
 
-    const assignedBy = currentUser?.fullName || 'Bếp Trưởng';
     const assignedTargetName = task.assignedStaffName || 'Toàn bộ ca bếp';
+    const isUrgent =
+      task.taskType === 'urgent_today' || task.priority === 'Gấp' || task.priority === 'Tối khẩn';
+
+    if (isUrgent) {
+      setUrgentManagerTaskAlert({
+        taskTitle: task.title,
+        assignedBy,
+        assignedByRole,
+        time: nowShort,
+      });
+    }
 
     setTasks((prev) => {
       const updated = [task, ...prev];
@@ -835,6 +878,8 @@ export default function App() {
           assignedStaffName: assignedTargetName,
           priority: task.priority,
           assignedBy,
+          assignedByRole,
+          isUrgent,
         },
       });
       if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
@@ -848,6 +893,8 @@ export default function App() {
             assignedStaffName: assignedTargetName,
             priority: task.priority,
             assignedBy,
+            assignedByRole,
+            isUrgent,
           });
           channel.close();
         } catch {
@@ -858,12 +905,92 @@ export default function App() {
     });
 
     // Bắn thông báo nổi lên điện thoại ngay lập tức
-    sendAssignedTaskNotification(task.title, assignedTargetName, task.priority, assignedBy);
+    sendAssignedTaskNotification(
+      task.title,
+      assignedTargetName,
+      task.priority,
+      assignedBy,
+      isUrgent,
+      assignedByRole
+    );
 
-    if (task.assignedStaffName) {
+    if (isUrgent) {
+      showToast(`🚨 Đã giao VIỆC GẤP mới ("${task.title}") & phát thông báo khẩn toàn ca!`);
+    } else if (task.assignedStaffName) {
       showToast(`📲 Đã giao việc cho ${task.assignedStaffName} & phát thông báo lên điện thoại!`);
     } else {
       showToast('📲 Đã thêm đầu việc mới & thông báo cho toàn ca bếp!');
+    }
+  };
+
+  // Cập nhật / chỉnh sửa đầu việc (dành cho Trưởng Ca @manager & Admin @admin)
+  const handleUpdateTask = (updatedTask: KitchenTask) => {
+    const nowShort = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+    const assignedBy = currentUser?.fullName || updatedTask.createdBy || 'Trưởng Ca';
+    const assignedByRole = currentUser?.role || updatedTask.createdByRole || 'manager';
+    const isUrgent =
+      updatedTask.taskType === 'urgent_today' ||
+      updatedTask.priority === 'Gấp' ||
+      updatedTask.priority === 'Tối khẩn';
+
+    if (isUrgent) {
+      setUrgentManagerTaskAlert({
+        taskTitle: updatedTask.title,
+        assignedBy,
+        assignedByRole,
+        time: nowShort,
+      });
+    }
+
+    setTasks((prev) => {
+      const next = prev.map((t) => (t.id === updatedTask.id ? updatedTask : t));
+      pushStateToServer({
+        tasks: next,
+        notification: isUrgent
+          ? {
+              kind: 'TASK_ASSIGNED',
+              taskTitle: updatedTask.title,
+              assignedStaffName: updatedTask.assignedStaffName || 'Toàn bộ ca bếp',
+              priority: updatedTask.priority,
+              assignedBy,
+              assignedByRole,
+              isUrgent: true,
+            }
+          : undefined,
+      });
+      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+        try {
+          const channel = new BroadcastChannel('kitchen_tasks_sync_channel');
+          channel.postMessage({
+            type: isUrgent ? 'TASK_ASSIGNED' : 'TASKS_UPDATED',
+            tasks: next,
+            taskTitle: updatedTask.title,
+            assignedStaffName: updatedTask.assignedStaffName || 'Toàn bộ ca bếp',
+            priority: updatedTask.priority,
+            assignedBy,
+            assignedByRole,
+            isUrgent,
+          });
+          channel.close();
+        } catch {
+          // ignore
+        }
+      }
+      return next;
+    });
+
+    if (isUrgent) {
+      sendAssignedTaskNotification(
+        updatedTask.title,
+        updatedTask.assignedStaffName || 'Toàn bộ ca bếp',
+        updatedTask.priority,
+        assignedBy,
+        true,
+        assignedByRole
+      );
+      showToast(`🚨 Đã cập nhật thành VIỆC GẤP & thông báo cho toàn ca: "${updatedTask.title}"`);
+    } else {
+      showToast(`✅ Đã cập nhật đầu việc: "${updatedTask.title}"`);
     }
   };
 
@@ -1116,8 +1243,55 @@ export default function App() {
         totalLogsCount={logs.length}
         currentUser={currentUser}
         onOpenLogin={() => setShowLoginModal(true)}
-        onOpenInstallApp={() => setShowInstallModal(true)}
       />
+
+      {/* Global Urgent Task Notification Banner (Khi Trưởng Ca giao việc gấp mới) */}
+      {urgentManagerTaskAlert && (
+        <div className="max-w-7xl w-full mx-auto px-3.5 pt-3 sm:px-6 lg:px-8">
+          <div className="bg-gradient-to-r from-rose-950 via-red-900 to-rose-950 text-white border-2 border-rose-400 rounded-2xl p-4 shadow-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-fadeIn">
+            <div className="flex items-start sm:items-center gap-3 text-xs sm:text-sm">
+              <div className="p-2.5 bg-rose-500 text-white rounded-xl shadow-md shrink-0 animate-bounce">
+                <BellRing className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="px-2 py-0.5 rounded-md bg-rose-500 text-white font-mono font-extrabold text-[11px] uppercase">
+                    VIỆC GẤP MỚI TỪ TRƯỞNG CA • {urgentManagerTaskAlert.time}
+                  </span>
+                  <span className="font-extrabold text-amber-200">
+                    Giao bởi: {urgentManagerTaskAlert.assignedBy} (@{urgentManagerTaskAlert.assignedByRole || 'manager'})
+                  </span>
+                </div>
+                <p className="text-white font-bold text-sm sm:text-base mt-1">
+                  &ldquo;{urgentManagerTaskAlert.taskTitle}&rdquo;
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+              {currentNavItem?.targetType !== 'checklist' && (
+                <button
+                  onClick={() => {
+                    const checklistTab = navItems.find((i) => i.targetType === 'checklist');
+                    if (checklistTab) setActiveTabId(checklistTab.id);
+                    setUrgentManagerTaskAlert(null);
+                  }}
+                  className="px-3 py-1.5 bg-white text-rose-950 hover:bg-rose-100 rounded-xl text-xs font-extrabold transition"
+                >
+                  Xem Việc Gấp Ngay
+                </button>
+              )}
+              <button
+                onClick={() => setUrgentManagerTaskAlert(null)}
+                className="px-3.5 py-1.5 bg-rose-700 hover:bg-rose-600 text-white border border-rose-400/50 rounded-xl text-xs font-bold flex items-center gap-1 transition"
+              >
+                <Check className="w-3.5 h-3.5" />
+                <span>Đã nhận thông báo</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Global 14:30 PM Notification Banner for @manager (and @admin) */}
       {manager1430AlertActive && (currentUser?.role === 'manager' || currentUser?.role === 'admin') && (
@@ -1216,6 +1390,8 @@ export default function App() {
                 onToggleTask={handleToggleTask}
                 onResetTasks={handleResetTasks}
                 onAddTask={handleAddTask}
+                onUpdateTask={handleUpdateTask}
+                onDeleteTask={handleDeleteTask}
                 onRefreshTasks={handleRefreshTasks}
                 onSubmitShift={handleSubmitShift}
                 currentUser={currentUser}
@@ -1255,10 +1431,13 @@ export default function App() {
               <ChefTasksView
                 tasks={tasks}
                 onAddTask={handleAddTask}
+                onUpdateTask={handleUpdateTask}
                 onDeleteTask={handleDeleteTask}
+                onResetTasks={handleResetTasks}
                 onClearAllTasks={handleClearAllTasks}
                 onLoadTaskPreset={handleLoadTaskPreset}
                 staffList={staffList}
+                currentUser={currentUser}
                 onTriggerManager1430Check={triggerManager1430Check}
               />
             )}
@@ -1319,31 +1498,22 @@ export default function App() {
       <footer className="bg-stone-900 text-stone-400 text-xs py-4 border-t border-stone-800 text-center mb-16 md:mb-0">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
           <p>© {new Date().getFullYear()} {appConfig.appTitle} • Hệ Thống Quản Lý Bếp & ATTP</p>
-          <div className="flex items-center gap-3">
-            {currentUser?.role === 'admin' && (
-              <>
-                <button
-                  onClick={() => {
-                    const adminItem = navItems.find((i) => i.targetType === 'admin');
-                    if (adminItem) {
-                      setActiveTabId(adminItem.id);
-                      setAdminInitialSubTab('nav');
-                    }
-                  }}
-                  className="text-amber-400 hover:underline font-medium"
-                >
-                  Cấu hình thanh công cụ (Admin)
-                </button>
-                <span>•</span>
-              </>
-            )}
-            <button
-              onClick={() => setShowInstallModal(true)}
-              className="text-emerald-400 hover:underline font-bold"
-            >
-              Tải App iOS & Android
-            </button>
-          </div>
+          {currentUser?.role === 'admin' && (
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => {
+                  const adminItem = navItems.find((i) => i.targetType === 'admin');
+                  if (adminItem) {
+                    setActiveTabId(adminItem.id);
+                    setAdminInitialSubTab('nav');
+                  }
+                }}
+                className="text-amber-400 hover:underline font-medium"
+              >
+                Cấu hình thanh công cụ (Admin)
+              </button>
+            </div>
+          )}
         </div>
       </footer>
 
@@ -1386,16 +1556,6 @@ export default function App() {
         onLogin={handleLogin}
         onLogout={handleLogout}
         onRegisterStaff={handleAddStaff}
-        onOpenInstallApp={() => setShowInstallModal(true)}
-      />
-
-      {/* Install App Modal (iOS & Android + QR Code) */}
-      <InstallAppModal
-        isOpen={showInstallModal}
-        onClose={() => setShowInstallModal(false)}
-        deferredPrompt={deferredInstallPrompt}
-        onTriggerInstall={handleTriggerNativeInstall}
-        serverConnected={serverConnected}
       />
 
       {/* Floating Toast Notification (Positioned above mobile bottom bar) */}

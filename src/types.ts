@@ -18,6 +18,9 @@ export interface KitchenTask {
   completedBy?: string;
   completedById?: string;
   completedByRole?: string;
+  createdBy?: string;
+  createdByRole?: UserRole;
+  createdAt?: string;
 }
 
 export type DeleteTargetType = 'log_single' | 'log_all' | 'staff' | 'nav_item';

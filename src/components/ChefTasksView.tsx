@@ -4,34 +4,39 @@ import {
   ChefHat,
   Plus,
   Trash2,
-  Clock,
   ClipboardList,
-  CheckCircle2,
-  User,
   Search,
   BellRing,
   Users,
   RotateCcw,
-  Zap,
+  Edit2,
+  Check,
+  X,
 } from 'lucide-react';
 
 interface ChefTasksViewProps {
   tasks: KitchenTask[];
   onAddTask: (task: Omit<KitchenTask, 'id' | 'completed'>) => void;
+  onUpdateTask?: (task: KitchenTask) => void;
   onDeleteTask: (id: string) => void;
+  onResetTasks?: () => void;
   onClearAllTasks: () => void;
   onLoadTaskPreset: (type: 'standard' | 'haccp' | 'bakery') => void;
   staffList?: StaffUser[];
+  currentUser?: StaffUser | null;
   onTriggerManager1430Check?: () => void;
 }
 
 export const ChefTasksView: React.FC<ChefTasksViewProps> = ({
   tasks,
   onAddTask,
+  onUpdateTask,
   onDeleteTask,
+  onResetTasks,
   onClearAllTasks,
   onLoadTaskPreset,
   staffList = [],
+  currentUser = null,
   onTriggerManager1430Check,
 }) => {
   // Form states
@@ -43,6 +48,16 @@ export const ChefTasksView: React.FC<ChefTasksViewProps> = ({
   const [selectedStaffId, setSelectedStaffId] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCategory, setFilterCategory] = useState<string>('all');
+
+  // Inline Edit & Quick Add states in Task List
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editTaskType, setEditTaskType] = useState<TaskScheduleType>('daily');
+  const [editPriority, setEditPriority] = useState<TaskPriority>('Thường');
+  const [editCategory, setEditCategory] = useState<TaskCategory>('Sơ chế');
+  const [showQuickAddInline, setShowQuickAddInline] = useState(false);
+  const [inlineNewTitle, setInlineNewTitle] = useState('');
+  const [inlineNewType, setInlineNewType] = useState<TaskScheduleType>('urgent_today');
 
   // Lọc danh sách nhân viên đang hoạt động (online / active)
   const onlineStaffList = staffList.filter((s) => s.status === 'active');
@@ -71,8 +86,64 @@ export const ChefTasksView: React.FC<ChefTasksViewProps> = ({
       assignedShift: taskShift,
       assignedStaffId: targetStaff ? targetStaff.id : undefined,
       assignedStaffName: targetStaff ? targetStaff.fullName : undefined,
+      createdBy: currentUser?.fullName || 'Trưởng Ca',
+      createdByRole: currentUser?.role || 'manager',
+      createdAt: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
     });
     setTaskTitle('');
+  };
+
+  const handleInlineQuickAdd = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inlineNewTitle.trim()) return;
+    onAddTask({
+      title: inlineNewTitle.trim(),
+      category: 'Sơ chế',
+      priority: inlineNewType === 'urgent_today' ? 'Gấp' : 'Thường',
+      taskType: inlineNewType,
+      assignedShift: 'Tất cả ca',
+      createdBy: currentUser?.fullName || 'Trưởng Ca',
+      createdByRole: currentUser?.role || 'manager',
+      createdAt: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+    });
+    setInlineNewTitle('');
+    setShowQuickAddInline(false);
+  };
+
+  const startEditTask = (task: KitchenTask) => {
+    setEditingTaskId(task.id);
+    setEditTitle(task.title);
+    setEditTaskType(task.taskType || 'daily');
+    setEditPriority(task.priority || 'Thường');
+    setEditCategory(task.category || 'Sơ chế');
+  };
+
+  const saveEditTask = (task: KitchenTask) => {
+    if (!editTitle.trim() || !onUpdateTask) return;
+    onUpdateTask({
+      ...task,
+      title: editTitle.trim(),
+      taskType: editTaskType,
+      priority: editTaskType === 'urgent_today' && editPriority === 'Thường' ? 'Gấp' : editPriority,
+      category: editCategory,
+      createdBy: currentUser?.fullName || task.createdBy || 'Trưởng Ca',
+      createdByRole: currentUser?.role || task.createdByRole || 'manager',
+      createdAt: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+    });
+    setEditingTaskId(null);
+  };
+
+  const handleToggleUrgent = (task: KitchenTask) => {
+    if (!onUpdateTask) return;
+    const currentlyUrgent = isTaskUrgent(task);
+    onUpdateTask({
+      ...task,
+      taskType: currentlyUrgent ? 'daily' : 'urgent_today',
+      priority: currentlyUrgent ? 'Thường' : 'Gấp',
+      createdBy: currentUser?.fullName || task.createdBy || 'Trưởng Ca',
+      createdByRole: currentUser?.role || task.createdByRole || 'manager',
+      createdAt: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+    });
   };
 
   const isTaskUrgent = (t: KitchenTask) =>
@@ -396,19 +467,87 @@ export const ChefTasksView: React.FC<ChefTasksViewProps> = ({
               </p>
             </div>
 
-            {tasks.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
               <button
-                onClick={() => {
-                  if (window.confirm('CẢNH BÁO: Bạn có chắc chắn muốn xóa TẤT CẢ các đầu việc đã giao?')) {
-                    onClearAllTasks();
-                  }
-                }}
-                className="text-xs text-rose-500 hover:text-rose-700 font-bold hover:underline"
+                type="button"
+                onClick={() => setShowQuickAddInline(!showQuickAddInline)}
+                className="px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white shadow-xs flex items-center gap-1 transition"
               >
-                Xóa tất cả việc
+                <Plus className="w-3.5 h-3.5" />
+                <span>Tăng Đầu Việc</span>
               </button>
-            )}
+
+              {currentUser?.role === 'admin' && onResetTasks && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (window.confirm('Xác nhận Reset thủ công toàn bộ tích chọn Checklist về 0%?')) {
+                      onResetTasks();
+                    }
+                  }}
+                  className="px-3 py-1.5 rounded-xl text-xs font-bold bg-rose-100 hover:bg-rose-200 text-rose-800 border border-rose-300 flex items-center gap-1 transition"
+                  title="Reset toàn bộ tích chọn Checklist về 0% (Chỉ Admin)"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Reset Checklist</span>
+                </button>
+              )}
+
+              {tasks.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (window.confirm('CẢNH BÁO: Bạn có chắc chắn muốn xóa TẤT CẢ các đầu việc đã giao?')) {
+                      onClearAllTasks();
+                    }
+                  }}
+                  className="px-2.5 py-1.5 rounded-xl text-xs text-rose-600 hover:bg-rose-50 font-bold border border-rose-200 transition"
+                >
+                  Xóa tất cả
+                </button>
+              )}
+            </div>
           </div>
+
+          {/* Inline Quick Add Form inside Task List */}
+          {showQuickAddInline && (
+            <form
+              onSubmit={handleInlineQuickAdd}
+              className="p-3.5 bg-amber-50/80 border-2 border-amber-300 rounded-2xl flex flex-col sm:flex-row items-stretch sm:items-center gap-2 animate-fadeIn"
+            >
+              <input
+                type="text"
+                placeholder="Nhập nhanh đầu việc mới cần tăng cường..."
+                value={inlineNewTitle}
+                onChange={(e) => setInlineNewTitle(e.target.value)}
+                className="flex-1 p-2 bg-white border border-amber-300 rounded-xl text-xs sm:text-sm font-medium focus:ring-2 focus:ring-amber-500 outline-none"
+                autoFocus
+              />
+              <select
+                value={inlineNewType}
+                onChange={(e) => setInlineNewType(e.target.value as TaskScheduleType)}
+                className="p-2 bg-white border border-amber-300 rounded-xl text-xs font-bold text-stone-800"
+              >
+                <option value="urgent_today">Trong ngày gấp (Khung đỏ)</option>
+                <option value="daily">Daily (Tự reset 24h)</option>
+              </select>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setShowQuickAddInline(false)}
+                  className="px-3 py-2 rounded-xl text-xs font-semibold text-stone-600 hover:bg-stone-200"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  className="px-3.5 py-2 rounded-xl text-xs font-bold bg-amber-700 hover:bg-amber-800 text-white"
+                >
+                  Thêm ngay
+                </button>
+              </div>
+            </form>
+          )}
 
           {/* Filter Bar */}
           <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center justify-between">
@@ -455,15 +594,17 @@ export const ChefTasksView: React.FC<ChefTasksViewProps> = ({
               <div className="text-center py-16 text-stone-400">
                 <ClipboardList className="w-12 h-12 mx-auto text-stone-300 mb-2" />
                 <p className="text-sm font-semibold text-stone-600">Chưa có đầu việc nào được giao</p>
-                <p className="text-xs mt-1 text-stone-400">Hãy thêm công việc ở bảng bên trái hoặc nạp mẫu nhanh.</p>
+                <p className="text-xs mt-1 text-stone-400">Hãy thêm công việc ở bảng bên trái hoặc bấm Tăng Đầu Việc.</p>
               </div>
             ) : (
               filteredTasks.map((task) => {
                 const isUrgent = isTaskUrgent(task);
+                const isEditingThis = editingTaskId === task.id;
+
                 return (
                   <div
                     key={task.id}
-                    className={`p-3.5 rounded-2xl transition flex items-center justify-between gap-3 text-xs ${
+                    className={`p-3.5 rounded-2xl transition flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs ${
                       task.completed
                         ? isUrgent
                           ? 'bg-emerald-50/50 border-2 border-rose-500'
@@ -473,35 +614,136 @@ export const ChefTasksView: React.FC<ChefTasksViewProps> = ({
                         : 'bg-stone-50 hover:bg-amber-50/30 border border-stone-200'
                     }`}
                   >
-                    <div className="space-y-1 flex-1">
-                      <div className="flex items-start gap-2">
-                        <span
-                          className={`font-semibold text-sm leading-snug ${
-                            task.completed
-                              ? 'line-through text-stone-400'
-                              : isUrgent
-                              ? 'text-rose-950'
-                              : 'text-stone-900'
-                          }`}
-                        >
-                          {task.title}
-                        </span>
-                      </div>
+                    {isEditingThis ? (
+                      <div className="flex-1 w-full bg-white p-3 rounded-xl border-2 border-indigo-400 space-y-2.5">
+                        <input
+                          type="text"
+                          value={editTitle}
+                          onChange={(e) => setEditTitle(e.target.value)}
+                          className="w-full p-2 border border-stone-300 rounded-lg text-sm font-semibold text-stone-900 focus:ring-2 focus:ring-indigo-500 outline-none"
+                          placeholder="Tên đầu việc..."
+                          autoFocus
+                        />
+                        <div className="flex flex-wrap items-center gap-2">
+                          <select
+                            value={editTaskType}
+                            onChange={(e) => {
+                              const val = e.target.value as TaskScheduleType;
+                              setEditTaskType(val);
+                              if (val === 'urgent_today') setEditPriority('Gấp');
+                              else setEditPriority('Thường');
+                            }}
+                            className="p-1.5 bg-stone-50 border border-stone-300 rounded-lg text-xs font-bold text-stone-800"
+                          >
+                            <option value="daily">Daily (Tự reset 24h)</option>
+                            <option value="urgent_today">Trong ngày gấp (Khung đỏ)</option>
+                          </select>
 
-                      {task.completed && task.completedAt && (
-                        <div className="text-emerald-700 font-mono text-xs">
-                          {task.completedAt}
+                          <select
+                            value={editPriority}
+                            onChange={(e) => setEditPriority(e.target.value as TaskPriority)}
+                            className="p-1.5 bg-stone-50 border border-stone-300 rounded-lg text-xs font-semibold text-stone-800"
+                          >
+                            <option value="Thường">Ưu tiên: Thường</option>
+                            <option value="Gấp">Ưu tiên: Gấp</option>
+                            <option value="Tối khẩn">Ưu tiên: Tối khẩn</option>
+                          </select>
+
+                          <select
+                            value={editCategory}
+                            onChange={(e) => setEditCategory(e.target.value as TaskCategory)}
+                            className="p-1.5 bg-stone-50 border border-stone-300 rounded-lg text-xs text-stone-800"
+                          >
+                            <option value="Sơ chế">Sơ chế</option>
+                            <option value="Nấu nướng">Nấu nướng</option>
+                            <option value="Vệ sinh">Vệ sinh</option>
+                            <option value="Kiểm kê">Kiểm kê</option>
+                            <option value="An toàn ATTP">An toàn ATTP</option>
+                          </select>
+
+                          <div className="flex items-center gap-1.5 ml-auto">
+                            <button
+                              type="button"
+                              onClick={() => setEditingTaskId(null)}
+                              className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-stone-100 hover:bg-stone-200 text-stone-700 flex items-center gap-1"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                              <span>Hủy</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => saveEditTask(task)}
+                              className="px-3 py-1 rounded-lg text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white flex items-center gap-1"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                              <span>Lưu</span>
+                            </button>
+                          </div>
                         </div>
-                      )}
-                    </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="space-y-1 flex-1">
+                          <div className="flex items-start gap-2">
+                            <span
+                              className={`font-semibold text-sm leading-snug ${
+                                task.completed
+                                  ? 'line-through text-stone-400'
+                                  : isUrgent
+                                  ? 'text-rose-950'
+                                  : 'text-stone-900'
+                              }`}
+                            >
+                              {task.title}
+                            </span>
+                          </div>
 
-                    <button
-                      onClick={() => onDeleteTask(task.id)}
-                      className="p-2 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition"
-                      title="Xóa đầu việc này"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                          {task.completed && task.completedAt && (
+                            <div className="text-emerald-700 font-mono text-xs">
+                              {task.completedAt}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-1.5 self-end sm:self-center shrink-0">
+                          {onUpdateTask && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleToggleUrgent(task)}
+                                className={`px-2 py-1 rounded-lg text-[11px] font-bold border transition ${
+                                  isUrgent
+                                    ? 'bg-stone-100 hover:bg-stone-200 text-stone-700 border-stone-300'
+                                    : 'bg-rose-600 hover:bg-rose-700 text-white border-rose-700'
+                                }`}
+                                title={isUrgent ? 'Chuyển về Daily 24h' : 'Đặt làm Việc Gấp (Khung đỏ + Đưa lên đầu)'}
+                              >
+                                {isUrgent ? 'Chuyển Daily' : 'Đặt Gấp'}
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => startEditTask(task)}
+                                className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 flex items-center gap-1 transition"
+                                title="Chỉnh sửa đầu việc này"
+                              >
+                                <Edit2 className="w-3 h-3" />
+                                <span>Sửa</span>
+                              </button>
+                            </>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => onDeleteTask(task.id)}
+                            className="p-1.5 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition"
+                            title="Xóa đầu việc này"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </>
+                    )}
                   </div>
                 );
               })

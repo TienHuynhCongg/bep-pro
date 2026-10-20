@@ -102,18 +102,6 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
               })}
             </nav>
 
-            {/* Tải App iOS & Android Button */}
-            {onOpenInstallApp && (
-              <button
-                onClick={onOpenInstallApp}
-                className="px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl text-xs font-extrabold bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-400/50 shadow-sm transition flex items-center gap-1.5 shrink-0"
-                title="Tải & Cài đặt App cho iOS (iPhone) và Android"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>Tải App</span>
-              </button>
-            )}
-
             {/* User Login & Profile Button */}
             {currentUser ? (
               <button
