@@ -43,6 +43,7 @@ import {
   sendDeleteRequestNotification,
   sendManagerCheckNotification,
   sendDailyResetNotification,
+  registerBackgroundPush,
 } from './utils/notificationSync.ts';
 import {
   pushStateToServer,
@@ -253,6 +254,9 @@ export default function App() {
   const currentUserRef = useRef<StaffUser | null>(currentUser);
   useEffect(() => {
     currentUserRef.current = currentUser;
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+      registerBackgroundPush(currentUser);
+    }
   }, [currentUser]);
 
   const tasksRef = useRef<KitchenTask[]>(tasks);
@@ -753,8 +757,38 @@ export default function App() {
       // ignore
     }
 
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+          navigator.serviceWorker.controller.postMessage({ type: 'CLEAR_BADGE' });
+        }
+        fetchStateFromServer().then((res) => {
+          if (res.ok && res.state) {
+            const s = res.state;
+            if (Array.isArray(s.tasks)) {
+              tasksRef.current = s.tasks;
+              setTasks(s.tasks);
+            }
+            if (Array.isArray(s.logs)) setLogs(s.logs);
+            if (Array.isArray(s.staffList) && s.staffList.length > 0) {
+              staffListRef.current = s.staffList;
+              setStaffList(s.staffList);
+            }
+            if (Array.isArray(s.notifications)) {
+              notificationsRef.current = s.notifications;
+              setNotifications(s.notifications);
+            }
+            if (Array.isArray(s.recipes)) setRecipes(s.recipes);
+            if (Array.isArray(s.inventory)) setInventory(s.inventory);
+          }
+        });
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
       eventSource?.close();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, []);
 

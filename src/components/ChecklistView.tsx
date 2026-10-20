@@ -1,6 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { KitchenTask, ShiftLog, StaffUser, TaskCategory, TaskPriority, TaskScheduleType } from '../types.ts';
-import { requestNotificationPermission, sendTaskNotification } from '../utils/notificationSync.ts';
+import {
+  requestNotificationPermission,
+  sendTaskNotification,
+  registerBackgroundPush,
+  triggerTestBackgroundPush,
+} from '../utils/notificationSync.ts';
 import {
   RotateCcw,
   Send,
@@ -76,6 +81,13 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
     }
     return false;
   });
+  const [testingPush, setTestingPush] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (hasNotifPermission) {
+      registerBackgroundPush(currentUser);
+    }
+  }, [hasNotifPermission, currentUser]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -107,11 +119,33 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
   };
 
   const handleEnableNotification = async () => {
-    const granted = await requestNotificationPermission();
+    const granted = await requestNotificationPermission(currentUser);
     setHasNotifPermission(granted);
     if (granted) {
-      sendTaskNotification('Đã bật thông báo ca bếp', currentUser?.fullName || 'Hệ thống', true);
+      sendTaskNotification(
+        'Đã bật Chạy Ngầm & Thông báo kể cả khi tắt App',
+        currentUser?.fullName || 'Hệ thống',
+        true
+      );
     }
+  };
+
+  const handleTestBackgroundPush = async () => {
+    setTestingPush(true);
+    if (!hasNotifPermission) {
+      const granted = await requestNotificationPermission(currentUser);
+      setHasNotifPermission(granted);
+      if (!granted) {
+        setTestingPush(false);
+        return;
+      }
+    } else {
+      await registerBackgroundPush(currentUser);
+    }
+    await triggerTestBackgroundPush(currentUser?.fullName || 'Bếp Pro', 3000);
+    setTimeout(() => {
+      setTestingPush(false);
+    }, 3500);
   };
 
   const totalTasks = tasks.length;
@@ -295,14 +329,25 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0">
-            {!hasNotifPermission && (
+            {!hasNotifPermission ? (
               <button
                 type="button"
                 onClick={handleEnableNotification}
-                className="h-8 px-2.5 rounded-xl text-[11px] font-semibold bg-zinc-100 text-zinc-800 hover:bg-zinc-200 transition flex items-center gap-1 whitespace-nowrap"
+                className="h-8 px-2.5 rounded-xl text-[11px] font-bold bg-amber-100 text-amber-900 border border-amber-300 hover:bg-amber-200 transition flex items-center gap-1 whitespace-nowrap active:scale-95"
               >
-                <Bell className="w-3 h-3" />
-                <span className="hidden sm:inline">Bật thông báo</span>
+                <Bell className="w-3.5 h-3.5 text-amber-700 animate-bounce" />
+                <span>Bật chạy ngầm</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleTestBackgroundPush}
+                disabled={testingPush}
+                title="Bấm rồi tắt màn hình / thoát app ngay: Sau 3 giây hệ thống sẽ bắn thông báo ngầm tới máy bạn!"
+                className="h-8 px-2.5 rounded-xl text-[11px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100 transition flex items-center gap-1 whitespace-nowrap active:scale-95"
+              >
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span>{testingPush ? 'Đang gửi ngầm (3s)...' : 'Chạy ngầm: BẬT (Thử 3s)'}</span>
               </button>
             )}
 
