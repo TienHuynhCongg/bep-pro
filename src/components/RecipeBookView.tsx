@@ -9,6 +9,7 @@ import {
   Edit2,
   X,
   Utensils,
+  Eye,
 } from 'lucide-react';
 
 interface RecipeBookViewProps {
@@ -62,6 +63,10 @@ export const RecipeBookView: React.FC<RecipeBookViewProps> = ({
   onDeleteRecipe,
   currentUser = null,
 }) => {
+  // Chỉ Trưởng Ca (@manager) và Bếp Trưởng (@admin) mới được thêm / chỉnh sửa / xóa công thức
+  // Nhân viên (@staff) chỉ được xem công thức để làm
+  const canEditRecipe = currentUser?.role === 'admin' || currentUser?.role === 'manager';
+
   const [editingRecipeId, setEditingRecipeId] = useState<string | null>(null);
   const [dishName, setDishName] = useState<string>('');
   const [ingredients, setIngredients] = useState<RecipeIngredient[]>([
@@ -73,10 +78,12 @@ export const RecipeBookView: React.FC<RecipeBookViewProps> = ({
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const handleAddIngredientRow = () => {
+    if (!canEditRecipe) return;
     setIngredients((prev) => [...prev, createEmptyIngredient()]);
   };
 
   const handleRemoveIngredientRow = (id: string) => {
+    if (!canEditRecipe) return;
     if (ingredients.length <= 1) {
       setIngredients([createEmptyIngredient()]);
       return;
@@ -89,6 +96,7 @@ export const RecipeBookView: React.FC<RecipeBookViewProps> = ({
     field: 'name' | 'quantity' | 'unit',
     value: string
   ) => {
+    if (!canEditRecipe) return;
     setFormError('');
     setIngredients((prev) =>
       prev.map((item) => {
@@ -109,6 +117,7 @@ export const RecipeBookView: React.FC<RecipeBookViewProps> = ({
   };
 
   const handleStartEdit = (recipe: KitchenRecipe) => {
+    if (!canEditRecipe) return;
     setEditingRecipeId(recipe.id);
     setDishName(recipe.dishName);
     setIngredients(
@@ -121,6 +130,8 @@ export const RecipeBookView: React.FC<RecipeBookViewProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canEditRecipe) return;
+
     const trimmedDish = dishName.trim();
     if (!trimmedDish) {
       setFormError('Vui lòng nhập Tên món ở ô trên cùng!');
@@ -159,7 +170,7 @@ export const RecipeBookView: React.FC<RecipeBookViewProps> = ({
       id: editingRecipeId || `recipe-${Date.now()}`,
       dishName: trimmedDish,
       ingredients: validIngredients,
-      createdBy: currentUser?.fullName || 'Đầu Bếp',
+      createdBy: currentUser?.fullName || 'Bếp Trưởng',
       updatedAt: nowStr,
     };
 
@@ -177,201 +188,221 @@ export const RecipeBookView: React.FC<RecipeBookViewProps> = ({
 
   return (
     <div className="space-y-4">
-      {/* Form Lưu Công Thức */}
-      <div className="bg-white rounded-2xl border border-zinc-200/90 shadow-xs p-4 sm:p-5 space-y-4">
-        <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-zinc-950 text-white flex items-center justify-center shrink-0">
-              <BookOpen className="w-4 h-4" />
+      {/* Form Lưu / Chỉnh sửa Công Thức: Chỉ hiển thị cho Trưởng Ca (@manager) và Admin (@admin) */}
+      {canEditRecipe && (
+        <div className="bg-white rounded-2xl border border-zinc-200/90 shadow-xs p-4 sm:p-5 space-y-4">
+          <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-zinc-950 text-white flex items-center justify-center shrink-0">
+                <BookOpen className="w-4 h-4" />
+              </div>
+              <div>
+                <h2 className="text-base sm:text-lg font-bold text-zinc-950">
+                  {editingRecipeId ? 'Chỉnh Sửa Công Thức Món' : 'Lưu Công Thức Món Ăn'}
+                </h2>
+                <p className="text-[11px] text-zinc-500">
+                  Gõ tên món ở trên cùng, thêm nguyên liệu, số lượng (chỉ nhập số) và định lượng
+                </p>
+              </div>
             </div>
+
+            {editingRecipeId && (
+              <button
+                type="button"
+                onClick={handleResetForm}
+                className="h-8 px-3 rounded-xl text-xs font-semibold bg-zinc-100 hover:bg-zinc-200 text-zinc-700 flex items-center gap-1"
+              >
+                <X className="w-3.5 h-3.5" />
+                <span>Hủy sửa</span>
+              </button>
+            )}
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {/* 1. Ô gõ tên món ở trên cùng */}
             <div>
-              <h2 className="text-base sm:text-lg font-bold text-zinc-950">
-                {editingRecipeId ? 'Chỉnh Sửa Công Thức Món' : 'Lưu Công Thức Món Ăn'}
-              </h2>
-              <p className="text-[11px] text-zinc-500">
-                Gõ tên món ở trên cùng, thêm nguyên liệu, số lượng (chỉ nhập số) và định lượng
-              </p>
-            </div>
-          </div>
-
-          {editingRecipeId && (
-            <button
-              type="button"
-              onClick={handleResetForm}
-              className="h-8 px-3 rounded-xl text-xs font-semibold bg-zinc-100 hover:bg-zinc-200 text-zinc-700 flex items-center gap-1"
-            >
-              <X className="w-3.5 h-3.5" />
-              <span>Hủy sửa</span>
-            </button>
-          )}
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {/* 1. Ô gõ tên món ở trên cùng */}
-          <div>
-            <label className="block text-xs font-bold text-zinc-800 uppercase tracking-wider mb-1.5">
-              Tên Món Ăn / Sốt <span className="text-rose-600">*</span>
-            </label>
-            <input
-              type="text"
-              value={dishName}
-              onChange={(e) => {
-                setDishName(e.target.value);
-                setFormError('');
-              }}
-              placeholder="Ví dụ: Bò lúc lắc sốt tiêu đen, Nước sốt phở trộn..."
-              className="w-full h-11 px-3.5 bg-zinc-50 border border-zinc-300 rounded-xl text-sm sm:text-base font-bold text-zinc-950 placeholder:font-normal placeholder:text-zinc-400 focus:bg-white focus:ring-2 focus:ring-zinc-900 outline-none"
-            />
-          </div>
-
-          {/* 2. Danh sách các dòng Nguyên liệu + Số lượng (chỉ số) + Định lượng */}
-          <div className="space-y-2.5">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-bold text-zinc-800 uppercase tracking-wider">
-                Danh Sách Nguyên Liệu & Định Lượng ({ingredients.length} dòng)
+              <label className="block text-xs font-bold text-zinc-800 uppercase tracking-wider mb-1.5">
+                Tên Món Ăn / Sốt <span className="text-rose-600">*</span>
               </label>
+              <input
+                type="text"
+                value={dishName}
+                onChange={(e) => {
+                  setDishName(e.target.value);
+                  setFormError('');
+                }}
+                placeholder="Ví dụ: Bò lúc lắc sốt tiêu đen, Nước sốt phở trộn..."
+                className="w-full h-11 px-3.5 bg-zinc-50 border border-zinc-300 rounded-xl text-sm sm:text-base font-bold text-zinc-950 placeholder:font-normal placeholder:text-zinc-400 focus:bg-white focus:ring-2 focus:ring-zinc-900 outline-none"
+              />
+            </div>
+
+            {/* 2. Danh sách các dòng Nguyên liệu + Số lượng (chỉ số) + Định lượng */}
+            <div className="space-y-2.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-zinc-800 uppercase tracking-wider">
+                  Danh Sách Nguyên Liệu & Định Lượng ({ingredients.length} dòng)
+                </label>
+                <button
+                  type="button"
+                  onClick={handleAddIngredientRow}
+                  className="h-8 px-3 rounded-xl text-xs font-bold bg-zinc-900 hover:bg-zinc-800 text-white flex items-center gap-1 transition active:scale-95"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Thêm nguyên liệu</span>
+                </button>
+              </div>
+
+              {/* Header cột trên Desktop */}
+              <div className="hidden sm:grid sm:grid-cols-12 gap-2 px-2 text-[11px] font-bold text-zinc-500 uppercase">
+                <div className="col-span-6">Tên nguyên liệu (tự ghi)</div>
+                <div className="col-span-3">Số lượng (chỉ ghi số)</div>
+                <div className="col-span-3">Định lượng (ml, g, kg, muỗng...)</div>
+              </div>
+
+              <div className="space-y-2">
+                {ingredients.map((item, idx) => (
+                  <div
+                    key={item.id}
+                    className="p-2.5 sm:p-2 bg-zinc-50/80 rounded-xl border border-zinc-200/90 grid grid-cols-1 sm:grid-cols-12 gap-2 items-center"
+                  >
+                    {/* Trường nguyên liệu (tự ghi) */}
+                    <div className="sm:col-span-6 flex items-center gap-2">
+                      <span className="w-5 h-5 rounded-full bg-zinc-200 text-zinc-700 font-bold text-[10px] flex items-center justify-center shrink-0">
+                        {idx + 1}
+                      </span>
+                      <input
+                        type="text"
+                        value={item.name}
+                        onChange={(e) => handleChangeIngredient(item.id, 'name', e.target.value)}
+                        placeholder="Tên nguyên liệu (VD: Tỏi băm, Dầu hào...)"
+                        className="w-full h-9 px-3 bg-white border border-zinc-300 rounded-lg text-xs sm:text-sm font-medium text-zinc-900 focus:ring-2 focus:ring-zinc-900 outline-none"
+                      />
+                    </div>
+
+                    {/* Trường số lượng (chỉ được ghi số) + Trường định lượng */}
+                    <div className="sm:col-span-6 grid grid-cols-12 gap-2 items-center">
+                      <div className="col-span-5">
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={item.quantity}
+                          onChange={(e) => handleChangeIngredient(item.id, 'quantity', e.target.value)}
+                          placeholder="Số lượng (số)"
+                          className="w-full h-9 px-2.5 bg-white border border-zinc-300 rounded-lg text-xs sm:text-sm font-mono font-bold text-zinc-900 focus:ring-2 focus:ring-zinc-900 outline-none"
+                        />
+                      </div>
+
+                      <div className="col-span-5">
+                        <input
+                          type="text"
+                          list="recipe-unit-options"
+                          value={item.unit}
+                          onChange={(e) => handleChangeIngredient(item.id, 'unit', e.target.value)}
+                          placeholder="ml, g, kg, muỗng..."
+                          className="w-full h-9 px-2.5 bg-white border border-zinc-300 rounded-lg text-xs sm:text-sm font-semibold text-zinc-800 focus:ring-2 focus:ring-zinc-900 outline-none"
+                        />
+                      </div>
+
+                      <div className="col-span-2 flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveIngredientRow(item.id)}
+                          className="w-8 h-8 rounded-lg text-zinc-400 hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center transition"
+                          title="Xóa dòng nguyên liệu này"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <datalist id="recipe-unit-options">
+                {COMMON_UNITS.map((u) => (
+                  <option key={u} value={u} />
+                ))}
+              </datalist>
+
+              {/* Gợi ý chọn nhanh định lượng */}
+              <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                <span className="text-[10px] font-semibold text-zinc-400">
+                  Định lượng hay dùng:
+                </span>
+                {['g', 'kg', 'ml', 'lít', 'muỗng', 'muỗng cà phê', 'muỗng canh', 'phần'].map((u) => (
+                  <button
+                    key={u}
+                    type="button"
+                    onClick={() => {
+                      const lastIdx = ingredients.length - 1;
+                      if (lastIdx >= 0) {
+                        handleChangeIngredient(ingredients[lastIdx].id, 'unit', u);
+                      }
+                    }}
+                    className="px-2 py-0.5 rounded-md bg-zinc-100 hover:bg-zinc-200 text-zinc-600 text-[10px] font-semibold transition"
+                  >
+                    {u}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {formError && (
+              <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold">
+                {formError}
+              </div>
+            )}
+
+            <div className="flex items-center justify-between pt-2 border-t border-zinc-100 gap-2">
               <button
                 type="button"
                 onClick={handleAddIngredientRow}
-                className="h-8 px-3 rounded-xl text-xs font-bold bg-zinc-900 hover:bg-zinc-800 text-white flex items-center gap-1 transition active:scale-95"
+                className="h-9 px-3.5 rounded-xl text-xs font-semibold bg-zinc-100 hover:bg-zinc-200 text-zinc-800 flex items-center gap-1.5 transition"
               >
                 <Plus className="w-3.5 h-3.5" />
-                <span>Thêm nguyên liệu</span>
+                <span>Thêm dòng</span>
+              </button>
+
+              <button
+                type="submit"
+                className="h-10 px-5 rounded-xl text-xs sm:text-sm font-bold bg-zinc-950 hover:bg-zinc-800 text-white flex items-center gap-2 shadow-xs transition active:scale-95"
+              >
+                <Save className="w-4 h-4" />
+                <span>{editingRecipeId ? 'Cập Nhật Công Thức' : 'Lưu Công Thức Món'}</span>
               </button>
             </div>
+          </form>
+        </div>
+      )}
 
-            {/* Header cột trên Desktop */}
-            <div className="hidden sm:grid sm:grid-cols-12 gap-2 px-2 text-[11px] font-bold text-zinc-500 uppercase">
-              <div className="col-span-6">Tên nguyên liệu (tự ghi)</div>
-              <div className="col-span-3">Số lượng (chỉ ghi số)</div>
-              <div className="col-span-3">Định lượng (ml, g, kg, muỗng...)</div>
-            </div>
-
-            <div className="space-y-2">
-              {ingredients.map((item, idx) => (
-                <div
-                  key={item.id}
-                  className="p-2.5 sm:p-2 bg-zinc-50/80 rounded-xl border border-zinc-200/90 grid grid-cols-1 sm:grid-cols-12 gap-2 items-center"
-                >
-                  {/* Trường nguyên liệu (tự ghi) */}
-                  <div className="sm:col-span-6 flex items-center gap-2">
-                    <span className="w-5 h-5 rounded-full bg-zinc-200 text-zinc-700 font-bold text-[10px] flex items-center justify-center shrink-0">
-                      {idx + 1}
-                    </span>
-                    <input
-                      type="text"
-                      value={item.name}
-                      onChange={(e) => handleChangeIngredient(item.id, 'name', e.target.value)}
-                      placeholder="Tên nguyên liệu (VD: Tỏi băm, Dầu hào...)"
-                      className="w-full h-9 px-3 bg-white border border-zinc-300 rounded-lg text-xs sm:text-sm font-medium text-zinc-900 focus:ring-2 focus:ring-zinc-900 outline-none"
-                    />
-                  </div>
-
-                  {/* Trường số lượng (chỉ được ghi số) + Trường định lượng */}
-                  <div className="sm:col-span-6 grid grid-cols-12 gap-2 items-center">
-                    <div className="col-span-5">
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={item.quantity}
-                        onChange={(e) => handleChangeIngredient(item.id, 'quantity', e.target.value)}
-                        placeholder="Số lượng (số)"
-                        className="w-full h-9 px-2.5 bg-white border border-zinc-300 rounded-lg text-xs sm:text-sm font-mono font-bold text-zinc-900 focus:ring-2 focus:ring-zinc-900 outline-none"
-                      />
-                    </div>
-
-                    <div className="col-span-5">
-                      <input
-                        type="text"
-                        list="recipe-unit-options"
-                        value={item.unit}
-                        onChange={(e) => handleChangeIngredient(item.id, 'unit', e.target.value)}
-                        placeholder="ml, g, kg, muỗng..."
-                        className="w-full h-9 px-2.5 bg-white border border-zinc-300 rounded-lg text-xs sm:text-sm font-semibold text-zinc-800 focus:ring-2 focus:ring-zinc-900 outline-none"
-                      />
-                    </div>
-
-                    <div className="col-span-2 flex justify-end">
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveIngredientRow(item.id)}
-                        className="w-8 h-8 rounded-lg text-zinc-400 hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center transition"
-                        title="Xóa dòng nguyên liệu này"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <datalist id="recipe-unit-options">
-              {COMMON_UNITS.map((u) => (
-                <option key={u} value={u} />
-              ))}
-            </datalist>
-
-            {/* Gợi ý chọn nhanh định lượng */}
-            <div className="flex items-center gap-1.5 flex-wrap pt-1">
-              <span className="text-[10px] font-semibold text-zinc-400">
-                Định lượng hay dùng:
-              </span>
-              {['g', 'kg', 'ml', 'lít', 'muỗng', 'muỗng cà phê', 'muỗng canh', 'phần'].map((u) => (
-                <button
-                  key={u}
-                  type="button"
-                  onClick={() => {
-                    const lastIdx = ingredients.length - 1;
-                    if (lastIdx >= 0) {
-                      handleChangeIngredient(ingredients[lastIdx].id, 'unit', u);
-                    }
-                  }}
-                  className="px-2 py-0.5 rounded-md bg-zinc-100 hover:bg-zinc-200 text-zinc-600 text-[10px] font-semibold transition"
-                >
-                  {u}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {formError && (
-            <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold">
-              {formError}
-            </div>
-          )}
-
-          <div className="flex items-center justify-between pt-2 border-t border-zinc-100 gap-2">
-            <button
-              type="button"
-              onClick={handleAddIngredientRow}
-              className="h-9 px-3.5 rounded-xl text-xs font-semibold bg-zinc-100 hover:bg-zinc-200 text-zinc-800 flex items-center gap-1.5 transition"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Thêm dòng</span>
-            </button>
-
-            <button
-              type="submit"
-              className="h-10 px-5 rounded-xl text-xs sm:text-sm font-bold bg-zinc-950 hover:bg-zinc-800 text-white flex items-center gap-2 shadow-xs transition active:scale-95"
-            >
-              <Save className="w-4 h-4" />
-              <span>{editingRecipeId ? 'Cập Nhật Công Thức' : 'Lưu Công Thức Món'}</span>
-            </button>
-          </div>
-        </form>
-      </div>
-
-      {/* Danh Sách Công Thức Đã Lưu */}
+      {/* Danh Sách Công Thức Đã Lưu (Nhân viên chỉ được xem để làm, không có nút sửa/xóa) */}
       <div className="bg-white rounded-2xl border border-zinc-200/90 shadow-xs p-4 sm:p-5 space-y-3.5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-3 border-b border-zinc-100">
-          <div className="flex items-center gap-2">
-            <h3 className="text-sm sm:text-base font-bold text-zinc-950">
-              Sổ Tay Công Thức Đã Lưu
-            </h3>
-            <span className="px-2 py-0.5 rounded-md text-xs font-bold bg-zinc-100 text-zinc-800">
-              {recipes.length} món
-            </span>
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <div className="w-8 h-8 rounded-xl bg-zinc-950 text-white flex items-center justify-center shrink-0">
+              <BookOpen className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-sm sm:text-base font-bold text-zinc-950">
+                  Sổ Tay Công Thức Chuẩn Bếp
+                </h3>
+                <span className="px-2 py-0.5 rounded-md text-xs font-bold bg-zinc-100 text-zinc-800">
+                  {recipes.length} món
+                </span>
+                {!canEditRecipe && (
+                  <span className="px-2 py-0.5 rounded-md text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 flex items-center gap-1">
+                    <Eye className="w-3 h-3" />
+                    <span>Nhân viên: Chỉ xem để làm</span>
+                  </span>
+                )}
+              </div>
+              {!canEditRecipe && (
+                <p className="text-[11px] text-zinc-500 mt-0.5">
+                  Tra cứu đúng định lượng chuẩn bên dưới để chế biến (Chỉ Trưởng Ca & Bếp Trưởng mới được chỉnh sửa)
+                </p>
+              )}
+            </div>
           </div>
 
           <div className="relative min-w-[200px]">
@@ -409,38 +440,41 @@ export const RecipeBookView: React.FC<RecipeBookViewProps> = ({
                       </p>
                     </div>
 
-                    <div className="flex items-center gap-1 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => handleStartEdit(recipe)}
-                        className="h-7 px-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-[11px] font-semibold flex items-center gap-1 transition"
-                      >
-                        <Edit2 className="w-3 h-3" />
-                        <span>Sửa</span>
-                      </button>
+                    {/* Chỉ hiển thị nút Sửa & Xóa cho Trưởng Ca (@manager) và Bếp Trưởng (@admin) */}
+                    {canEditRecipe && (
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleStartEdit(recipe)}
+                          className="h-7 px-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-[11px] font-semibold flex items-center gap-1 transition"
+                        >
+                          <Edit2 className="w-3 h-3" />
+                          <span>Sửa</span>
+                        </button>
 
-                      {confirmDeleteId === recipe.id ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            onDeleteRecipe(recipe.id);
-                            setConfirmDeleteId(null);
-                          }}
-                          className="h-7 px-2 rounded-lg bg-rose-600 text-white text-[11px] font-bold transition whitespace-nowrap"
-                        >
-                          Xác nhận xóa
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => setConfirmDeleteId(recipe.id)}
-                          className="w-7 h-7 rounded-lg bg-zinc-800 hover:bg-rose-600 text-zinc-300 hover:text-white flex items-center justify-center transition"
-                          title="Xóa công thức"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
+                        {confirmDeleteId === recipe.id ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onDeleteRecipe(recipe.id);
+                              setConfirmDeleteId(null);
+                            }}
+                            className="h-7 px-2 rounded-lg bg-rose-600 text-white text-[11px] font-bold transition whitespace-nowrap"
+                          >
+                            Xác nhận xóa
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDeleteId(recipe.id)}
+                            className="w-7 h-7 rounded-lg bg-zinc-800 hover:bg-rose-600 text-zinc-300 hover:text-white flex items-center justify-center transition"
+                            title="Xóa công thức"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   {/* Bảng nguyên liệu của món */}

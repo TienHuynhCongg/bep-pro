@@ -1589,17 +1589,21 @@ export default function App() {
     showToast('Đã xuất file Excel (CSV) thành công!');
   };
 
-  // 1. Handlers Lưu Công Thức (Recipes)
+  // 1. Handlers Lưu Công Thức (Recipes) - Chỉ Trưởng Ca (@manager) & Bếp Trưởng (@admin) được thêm/sửa/xóa
   const handleSaveRecipe = (recipePayload: KitchenRecipe, isEdit: boolean) => {
+    if (currentUser?.role !== 'admin' && currentUser?.role !== 'manager') {
+      showToast('Nhân viên chỉ được xem công thức, không có quyền chỉnh sửa!', 'error');
+      return;
+    }
     const nextRecipes = isEdit
       ? recipes.map((r) => (r.id === recipePayload.id ? recipePayload : r))
       : [recipePayload, ...recipes];
     setRecipes(nextRecipes);
 
-    const actorName = currentUser?.fullName || 'Đầu Bếp';
+    const actorName = currentUser?.fullName || 'Bếp Trưởng';
     const nextNotifs = createNotificationItem({
       actorName,
-      actorRole: currentUser?.role || 'staff',
+      actorRole: currentUser?.role || 'manager',
       actionText: isEdit ? 'đã cập nhật công thức món' : 'đã lưu công thức mới',
       targetText: recipePayload.dishName,
       type: 'task_completed',
@@ -1614,6 +1618,10 @@ export default function App() {
   };
 
   const handleDeleteRecipe = (id: string) => {
+    if (currentUser?.role !== 'admin' && currentUser?.role !== 'manager') {
+      showToast('Nhân viên chỉ được xem công thức, không có quyền xóa!', 'error');
+      return;
+    }
     const target = recipes.find((r) => r.id === id);
     const nextRecipes = recipes.filter((r) => r.id !== id);
     setRecipes(nextRecipes);
