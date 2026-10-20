@@ -260,6 +260,11 @@ export default function App() {
     tasksRef.current = tasks;
   }, [tasks]);
 
+  const staffListRef = useRef<StaffUser[]>(staffList);
+  useEffect(() => {
+    staffListRef.current = staffList;
+  }, [staffList]);
+
   const notificationsRef = useRef<AppNotificationItem[]>(notifications);
   useEffect(() => {
     notificationsRef.current = notifications;
@@ -632,7 +637,10 @@ export default function App() {
             setTasks(s.tasks);
           }
           if (Array.isArray(s.logs)) setLogs(s.logs);
-          if (Array.isArray(s.staffList) && s.staffList.length > 0) setStaffList(s.staffList);
+          if (Array.isArray(s.staffList) && s.staffList.length > 0) {
+            staffListRef.current = s.staffList;
+            setStaffList(s.staffList);
+          }
           if (Array.isArray(s.toolbarItems) && s.toolbarItems.length > 0) {
             setNavItems(ensureLatestNavItems(s.toolbarItems));
           }
@@ -674,7 +682,10 @@ export default function App() {
                 setTasks(s.tasks);
               }
               if (Array.isArray(s.logs)) setLogs(s.logs);
-              if (Array.isArray(s.staffList) && s.staffList.length > 0) setStaffList(s.staffList);
+              if (Array.isArray(s.staffList) && s.staffList.length > 0) {
+                staffListRef.current = s.staffList;
+                setStaffList(s.staffList);
+              }
               if (Array.isArray(s.toolbarItems) && s.toolbarItems.length > 0) {
                 setNavItems(ensureLatestNavItems(s.toolbarItems));
               }
@@ -799,6 +810,12 @@ export default function App() {
               showToast(`🛡️ ${event.data.requesterName} gửi yêu cầu xóa: "${event.data.newRequestLabel}"`);
               sendDeleteRequestNotification(event.data.requesterName, event.data.newRequestLabel);
             }
+          } else if (event.data?.type === 'STAFF_UPDATED' && Array.isArray(event.data.staffList)) {
+            staffListRef.current = event.data.staffList;
+            setStaffList(event.data.staffList);
+            if (event.data.newStaffName) {
+              showToast(`👤 Nhân sự mới đăng ký: ${event.data.newStaffName}`);
+            }
           } else if (event.data?.type === 'MANAGER_1430_CHECK') {
             setManager1430AlertActive(true);
             const role = currentUserRef.current?.role;
@@ -823,6 +840,14 @@ export default function App() {
           const parsed = JSON.parse(e.newValue);
           tasksRef.current = parsed;
           setTasks(parsed);
+        } catch {
+          // ignore
+        }
+      } else if (e.key === STORAGE_KEYS.STAFF && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          staffListRef.current = parsed;
+          setStaffList(parsed);
         } catch {
           // ignore
         }
@@ -1428,7 +1453,7 @@ export default function App() {
   };
 
   // Staff Personnel Actions
-  const handleAddStaff = (newStaff: Omit<StaffUser, 'id'>) => {
+  const handleAddStaff = (newStaff: Omit<StaffUser, 'id'>, autoLogin?: boolean) => {
     const trimmedName = (newStaff.fullName || '').trim();
     if (!trimmedName) {
       showToast('Vui lòng nhập họ tên nhân sự!', 'error');
@@ -1437,18 +1462,69 @@ export default function App() {
     const staff: StaffUser = {
       ...newStaff,
       fullName: trimmedName,
+      status: 'active',
+      lastLogin: autoLogin ? new Date().toLocaleString('vi-VN') : newStaff.lastLogin,
       id: `staff-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
     };
-    const updated = [...staffList, staff];
+    const updated = [...staffListRef.current, staff];
+    staffListRef.current = updated;
     setStaffList(updated);
-    pushStateToServer({ staffList: updated });
-    showToast(`Đã thêm nhân sự: ${staff.fullName}`);
+
+    if (autoLogin) {
+      setCurrentUser(staff);
+    }
+
+    const nextNotifs = createNotificationItem({
+      actorName: staff.fullName,
+      actorRole: staff.role,
+      actionText: 'vừa đăng ký tài khoản nhân sự mới',
+      targetText: `@${staff.username} • ${staff.station || 'Ca bếp'}`,
+      type: 'system',
+    });
+
+    pushStateToServer({ staffList: updated, notifications: nextNotifs });
+
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      try {
+        const channel = new BroadcastChannel('kitchen_tasks_sync_channel');
+        channel.postMessage({
+          type: 'STAFF_UPDATED',
+          staffList: updated,
+          notifications: nextNotifs,
+          newStaffName: `${staff.fullName} (@${staff.username})`,
+        });
+        channel.close();
+      } catch {
+        // ignore
+      }
+    }
+
+    showToast(
+      autoLogin
+        ? `🎉 Đăng ký & đăng nhập thành công: ${staff.fullName} (@${staff.username})`
+        : `Đã thêm nhân sự mới: ${staff.fullName} (@${staff.username})`
+    );
   };
 
   const handleUpdateStaff = (updated: StaffUser) => {
-    const next = staffList.map((s) => (s.id === updated.id ? updated : s));
+    const next = staffListRef.current.map((s) => (s.id === updated.id ? updated : s));
+    staffListRef.current = next;
     setStaffList(next);
     pushStateToServer({ staffList: next });
+
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      try {
+        const channel = new BroadcastChannel('kitchen_tasks_sync_channel');
+        channel.postMessage({
+          type: 'STAFF_UPDATED',
+          staffList: next,
+        });
+        channel.close();
+      } catch {
+        // ignore
+      }
+    }
+
     if (currentUser?.id === updated.id) {
       setCurrentUser(updated);
     }
@@ -1456,14 +1532,29 @@ export default function App() {
   };
 
   const handleDeleteStaff = (id: string) => {
-    const target = staffList.find((s) => s.id === id);
+    const target = staffListRef.current.find((s) => s.id === id);
     if (currentUser?.role !== 'admin') {
       createDeleteRequest('staff', `Nhân sự: ${target?.fullName || id}`, id);
       return;
     }
-    const next = staffList.filter((s) => s.id !== id);
+    const next = staffListRef.current.filter((s) => s.id !== id);
+    staffListRef.current = next;
     setStaffList(next);
     pushStateToServer({ staffList: next });
+
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      try {
+        const channel = new BroadcastChannel('kitchen_tasks_sync_channel');
+        channel.postMessage({
+          type: 'STAFF_UPDATED',
+          staffList: next,
+        });
+        channel.close();
+      } catch {
+        // ignore
+      }
+    }
+
     if (currentUser?.id === id) {
       setCurrentUser(next[0] || null);
     }
@@ -1482,7 +1573,11 @@ export default function App() {
       lastLogin: new Date().toLocaleString('vi-VN'),
     };
     setCurrentUser(updated);
-    const next = staffList.map((s) => (s.id === user.id ? updated : s));
+    const exists = staffListRef.current.some((s) => s.id === user.id || s.username === user.username);
+    const next = exists
+      ? staffListRef.current.map((s) => (s.id === user.id || s.username === user.username ? updated : s))
+      : [...staffListRef.current, updated];
+    staffListRef.current = next;
     setStaffList(next);
     pushStateToServer({ staffList: next });
     showToast(`Xin chào ${updated.fullName}!`);
@@ -1853,6 +1948,8 @@ export default function App() {
                   onRefreshTasks={handleRefreshTasks}
                   onSubmitShift={handleSubmitShift}
                   currentUser={currentUser}
+                  staffList={staffList}
+                  onSwitchUser={handleSwitchUser}
                 />
               )}
 

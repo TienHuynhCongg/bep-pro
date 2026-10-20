@@ -12,6 +12,7 @@ import {
   Trash2,
   Check,
   X,
+  Users,
 } from 'lucide-react';
 
 interface ChecklistViewProps {
@@ -24,6 +25,8 @@ interface ChecklistViewProps {
   onRefreshTasks: () => void;
   onSubmitShift: (log: Omit<ShiftLog, 'id' | 'timestamp'>) => void;
   currentUser?: StaffUser | null;
+  staffList?: StaffUser[];
+  onSwitchUser?: (user: StaffUser) => void;
 }
 
 export const ChecklistView: React.FC<ChecklistViewProps> = ({
@@ -36,6 +39,8 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
   onRefreshTasks,
   onSubmitShift,
   currentUser = null,
+  staffList = [],
+  onSwitchUser,
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -44,6 +49,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
   const [quickCategory, setQuickCategory] = useState<KitchenTask['category']>('Sơ chế');
   const [quickPriority, setQuickPriority] = useState<KitchenTask['priority']>('Gấp');
   const [quickTaskType, setQuickTaskType] = useState<'daily' | 'urgent_today'>('urgent_today');
+  const [quickAssignedStaffId, setQuickAssignedStaffId] = useState<string>('all');
 
   // Chế độ chỉnh sửa danh sách đầu việc cho Trưởng Ca (@manager) và Admin (@admin)
   const [isManageMode, setIsManageMode] = useState<boolean>(false);
@@ -116,17 +122,24 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
     e.preventDefault();
     const trimmed = quickTitle.trim();
     if (!trimmed) return;
+    const assignedStaff =
+      quickAssignedStaffId !== 'all'
+        ? staffList.find((s) => s.id === quickAssignedStaffId)
+        : undefined;
     onAddTask({
       title: trimmed,
       category: quickCategory,
       priority: quickPriority,
       taskType: quickTaskType,
       assignedShift: quickTaskType === 'urgent_today' ? 'Trong ngày gấp' : 'Hàng ngày (Daily 24h)',
+      assignedStaffId: assignedStaff?.id,
+      assignedStaffName: assignedStaff?.fullName,
       createdBy: currentUser?.fullName || 'Trưởng Ca',
       createdByRole: currentUser?.role || 'manager',
       createdAt: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
     });
     setQuickTitle('');
+    setQuickAssignedStaffId('all');
     setShowAddQuickTask(false);
   };
 
@@ -396,6 +409,73 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
           </div>
         </div>
 
+        {/* Thanh Danh Sách Nhân Sự Ca Bếp Ở Giao Diện Ngoài (Tự động cập nhật người đăng ký mới) */}
+        {staffList.length > 0 && (
+          <div className="bg-zinc-50/90 border border-zinc-200/80 rounded-xl p-2.5 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 text-[11px] font-bold text-zinc-700">
+                <Users className="w-3.5 h-3.5 text-zinc-600 shrink-0" />
+                <span>Nhân sự ca bếp ({staffList.length})</span>
+              </div>
+              <span className="text-[10px] text-zinc-400">
+                Đang trực: <strong className="text-zinc-700">{currentUser?.fullName || 'Chưa chọn'}</strong>
+              </span>
+            </div>
+
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">
+              {staffList.map((staff) => {
+                const isMe = currentUser?.id === staff.id;
+                const roleTag =
+                  staff.role === 'admin'
+                    ? '@admin'
+                    : staff.role === 'manager'
+                    ? '@manager'
+                    : '@staff';
+                return (
+                  <div
+                    key={staff.id}
+                    onClick={() => {
+                      if (isAdmin && onSwitchUser && !isMe) {
+                        onSwitchUser(staff);
+                      }
+                    }}
+                    title={`${staff.fullName} (@${staff.username}) - ${staff.station || 'Ca bếp'}`}
+                    className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs shrink-0 transition ${
+                      isMe
+                        ? 'bg-zinc-900 text-white border-zinc-900 shadow-2xs'
+                        : 'bg-white text-zinc-800 border-zinc-200/90 hover:border-zinc-300'
+                    } ${isAdmin && !isMe ? 'cursor-pointer' : ''}`}
+                  >
+                    <span
+                      className={`w-2 h-2 rounded-full shrink-0 ${
+                        isMe
+                          ? 'bg-emerald-400'
+                          : staff.status === 'active'
+                          ? 'bg-emerald-500'
+                          : 'bg-zinc-300'
+                      }`}
+                    />
+                    <span className="font-bold truncate max-w-[120px]">{staff.fullName}</span>
+                    <span
+                      className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
+                        isMe
+                          ? 'bg-white/15 text-zinc-200'
+                          : staff.role === 'admin'
+                          ? 'bg-rose-50 text-rose-700'
+                          : staff.role === 'manager'
+                          ? 'bg-amber-50 text-amber-700'
+                          : 'bg-zinc-100 text-zinc-600'
+                      }`}
+                    >
+                      @{staff.username} • {roleTag}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Form Tăng Đầu Việc (Trưởng Ca & Admin) */}
         {isManagerOrAdmin && showAddQuickTask && (
           <form
@@ -448,6 +528,19 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
                 <option value="Vệ sinh">Vệ sinh</option>
                 <option value="Kiểm kê">Kiểm kê</option>
                 <option value="An toàn ATTP">An toàn ATTP</option>
+              </select>
+
+              <select
+                value={quickAssignedStaffId}
+                onChange={(e) => setQuickAssignedStaffId(e.target.value)}
+                className="h-8 px-2 bg-white border border-zinc-300 rounded-lg text-xs font-semibold text-zinc-800"
+              >
+                <option value="all">Giao: Toàn bộ ca bếp</option>
+                {staffList.map((st) => (
+                  <option key={st.id} value={st.id}>
+                    Giao: {st.fullName} (@{st.username})
+                  </option>
+                ))}
               </select>
 
               <div className="flex items-center gap-1.5 ml-auto">
