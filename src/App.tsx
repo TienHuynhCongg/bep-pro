@@ -1527,8 +1527,8 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-zinc-50 text-zinc-900 flex flex-col font-sans antialiased selection:bg-zinc-900 selection:text-white">
-      {/* International Production Header Navbar with Notification Bell & Dropdown */}
+    <div className="fixed inset-0 h-dvh w-full overflow-hidden bg-zinc-100 text-zinc-900 flex flex-col font-sans antialiased selection:bg-zinc-900 selection:text-white">
+      {/* Top Frame: Cố định trên cùng, tự động chừa khoảng trống dưới tai thỏ iPhone (pt-safe-top) */}
       <HeaderNav
         config={appConfig}
         navItems={navItems}
@@ -1545,273 +1545,276 @@ export default function App() {
         serverConnected={serverConnected}
       />
 
-      {/* Global Urgent Task Notification Banner (Khi Trưởng Ca giao việc gấp mới) */}
-      {urgentManagerTaskAlert && (
-        <div className="max-w-5xl w-full mx-auto px-3 sm:px-6 pt-3">
-          <div className="bg-rose-600 text-white rounded-2xl p-3.5 sm:p-4 shadow-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-            <div className="flex items-start sm:items-center gap-3 text-xs sm:text-sm">
-              <div className="p-2 bg-white/15 text-white rounded-xl shrink-0">
-                <BellRing className="w-5 h-5 animate-bounce" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="px-2 py-0.5 rounded-md bg-rose-900/50 text-white font-mono font-bold text-[10px] uppercase">
-                    VIỆC GẤP MỚI • {urgentManagerTaskAlert.time}
-                  </span>
-                  <span className="font-semibold text-rose-100 text-xs">
-                    Từ: {urgentManagerTaskAlert.assignedBy}
-                  </span>
+      {/* Middle Scrollable Frame: Toàn bộ nội dung cuộn mượt bên trong khung giữa, không bao giờ tràn lên tai thỏ hay đè xuống thanh menu đáy */}
+      <div className="flex-1 overflow-y-auto overscroll-y-contain flex flex-col">
+        {/* Global Urgent Task Notification Banner (Khi Trưởng Ca giao việc gấp mới) */}
+        {urgentManagerTaskAlert && (
+          <div className="max-w-5xl w-full mx-auto px-3 sm:px-6 pt-3">
+            <div className="bg-rose-600 text-white rounded-2xl p-3.5 sm:p-4 shadow-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div className="flex items-start sm:items-center gap-3 text-xs sm:text-sm">
+                <div className="p-2 bg-white/15 text-white rounded-xl shrink-0">
+                  <BellRing className="w-5 h-5 animate-bounce" />
                 </div>
-                <p className="text-white font-bold text-sm sm:text-base mt-0.5">
-                  &ldquo;{urgentManagerTaskAlert.taskTitle}&rdquo;
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
-              {currentNavItem?.targetType !== 'checklist' && (
-                <button
-                  onClick={() => {
-                    const checklistTab = navItems.find((i) => i.targetType === 'checklist');
-                    if (checklistTab) setActiveTabId(checklistTab.id);
-                    setUrgentManagerTaskAlert(null);
-                  }}
-                  className="px-3 py-1.5 bg-white text-rose-700 hover:bg-rose-50 rounded-xl text-xs font-bold transition"
-                >
-                  Mở Checklist
-                </button>
-              )}
-              <button
-                onClick={() => setUrgentManagerTaskAlert(null)}
-                className="px-3 py-1.5 bg-rose-800 hover:bg-rose-900 text-white rounded-xl text-xs font-semibold flex items-center gap-1 transition"
-              >
-                <Check className="w-3.5 h-3.5" />
-                <span>Đã xem</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Global 14:30 PM Notification Banner for @manager (and @admin) */}
-      {manager1430AlertActive && (currentUser?.role === 'manager' || currentUser?.role === 'admin') && (
-        <div className="max-w-5xl w-full mx-auto px-3 sm:px-6 pt-3">
-          <div className="bg-zinc-900 text-white border border-zinc-800 rounded-2xl p-3.5 sm:p-4 shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-            <div className="flex items-start sm:items-center gap-3 text-xs sm:text-sm">
-              <div className="p-2 bg-amber-500 text-zinc-950 rounded-xl shrink-0">
-                <BellRing className="w-4 h-4" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 font-mono font-bold text-[10px]">
-                    14:30 CHIỀU • @manager
-                  </span>
-                  <span className="font-bold text-white">
-                    Kiểm tra tiến độ Checklist ca bếp
-                  </span>
-                </div>
-                <p className="text-zinc-300 text-xs mt-0.5">
-                  Đã xong <strong>{completedTasksCount}/{tasks.length}</strong> việc
-                  {urgentPendingCount > 0 ? (
-                    <span className="text-rose-400 font-semibold">
-                      {' '}• Còn {urgentPendingCount} việc gấp chưa xong!
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="px-2 py-0.5 rounded-md bg-rose-900/50 text-white font-mono font-bold text-[10px] uppercase">
+                      VIỆC GẤP MỚI • {urgentManagerTaskAlert.time}
                     </span>
-                  ) : (
-                    <span className="text-emerald-400 font-semibold"> • Không còn việc gấp tồn đọng.</span>
-                  )}
-                </p>
+                    <span className="font-semibold text-rose-100 text-xs">
+                      Từ: {urgentManagerTaskAlert.assignedBy}
+                    </span>
+                  </div>
+                  <p className="text-white font-bold text-sm sm:text-base mt-0.5">
+                    &ldquo;{urgentManagerTaskAlert.taskTitle}&rdquo;
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+                {currentNavItem?.targetType !== 'checklist' && (
+                  <button
+                    onClick={() => {
+                      const checklistTab = navItems.find((i) => i.targetType === 'checklist');
+                      if (checklistTab) setActiveTabId(checklistTab.id);
+                      setUrgentManagerTaskAlert(null);
+                    }}
+                    className="h-8 px-3 bg-white text-rose-700 hover:bg-rose-50 rounded-xl text-xs font-bold transition"
+                  >
+                    Mở Checklist
+                  </button>
+                )}
+                <button
+                  onClick={() => setUrgentManagerTaskAlert(null)}
+                  className="h-8 px-3 bg-rose-800 hover:bg-rose-900 text-white rounded-xl text-xs font-semibold flex items-center gap-1 transition"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Đã xem</span>
+                </button>
               </div>
             </div>
-
-            <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
-              <button
-                onClick={handleAcknowledgeManager1430}
-                className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center gap-1 transition"
-              >
-                <Check className="w-3.5 h-3.5" />
-                <span>Đã kiểm tra</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Global Admin Approval Banner */}
-      {currentUser?.role === 'admin' && pendingDeleteRequests.length > 0 && currentNavItem?.targetType !== 'history' && (
-        <div className="max-w-5xl w-full mx-auto px-3 sm:px-6 pt-3">
-          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3.5 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5 text-xs sm:text-sm text-amber-950">
-              <ShieldAlert className="w-5 h-5 text-amber-600 shrink-0" />
-              <div>
-                <span className="font-bold">Yêu cầu xóa chờ duyệt ({pendingDeleteRequests.length}): </span>
-                <span className="text-rose-700 font-semibold">{pendingDeleteRequests[0].targetLabel}</span>
-                <span className="text-zinc-500 text-xs"> ({pendingDeleteRequests[0].requestedBy})</span>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
-              <button
-                onClick={() => handleRejectDeleteRequest(pendingDeleteRequests[0].id)}
-                className="px-3 py-1.5 bg-white hover:bg-zinc-100 text-zinc-700 border border-zinc-200 rounded-xl text-xs font-semibold flex items-center gap-1 transition"
-              >
-                <X className="w-3.5 h-3.5" />
-                <span>Từ chối</span>
-              </button>
-              <button
-                onClick={() => handleApproveDeleteRequest(pendingDeleteRequests[0].id)}
-                className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1 transition"
-              >
-                <Check className="w-3.5 h-3.5" />
-                <span>Duyệt xóa</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Main Body */}
-      <main className="flex-grow max-w-5xl w-full mx-auto px-3 sm:px-6 py-4 sm:py-6 pb-24 md:pb-10 space-y-4">
-        {/* Ô Thông Báo Kiểu Facebook (Hiện số phút đã trôi qua: 1p trước, 5p trước... Nhấp vào để xóa ngay) */}
-        <NotificationFeedBox
-          notifications={notifications}
-          onDeleteNotification={handleDeleteNotification}
-          onClearAllNotifications={handleClearAllNotifications}
-          variant="inline"
-        />
-
-        {/* Render View based on targetType of active Tab with role-based permission verification */}
-        {currentNavItem && canRoleAccessTab(currentUser?.role, currentNavItem.targetType, currentNavItem) ? (
-          <>
-            {currentNavItem.targetType === 'checklist' && (
-              <ChecklistView
-                tasks={tasks}
-                onToggleTask={handleToggleTask}
-                onResetTasks={handleResetTasks}
-                onAddTask={handleAddTask}
-                onUpdateTask={handleUpdateTask}
-                onDeleteTask={handleDeleteTask}
-                onRefreshTasks={handleRefreshTasks}
-                onSubmitShift={handleSubmitShift}
-                currentUser={currentUser}
-              />
-            )}
-
-            {currentNavItem.targetType === 'history' && (
-              <HistoryView
-                logs={logs}
-                onDeleteLog={handleDeleteLog}
-                onClearAllLogs={handleClearAllLogs}
-                onExportCSV={handleExportCSV}
-                currentUser={currentUser}
-                deleteRequests={deleteRequests}
-                onApproveDeleteRequest={handleApproveDeleteRequest}
-                onRejectDeleteRequest={handleRejectDeleteRequest}
-              />
-            )}
-
-            {currentNavItem.targetType === 'analytics' && (
-              <AnalyticsView logs={logs} />
-            )}
-
-            {currentNavItem.targetType === 'staff' && (
-              <StaffManagementView
-                staffList={staffList}
-                currentUser={currentUser}
-                onAddStaff={handleAddStaff}
-                onUpdateStaff={handleUpdateStaff}
-                onDeleteStaff={handleDeleteStaff}
-                onSwitchUser={handleSwitchUser}
-                logs={logs}
-              />
-            )}
-
-            {currentNavItem.targetType === 'chef_tasks' && (
-              <ChefTasksView
-                tasks={tasks}
-                onAddTask={handleAddTask}
-                onUpdateTask={handleUpdateTask}
-                onDeleteTask={handleDeleteTask}
-                onResetTasks={handleResetTasks}
-                onClearAllTasks={handleClearAllTasks}
-                onLoadTaskPreset={handleLoadTaskPreset}
-                staffList={staffList}
-                currentUser={currentUser}
-                onTriggerManager1430Check={triggerManager1430Check}
-              />
-            )}
-
-            {currentNavItem.targetType === 'admin' && (
-              <AdminConfigView
-                appConfig={appConfig}
-                onUpdateAppConfig={(cfg) => setAppConfig(cfg)}
-                navItems={navItems}
-                onUpdateNavItems={(items) => {
-                  setNavItems(items);
-                  pushStateToServer({ toolbarItems: items });
-                }}
-              />
-            )}
-
-            {currentNavItem.targetType === 'custom' && (
-              <CustomPageView
-                navItem={currentNavItem}
-                onUpdateNavItem={(updated) => {
-                  setNavItems((prev) => {
-                    const next = prev.map((i) => (i.id === updated.id ? updated : i));
-                    pushStateToServer({ toolbarItems: next });
-                    return next;
-                  });
-                  showToast('Đã lưu nội dung trang tùy chỉnh!');
-                }}
-              />
-            )}
-          </>
-        ) : (
-          <div className="bg-white rounded-2xl p-8 text-center border border-zinc-200/80 shadow-xs max-w-md mx-auto my-10 space-y-4">
-            <div className="w-12 h-12 rounded-2xl bg-zinc-100 text-zinc-700 flex items-center justify-center mx-auto">
-              <AlertCircle className="w-6 h-6" />
-            </div>
-            <div>
-              <h3 className="text-base font-bold text-zinc-900">
-                Khu Vực Giới Hạn Quyền Truy Cập
-              </h3>
-              <p className="text-xs text-zinc-500 mt-1">
-                Tài khoản ({currentUser ? currentUser.fullName : 'Chưa đăng nhập'}) không có quyền mở trang này.
-              </p>
-            </div>
-            <button
-              onClick={() => {
-                const firstAllowed = navItems.find((i) => i.visible && canRoleAccessTab(currentUser?.role, i.targetType, i));
-                if (firstAllowed) setActiveTabId(firstAllowed.id);
-              }}
-              className="px-4 py-2.5 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-semibold transition"
-            >
-              Về Checklist Ca Bếp
-            </button>
           </div>
         )}
-      </main>
 
-      {/* Minimalist Production Footer */}
-      <footer className="bg-white text-zinc-400 text-[11px] py-3.5 border-t border-zinc-200/80 text-center mb-14 md:mb-0">
-        <div className="max-w-5xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
-          <p>© {new Date().getFullYear()} {appConfig.appTitle} • Hệ Thống Vận Hành Bếp</p>
-          {currentUser?.role === 'admin' && (
-            <button
-              onClick={() => {
-                const adminItem = navItems.find((i) => i.targetType === 'admin');
-                if (adminItem) {
-                  setActiveTabId(adminItem.id);
-                }
-              }}
-              className="text-zinc-600 hover:text-zinc-900 font-semibold transition"
-            >
-              Cấu hình hệ thống (Admin)
-            </button>
+        {/* Global 14:30 PM Notification Banner for @manager (and @admin) */}
+        {manager1430AlertActive && (currentUser?.role === 'manager' || currentUser?.role === 'admin') && (
+          <div className="max-w-5xl w-full mx-auto px-3 sm:px-6 pt-3">
+            <div className="bg-zinc-900 text-white border border-zinc-800 rounded-2xl p-3.5 sm:p-4 shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div className="flex items-start sm:items-center gap-3 text-xs sm:text-sm">
+                <div className="p-2 bg-amber-500 text-zinc-950 rounded-xl shrink-0">
+                  <BellRing className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 font-mono font-bold text-[10px]">
+                      14:30 CHIỀU • @manager
+                    </span>
+                    <span className="font-bold text-white">
+                      Kiểm tra tiến độ Checklist ca bếp
+                    </span>
+                  </div>
+                  <p className="text-zinc-300 text-xs mt-0.5">
+                    Đã xong <strong>{completedTasksCount}/{tasks.length}</strong> việc
+                    {urgentPendingCount > 0 ? (
+                      <span className="text-rose-400 font-semibold">
+                        {' '}• Còn {urgentPendingCount} việc gấp chưa xong!
+                      </span>
+                    ) : (
+                      <span className="text-emerald-400 font-semibold"> • Không còn việc gấp tồn đọng.</span>
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+                <button
+                  onClick={handleAcknowledgeManager1430}
+                  className="h-8 px-3.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center gap-1 transition"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Đã kiểm tra</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Global Admin Approval Banner */}
+        {currentUser?.role === 'admin' && pendingDeleteRequests.length > 0 && currentNavItem?.targetType !== 'history' && (
+          <div className="max-w-5xl w-full mx-auto px-3 sm:px-6 pt-3">
+            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3.5 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 text-xs sm:text-sm text-amber-950">
+                <ShieldAlert className="w-5 h-5 text-amber-600 shrink-0" />
+                <div>
+                  <span className="font-bold">Yêu cầu xóa chờ duyệt ({pendingDeleteRequests.length}): </span>
+                  <span className="text-rose-700 font-semibold">{pendingDeleteRequests[0].targetLabel}</span>
+                  <span className="text-zinc-500 text-xs"> ({pendingDeleteRequests[0].requestedBy})</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+                <button
+                  onClick={() => handleRejectDeleteRequest(pendingDeleteRequests[0].id)}
+                  className="h-8 px-3 bg-white hover:bg-zinc-100 text-zinc-700 border border-zinc-200 rounded-xl text-xs font-semibold flex items-center gap-1 transition"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  <span>Từ chối</span>
+                </button>
+                <button
+                  onClick={() => handleApproveDeleteRequest(pendingDeleteRequests[0].id)}
+                  className="h-8 px-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1 transition"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Duyệt xóa</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Main Body */}
+        <main className="flex-grow max-w-5xl w-full mx-auto px-3 sm:px-6 py-3.5 sm:py-5 space-y-3.5">
+          {/* Ô Thông Báo Kiểu Facebook (Hiện số phút đã trôi qua: 1p trước, 5p trước... Nhấp vào để xóa ngay) */}
+          <NotificationFeedBox
+            notifications={notifications}
+            onDeleteNotification={handleDeleteNotification}
+            onClearAllNotifications={handleClearAllNotifications}
+            variant="inline"
+          />
+
+          {/* Render View based on targetType of active Tab with role-based permission verification */}
+          {currentNavItem && canRoleAccessTab(currentUser?.role, currentNavItem.targetType, currentNavItem) ? (
+            <>
+              {currentNavItem.targetType === 'checklist' && (
+                <ChecklistView
+                  tasks={tasks}
+                  onToggleTask={handleToggleTask}
+                  onResetTasks={handleResetTasks}
+                  onAddTask={handleAddTask}
+                  onUpdateTask={handleUpdateTask}
+                  onDeleteTask={handleDeleteTask}
+                  onRefreshTasks={handleRefreshTasks}
+                  onSubmitShift={handleSubmitShift}
+                  currentUser={currentUser}
+                />
+              )}
+
+              {currentNavItem.targetType === 'history' && (
+                <HistoryView
+                  logs={logs}
+                  onDeleteLog={handleDeleteLog}
+                  onClearAllLogs={handleClearAllLogs}
+                  onExportCSV={handleExportCSV}
+                  currentUser={currentUser}
+                  deleteRequests={deleteRequests}
+                  onApproveDeleteRequest={handleApproveDeleteRequest}
+                  onRejectDeleteRequest={handleRejectDeleteRequest}
+                />
+              )}
+
+              {currentNavItem.targetType === 'analytics' && (
+                <AnalyticsView logs={logs} />
+              )}
+
+              {currentNavItem.targetType === 'staff' && (
+                <StaffManagementView
+                  staffList={staffList}
+                  currentUser={currentUser}
+                  onAddStaff={handleAddStaff}
+                  onUpdateStaff={handleUpdateStaff}
+                  onDeleteStaff={handleDeleteStaff}
+                  onSwitchUser={handleSwitchUser}
+                  logs={logs}
+                />
+              )}
+
+              {currentNavItem.targetType === 'chef_tasks' && (
+                <ChefTasksView
+                  tasks={tasks}
+                  onAddTask={handleAddTask}
+                  onUpdateTask={handleUpdateTask}
+                  onDeleteTask={handleDeleteTask}
+                  onResetTasks={handleResetTasks}
+                  onClearAllTasks={handleClearAllTasks}
+                  onLoadTaskPreset={handleLoadTaskPreset}
+                  staffList={staffList}
+                  currentUser={currentUser}
+                  onTriggerManager1430Check={triggerManager1430Check}
+                />
+              )}
+
+              {currentNavItem.targetType === 'admin' && (
+                <AdminConfigView
+                  appConfig={appConfig}
+                  onUpdateAppConfig={(cfg) => setAppConfig(cfg)}
+                  navItems={navItems}
+                  onUpdateNavItems={(items) => {
+                    setNavItems(items);
+                    pushStateToServer({ toolbarItems: items });
+                  }}
+                />
+              )}
+
+              {currentNavItem.targetType === 'custom' && (
+                <CustomPageView
+                  navItem={currentNavItem}
+                  onUpdateNavItem={(updated) => {
+                    setNavItems((prev) => {
+                      const next = prev.map((i) => (i.id === updated.id ? updated : i));
+                      pushStateToServer({ toolbarItems: next });
+                      return next;
+                    });
+                    showToast('Đã lưu nội dung trang tùy chỉnh!');
+                  }}
+                />
+              )}
+            </>
+          ) : (
+            <div className="bg-white rounded-2xl p-8 text-center border border-zinc-200/80 shadow-xs max-w-md mx-auto my-10 space-y-4">
+              <div className="w-12 h-12 rounded-2xl bg-zinc-100 text-zinc-700 flex items-center justify-center mx-auto">
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-zinc-900">
+                  Khu Vực Giới Hạn Quyền Truy Cập
+                </h3>
+                <p className="text-xs text-zinc-500 mt-1">
+                  Tài khoản ({currentUser ? currentUser.fullName : 'Chưa đăng nhập'}) không có quyền mở trang này.
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  const firstAllowed = navItems.find((i) => i.visible && canRoleAccessTab(currentUser?.role, i.targetType, i));
+                  if (firstAllowed) setActiveTabId(firstAllowed.id);
+                }}
+                className="px-4 py-2.5 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-semibold transition"
+              >
+                Về Checklist Ca Bếp
+              </button>
+            </div>
           )}
-        </div>
-      </footer>
+        </main>
 
-      {/* Dedicated Mobile Bottom Navigation Bar (md:hidden) */}
+        {/* Minimalist Production Footer */}
+        <footer className="bg-white text-zinc-400 text-[11px] py-3 border-t border-zinc-200/80 text-center shrink-0">
+          <div className="max-w-5xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-1.5">
+            <p>© {new Date().getFullYear()} {appConfig.appTitle} • Hệ Thống Vận Hành Bếp</p>
+            {currentUser?.role === 'admin' && (
+              <button
+                onClick={() => {
+                  const adminItem = navItems.find((i) => i.targetType === 'admin');
+                  if (adminItem) {
+                    setActiveTabId(adminItem.id);
+                  }
+                }}
+                className="text-zinc-600 hover:text-zinc-900 font-semibold transition"
+              >
+                Cấu hình hệ thống (Admin)
+              </button>
+            )}
+          </div>
+        </footer>
+      </div>
+
+      {/* Bottom Frame: Cố định ở đáy khung ứng dụng (md:hidden), không bao giờ đè lên nội dung */}
       <MobileBottomNav
         navItems={navItems}
         activeTabId={activeTabId}
@@ -1854,7 +1857,7 @@ export default function App() {
       {/* Floating Toast Notification */}
       {toast && (
         <div
-          className={`fixed bottom-16 md:bottom-5 right-3 md:right-5 left-3 sm:left-auto z-50 px-4 py-3 rounded-xl shadow-lg flex items-center space-x-2.5 transition-all duration-200 border ${
+          className={`fixed bottom-20 md:bottom-5 right-3 md:right-5 left-3 sm:left-auto z-50 px-4 py-2.5 rounded-xl shadow-lg flex items-center space-x-2.5 transition-all duration-200 border ${
             toast.type === 'error'
               ? 'bg-rose-950 text-white border-rose-800'
               : 'bg-zinc-900 text-white border-zinc-800'

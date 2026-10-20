@@ -154,13 +154,13 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
   return (
     <div
-      className={`fixed inset-0 z-50 flex items-center justify-center p-4 animate-fadeIn ${
+      className={`fixed inset-0 z-50 flex items-center justify-center p-3.5 pt-safe-top pb-safe-bottom animate-fadeIn ${
         currentUser
           ? 'bg-black/65 backdrop-blur-xs'
-          : 'bg-gradient-to-br from-stone-950 via-amber-950 to-stone-900'
+          : 'bg-zinc-950'
       }`}
     >
-      <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl border border-stone-200 overflow-hidden flex flex-col max-h-[92vh]">
+      <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl border border-stone-200 overflow-hidden flex flex-col max-h-[82dvh]">
         {/* Header */}
         <div className="bg-gradient-to-r from-amber-950 via-stone-900 to-amber-950 text-white p-6 relative">
           {currentUser && (

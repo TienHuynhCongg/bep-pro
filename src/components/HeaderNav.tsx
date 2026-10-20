@@ -55,21 +55,21 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
   }, [showNotifDropdown]);
 
   return (
-    <header className="bg-zinc-950 text-white sticky top-0 z-40 border-b border-zinc-800/90 backdrop-blur-md">
+    <header className="shrink-0 bg-zinc-950 text-white z-40 border-b border-zinc-800 pt-safe-top select-none">
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-14 sm:h-16 gap-2">
-          {/* Brand Logo & Title (Clean International POS/Linear style) */}
+        <div className="flex items-center justify-between h-13 sm:h-15 gap-2">
+          {/* Brand Logo & Title */}
           <div
-            className="flex items-center gap-2.5 cursor-pointer select-none min-w-0"
+            className="flex items-center gap-2.5 cursor-pointer min-w-0 flex-1"
             onClick={() => onSelectTab(visibleItems[0]?.id || 'nav-checklist')}
           >
             <div className="w-8 h-8 sm:w-9 sm:h-9 bg-zinc-900 rounded-xl border border-zinc-800 flex items-center justify-center shrink-0">
-              <DynamicIcon name={config.brandIcon || 'Utensils'} className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-white" />
+              <DynamicIcon name={config.brandIcon || 'Utensils'} className="w-4 h-4 text-white" />
             </div>
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <h1 className="font-bold text-sm sm:text-base tracking-tight text-white truncate">
-                  {config.appTitle || 'BẾP PRO'}
+                  {config.appTitle || 'KITCHEN LOG PRO'}
                 </h1>
                 <span
                   className={`w-2 h-2 rounded-full shrink-0 ${
@@ -85,7 +85,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
           </div>
 
           {/* Desktop Navigation & Right Action Controls */}
-          <div className="flex items-center gap-1.5 sm:gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <nav className="hidden md:flex items-center gap-1 overflow-x-auto py-1 scrollbar-none">
               {visibleItems.map((item) => {
                 const isActive = activeTabId === item.id;
@@ -108,8 +108,9 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
                 return (
                   <button
                     key={item.id}
+                    type="button"
                     onClick={() => onSelectTab(item.id)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap ${
+                    className={`h-9 px-3 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap ${
                       isActive
                         ? 'bg-white text-zinc-950 shadow-xs'
                         : 'text-zinc-400 hover:text-white hover:bg-zinc-900'
@@ -131,23 +132,23 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
               <button
                 type="button"
                 onClick={() => setShowNotifDropdown((prev) => !prev)}
-                className={`relative p-2 rounded-xl border transition flex items-center justify-center ${
+                className={`relative w-9 h-9 rounded-xl border transition flex items-center justify-center touch-manipulation active:scale-95 ${
                   showNotifDropdown
                     ? 'bg-zinc-800 text-white border-zinc-700'
-                    : 'bg-zinc-900/90 hover:bg-zinc-800 text-zinc-200 border-zinc-800'
+                    : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border-zinc-800'
                 }`}
                 title="Thông báo hoạt động ca bếp"
               >
                 <Bell className="w-4 h-4" />
                 {notifications.length > 0 && (
-                  <span className="absolute -top-1 -right-1 min-w-[17px] h-[17px] px-1 rounded-full bg-rose-600 text-white text-[10px] font-extrabold flex items-center justify-center ring-2 ring-zinc-950">
+                  <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-rose-600 text-white text-[10px] font-extrabold flex items-center justify-center ring-2 ring-zinc-950">
                     {notifications.length > 99 ? '99+' : notifications.length}
                   </span>
                 )}
               </button>
 
               {showNotifDropdown && onDeleteNotification && onClearAllNotifications && (
-                <div className="fixed sm:absolute right-2 sm:right-0 left-2 sm:left-auto top-15 sm:top-full sm:mt-2 sm:w-96 z-50">
+                <div className="fixed sm:absolute right-3 sm:right-0 left-3 sm:left-auto top-[calc(max(env(safe-area-inset-top,0px),48px)+3.5rem)] sm:top-full sm:mt-2 sm:w-96 z-50">
                   <NotificationFeedBox
                     notifications={notifications}
                     onDeleteNotification={onDeleteNotification}
@@ -164,7 +165,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
               <button
                 type="button"
                 onClick={onOpenLogin}
-                className="px-2.5 py-1.5 rounded-xl text-xs font-medium bg-zinc-900 hover:bg-zinc-800 text-zinc-100 border border-zinc-800 transition flex items-center gap-2 shrink-0"
+                className="h-9 px-2.5 rounded-xl text-xs font-medium bg-zinc-900 hover:bg-zinc-800 text-zinc-100 border border-zinc-800 transition flex items-center gap-2 shrink-0 touch-manipulation active:scale-95"
                 title={`Đang đăng nhập: ${currentUser.fullName} (@${currentUser.role})`}
               >
                 <div className="w-6 h-6 rounded-lg bg-zinc-800 border border-zinc-700 flex items-center justify-center text-white text-[11px] font-bold">
@@ -183,7 +184,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
               <button
                 type="button"
                 onClick={onOpenLogin}
-                className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-white text-zinc-950 hover:bg-zinc-200 transition flex items-center gap-1.5 shrink-0"
+                className="h-9 px-3 rounded-xl text-xs font-semibold bg-white text-zinc-950 hover:bg-zinc-200 transition flex items-center gap-1.5 shrink-0 touch-manipulation active:scale-95"
               >
                 <LogIn className="w-3.5 h-3.5" />
                 <span>Đăng nhập</span>
@@ -195,7 +196,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
               <button
                 type="button"
                 onClick={onOpenNavConfig}
-                className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 transition hidden sm:flex items-center justify-center"
+                className="w-9 h-9 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 transition hidden sm:flex items-center justify-center"
                 title="Sửa thanh menu"
               >
                 <Settings2 className="w-4 h-4" />

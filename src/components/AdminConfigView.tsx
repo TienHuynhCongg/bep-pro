@@ -16,10 +16,13 @@ import {
   RotateCcw,
   Sparkles,
   Save,
-  ShieldCheck,
   ChevronDown,
   ChevronUp,
-  Download,
+  QrCode,
+  Smartphone,
+  Copy,
+  ExternalLink,
+  Share,
 } from 'lucide-react';
 
 interface AdminConfigViewProps {
@@ -27,7 +30,6 @@ interface AdminConfigViewProps {
   onUpdateAppConfig: (config: AppConfig) => void;
   navItems: NavItem[];
   onUpdateNavItems: (items: NavItem[]) => void;
-  onOpenInstallApp?: () => void;
 }
 
 export const AdminConfigView: React.FC<AdminConfigViewProps> = ({
@@ -35,11 +37,14 @@ export const AdminConfigView: React.FC<AdminConfigViewProps> = ({
   onUpdateAppConfig,
   navItems,
   onUpdateNavItems,
-  onOpenInstallApp,
 }) => {
   // Branding state
   const [brandingForm, setBrandingForm] = useState<AppConfig>(appConfig);
   const [brandingSaved, setBrandingSaved] = useState(false);
+
+  // QR Install Panel state (Hiển thị ngay trong Cấu hình Menu Admin)
+  const [showQrSection, setShowQrSection] = useState<boolean>(true);
+  const [copiedLink, setCopiedLink] = useState<string | null>(null);
 
   // Nav Edit state
   const [editingNavId, setEditingNavId] = useState<string | null>(null);
@@ -57,6 +62,30 @@ export const AdminConfigView: React.FC<AdminConfigViewProps> = ({
   const [newNavCustomContent, setNewNavCustomContent] = useState('');
   const [isAddingNav, setIsAddingNav] = useState(false);
   const [isNavListExpanded, setIsNavListExpanded] = useState(false);
+
+  const appOrigin =
+    typeof window !== 'undefined' && window.location.origin && !window.location.origin.includes('localhost')
+      ? window.location.origin
+      : 'https://bep-pro.onrender.com';
+
+  const iosProfileUrl = `${appOrigin}/api/ios-app.mobileconfig`;
+  const androidWebAppUrl = appOrigin;
+
+  // QR Image URLs (Siêu nhẹ, load tức thì bằng SVG/PNG chuẩn)
+  const iosQrImg = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=8&data=${encodeURIComponent(
+    iosProfileUrl
+  )}`;
+  const androidQrImg = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=8&data=${encodeURIComponent(
+    androidWebAppUrl
+  )}`;
+
+  const handleCopy = (text: string, label: string) => {
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(text).catch(() => {});
+    }
+    setCopiedLink(label);
+    setTimeout(() => setCopiedLink(null), 2000);
+  };
 
   const handleSaveBranding = (e: React.FormEvent) => {
     e.preventDefault();
@@ -151,181 +180,280 @@ export const AdminConfigView: React.FC<AdminConfigViewProps> = ({
     onUpdateNavItems(defaultNav);
   };
 
-  const handleDownloadInstallPDF = () => {
-    const origin =
-      typeof window !== 'undefined' && window.location.origin
-        ? window.location.origin
-        : 'https://bep-pro.onrender.com';
-
-    const lines = [
-      'HUONG DAN TAI & CAI DAT APP BEP PRO (iOS & ANDROID)',
-      '====================================================================',
-      `Ten he thong : ${appConfig.appTitle || 'KITCHEN LOG PRO'}`,
-      `Link truy cap: ${origin}`,
-      `Ngay xuat PDF: ${new Date().toLocaleString('vi-VN')}`,
-      '--------------------------------------------------------------------',
-      '',
-      '1. CAI DAT TREN IPHONE / IPAD (iOS - MIEN PHI 100%):',
-      '   - Cach 1 (Profile Cai Dat Nhanh):',
-      `     Mo Safari truy cap: ${origin}/api/ios-app.mobileconfig`,
-      '     Sau do vao Cai dat (Settings) -> Da tai ve ho so -> Bam Cai dat.',
-      '   - Cach 2 (Them truc tiep tu Safari):',
-      `     Buoc 1: Mo trinh duyet Safari truy cap ${origin}`,
-      '     Buoc 2: Bam nut Chia se (Share) o thanh duoi cung man hinh.',
-      '     Buoc 3: Chon "Them vao MH chinh" (Add to Home Screen) -> Bam Them.',
-      '',
-      '2. CAI DAT TREN DIEN THOAI ANDROID (Samsung, Oppo, Xiaomi...):',
-      `   - Buoc 1: Mo trinh duyet Chrome truy cap ${origin}`,
-      '   - Buoc 2: Bam bieu tuong menu 3 cham o goc phai tren cung.',
-      '   - Buoc 3: Chon "Cai dat ung dung" (Install App / Add to Home screen).',
-      '',
-      '3. TAI KHOAN DANG NHAP MAC DINH:',
-      '   - @admin (Bep Truong)  : username "admin"   | PIN: 123',
-      '   - @manager (Truong Ca) : username "manager" | PIN: 123',
-      '   - @staff (Nhan Vien)   : username "bep1"    | PIN: 123',
-      '',
-      '4. GHI CHU VAN HANH:',
-      '   - App tu dong giu dang nhap tren dien thoai sau khi dang nhap.',
-      '   - Viec Daily tu dong reset sau 24h; 14:30 chieu tu bao @manager.',
-      '====================================================================',
-    ];
-
-    const escapePdfText = (str: string) =>
-      str
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/đ/g, 'd')
-        .replace(/Đ/g, 'D')
-        .replace(/\\/g, '\\\\')
-        .replace(/\(/g, '\\(')
-        .replace(/\)/g, '\\)');
-
-    const contentStreamLines = [
-      'BT',
-      '/F1 11 Tf',
-      '50 770 Td',
-      '16 TL',
-      ...lines.map((line, idx) =>
-        idx === 0 ? `(${escapePdfText(line)}) Tj` : `T* (${escapePdfText(line)}) Tj`
-      ),
-      'ET',
-    ];
-    const streamContent = contentStreamLines.join('\n');
-
-    const objects: string[] = [
-      '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n',
-      '2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n',
-      '3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n',
-      `4 0 obj\n<< /Length ${streamContent.length} >>\nstream\n${streamContent}\nendstream\nendobj\n`,
-      '5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Courier-Bold >>\nendobj\n',
-    ];
-
-    let pdf = '%PDF-1.4\n';
-    const offsets: number[] = [0];
-    for (const obj of objects) {
-      offsets.push(pdf.length);
-      pdf += obj;
-    }
-    const xrefStart = pdf.length;
-    pdf += `xref\n0 ${objects.length + 1}\n`;
-    pdf += '0000000000 65535 f \n';
-    for (let i = 1; i <= objects.length; i++) {
-      pdf += `${offsets[i].toString().padStart(10, '0')} 00000 n \n`;
-    }
-    pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`;
-
-    const blob = new Blob([pdf], { type: 'application/pdf' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'Huong_Dan_Tai_App_Bep_Pro.pdf';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    setTimeout(() => URL.revokeObjectURL(url), 1500);
-  };
-
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Header Banner - Admin Hệ Thống */}
-      <div className="bg-gradient-to-r from-stone-900 via-stone-800 to-stone-900 text-white rounded-3xl p-6 sm:p-8 shadow-xl border border-stone-700">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div className="flex items-center gap-3.5">
-            <div className="p-3.5 bg-gradient-to-br from-stone-600 to-stone-800 rounded-2xl shadow-lg border border-stone-500/30 text-white">
-              <Sliders className="w-8 h-8 text-amber-400" />
+      <div className="bg-zinc-950 text-white rounded-2xl p-4 sm:p-6 shadow-sm border border-zinc-800">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+          <div className="flex items-center gap-3">
+            <div className="p-3 bg-zinc-900 rounded-2xl border border-zinc-800 text-white shrink-0">
+              <Sliders className="w-6 h-6 text-amber-400" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                  Phân Hệ Quản Trị Hệ Thống (Admin)
-                </span>
-              </div>
-              <h2 className="text-xl sm:text-3xl font-black text-white mt-1">
-                Cấu Hình Thanh Công Cụ & Ứng Dụng
+              <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 uppercase">
+                Quản Trị Hệ Thống (Admin)
+              </span>
+              <h2 className="text-lg sm:text-2xl font-bold text-white mt-1">
+                Cấu Hình Menu & Tải App QR
               </h2>
-              <p className="text-xs sm:text-sm text-stone-300 mt-1 max-w-2xl">
-                Tự do thay đổi thanh công cụ (thêm, bớt, đổi tên từng nút, thay icon), sắp xếp thứ tự và cấu hình tên thương hiệu nhà hàng.
+              <p className="text-xs text-zinc-400 mt-0.5">
+                Quét mã QR cài đặt nhanh ứng dụng cho nhân viên bếp (iOS & Android) và tùy chỉnh thanh công cụ.
               </p>
             </div>
           </div>
 
           <button
             type="button"
-            onClick={handleDownloadInstallPDF}
-            className="px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-extrabold bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-400/50 shadow-lg transition flex items-center gap-2 shrink-0"
-            title="Tải file PDF hướng dẫn & đường dẫn cài App cho iOS và Android (Nhẹ, không gây lag)"
+            onClick={() => setShowQrSection(!showQrSection)}
+            className="h-9 px-3.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition flex items-center gap-1.5 shrink-0"
           >
-            <Download className="w-4 h-4" />
-            <span>Tải PDF Cài App (iOS & Android)</span>
+            <QrCode className="w-4 h-4" />
+            <span>{showQrSection ? 'Thu gọn Mã QR' : 'Mở Mã QR Tải App'}</span>
           </button>
         </div>
       </div>
 
+      {/* Khu vực Tải App Nhanh bằng Mã QR cho iOS & Android kèm Hướng dẫn chi tiết */}
+      {showQrSection && (
+        <div className="bg-white rounded-2xl shadow-xs border border-zinc-200 p-4 sm:p-6 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-zinc-100">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-700 shrink-0">
+                <QrCode className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm sm:text-base font-bold text-zinc-950">
+                  Mã QR Tải & Cài Đặt App Nhanh (iOS & Android)
+                </h3>
+                <p className="text-xs text-zinc-500">
+                  Đưa camera điện thoại của nhân viên quét trực tiếp mã QR bên dưới để cài App vào màn hình chính.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => handleCopy(androidWebAppUrl, 'web')}
+                className="h-8 px-3 rounded-xl text-xs font-semibold bg-zinc-100 hover:bg-zinc-200 text-zinc-800 flex items-center gap-1.5 transition"
+              >
+                {copiedLink === 'web' ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-emerald-600" />
+                    <span className="text-emerald-700">Đã chép link</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>Copy Link App</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* 2 Cột QR: iPhone (iOS) & Android */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Cột 1: iOS (iPhone / iPad) */}
+            <div className="rounded-2xl border border-zinc-200 bg-zinc-50/70 p-4 flex flex-col justify-between space-y-3.5">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-1 rounded-lg bg-zinc-900 text-white text-xs font-bold flex items-center gap-1.5">
+                      <Smartphone className="w-3.5 h-3.5" />
+                      <span>iPhone / iPad (iOS)</span>
+                    </span>
+                    <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                      Miễn phí 100%
+                    </span>
+                  </div>
+                </div>
+
+                {/* Khung QR + Hướng dẫn từng bước cho iPhone */}
+                <div className="flex flex-col sm:flex-row items-center sm:items-start gap-3.5 bg-white p-3.5 rounded-xl border border-zinc-200/80">
+                  <div className="p-2 bg-white rounded-xl border border-zinc-200 shrink-0 shadow-2xs">
+                    <img
+                      src={iosQrImg}
+                      alt="Mã QR cài App cho iPhone iOS"
+                      className="w-32 h-32 sm:w-36 sm:h-36 object-contain"
+                      loading="lazy"
+                    />
+                    <div className="text-[10px] font-bold text-center text-zinc-500 mt-1">
+                      Quét bằng Camera iPhone
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 text-xs text-zinc-700 flex-1">
+                    <div className="font-bold text-zinc-950 text-xs">
+                      Cách 1: Quét QR cài cấu hình tự động
+                    </div>
+                    <ol className="space-y-1.5 text-[11px] leading-relaxed text-zinc-600 list-decimal list-inside">
+                      <li>
+                        Mở <strong>Camera iPhone</strong> quét mã QR bên cạnh → Bấm <strong>Cho phép</strong> tải về hồ sơ.
+                      </li>
+                      <li>
+                        Mở <strong>Cài đặt (Settings)</strong> của iPhone → Bấm mục <strong>Đã tải về hồ sơ</strong> ở ngay đầu trang.
+                      </li>
+                      <li>
+                        Bấm <strong>Cài đặt (Install)</strong> ở góc trên phải → App <strong>Bếp Pro</strong> xuất hiện ngay trên màn hình chính!
+                      </li>
+                    </ol>
+
+                    <div className="pt-1.5 border-t border-zinc-100">
+                      <div className="font-bold text-zinc-900 text-[11px] flex items-center gap-1">
+                        <Share className="w-3 h-3 text-blue-600" />
+                        <span>Cách 2: Thêm nhanh từ trình duyệt Safari</span>
+                      </div>
+                      <p className="text-[11px] text-zinc-500 mt-0.5">
+                        Mở trang này bằng <strong>Safari</strong> → Bấm nút <strong>Chia sẻ</strong> ở dưới cùng → Chọn <strong>Thêm vào MH chính (Add to Home Screen)</strong>.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <a
+                  href="/api/ios-app.mobileconfig"
+                  className="flex-1 h-9 px-3 bg-zinc-950 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>Tải trực tiếp cấu hình iOS</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => handleCopy(iosProfileUrl, 'ios')}
+                  className="h-9 px-3 bg-white hover:bg-zinc-100 text-zinc-700 border border-zinc-200 rounded-xl text-xs font-semibold flex items-center gap-1 transition"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>{copiedLink === 'ios' ? 'Đã chép' : 'Copy'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Cột 2: Android (Samsung, Oppo, Xiaomi, Vivo...) */}
+            <div className="rounded-2xl border border-zinc-200 bg-zinc-50/70 p-4 flex flex-col justify-between space-y-3.5">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-1 rounded-lg bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5">
+                      <Smartphone className="w-3.5 h-3.5" />
+                      <span>Điện Thoại Android</span>
+                    </span>
+                    <span className="text-[11px] font-semibold text-zinc-600 bg-white px-2 py-0.5 rounded-md border border-zinc-200">
+                      Samsung • Xiaomi • Oppo
+                    </span>
+                  </div>
+                </div>
+
+                {/* Khung QR + Hướng dẫn từng bước cho Android */}
+                <div className="flex flex-col sm:flex-row items-center sm:items-start gap-3.5 bg-white p-3.5 rounded-xl border border-zinc-200/80">
+                  <div className="p-2 bg-white rounded-xl border border-zinc-200 shrink-0 shadow-2xs">
+                    <img
+                      src={androidQrImg}
+                      alt="Mã QR cài App cho Android"
+                      className="w-32 h-32 sm:w-36 sm:h-36 object-contain"
+                      loading="lazy"
+                    />
+                    <div className="text-[10px] font-bold text-center text-zinc-500 mt-1">
+                      Quét bằng Camera / Zalo
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 text-xs text-zinc-700 flex-1">
+                    <div className="font-bold text-zinc-950 text-xs">
+                      Hướng dẫn cài App Android trong 10 giây:
+                    </div>
+                    <ol className="space-y-1.5 text-[11px] leading-relaxed text-zinc-600 list-decimal list-inside">
+                      <li>
+                        Dùng <strong>Camera</strong> hoặc <strong>Zalo</strong> quét mã QR bên cạnh và chọn mở bằng trình duyệt <strong>Chrome</strong>.
+                      </li>
+                      <li>
+                        Bấm vào biểu tượng <strong>Menu 3 chấm (⋮)</strong> ở góc trên cùng bên phải trình duyệt Chrome.
+                      </li>
+                      <li>
+                        Chọn <strong>&ldquo;Cài đặt ứng dụng&rdquo; (Install App)</strong> hoặc <strong>&ldquo;Thêm vào màn hình chính&rdquo;</strong> → Bấm <strong>Cài đặt</strong> là xong!
+                      </li>
+                    </ol>
+
+                    <div className="pt-1.5 border-t border-zinc-100 text-[11px] text-emerald-700 font-medium">
+                      ✓ Tự động lưu đăng nhập & nhận thông báo giao việc mới.
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <a
+                  href={androidWebAppUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex-1 h-9 px-3 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>Mở Link Cài Đặt Android</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => handleCopy(androidWebAppUrl, 'android')}
+                  className="h-9 px-3 bg-white hover:bg-zinc-100 text-zinc-700 border border-zinc-200 rounded-xl text-xs font-semibold flex items-center gap-1 transition"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>{copiedLink === 'android' ? 'Đã chép' : 'Copy'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Main Card: Tùy biến thanh công cụ */}
-      <div className="bg-white rounded-3xl shadow-sm border border-stone-200 p-6 sm:p-8 space-y-6">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center pb-4 border-b border-stone-100 gap-3">
+      <div className="bg-white rounded-2xl shadow-xs border border-zinc-200 p-4 sm:p-6 space-y-5">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center pb-3.5 border-b border-zinc-100 gap-3">
           <div>
-            <h3 className="text-lg font-bold text-stone-900 flex items-center gap-2">
-              <Menu className="w-5 h-5 text-amber-600" />
-              Quản Lý Từng Nút Trên Thanh Công Cụ (Navbar)
+            <h3 className="text-base font-bold text-zinc-900 flex items-center gap-2">
+              <Menu className="w-4 h-4 text-zinc-700" />
+              Quản Lý Từng Nút Trên Thanh Công Cụ (Menu)
             </h3>
-            <p className="text-xs sm:text-sm text-stone-500 mt-0.5">
+            <p className="text-xs text-zinc-500 mt-0.5">
               Thêm bớt, đổi tên, thay đổi biểu tượng icon và sắp xếp thứ tự các nút trên thanh menu.
             </p>
           </div>
 
           <div className="flex items-center gap-2">
             <button
+              type="button"
               onClick={handleResetNavItems}
-              className="px-3 py-1.5 text-xs text-stone-600 hover:text-stone-900 hover:bg-stone-100 rounded-xl border border-stone-200 font-medium flex items-center gap-1 transition"
+              className="h-8 px-3 text-xs text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 rounded-xl border border-zinc-200 font-medium flex items-center gap-1 transition"
             >
               <RotateCcw className="w-3.5 h-3.5" />
               <span>Khôi phục mặc định</span>
             </button>
             <button
+              type="button"
               onClick={() => setIsAddingNav(true)}
-              className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl shadow-md transition flex items-center gap-1.5"
+              className="h-8 px-3.5 bg-zinc-950 hover:bg-zinc-800 text-white font-bold text-xs rounded-xl transition flex items-center gap-1.5"
             >
-              <Plus className="w-4 h-4" />
-              <span>Thêm Nút Mới Vào Menu</span>
+              <Plus className="w-3.5 h-3.5" />
+              <span>Thêm Nút Menu</span>
             </button>
           </div>
         </div>
 
         {/* Live Preview Box */}
-        <div className="bg-stone-900 text-white p-4 sm:p-5 rounded-2xl border border-stone-800">
-          <div className="text-[11px] font-bold uppercase tracking-wider text-amber-400 mb-2 flex items-center gap-1.5">
-            <Sparkles className="w-3 h-3" /> Xem trước thanh công cụ trực tiếp (Live Preview):
+        <div className="bg-zinc-950 text-white p-3.5 sm:p-4 rounded-xl border border-zinc-800">
+          <div className="text-[11px] font-bold uppercase tracking-wider text-zinc-400 mb-2 flex items-center gap-1.5">
+            <Sparkles className="w-3 h-3 text-amber-400" /> Xem trước thanh menu trực tiếp:
           </div>
-          <div className="flex flex-wrap items-center gap-2 p-2 bg-stone-950/80 rounded-xl border border-stone-800">
+          <div className="flex flex-wrap items-center gap-1.5">
             {navItems
               .filter((item) => item.visible)
               .map((item) => (
                 <div
                   key={item.id}
-                  className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-amber-700/90 text-white flex items-center gap-1.5 shadow-sm border border-amber-500/40"
+                  className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-zinc-800 text-white flex items-center gap-1.5 border border-zinc-700"
                 >
-                  <DynamicIcon name={item.iconName} className="w-3.5 h-3.5 text-amber-200" />
+                  <DynamicIcon name={item.iconName} className="w-3.5 h-3.5 text-zinc-300" />
                   <span>{item.label}</span>
                 </div>
               ))}
@@ -333,65 +461,48 @@ export const AdminConfigView: React.FC<AdminConfigViewProps> = ({
         </div>
 
         {/* List of Current Toolbar Items (Collapsible Dropdown) */}
-        <div className="border border-stone-200 rounded-2xl overflow-hidden bg-stone-50/40">
+        <div className="border border-zinc-200 rounded-xl overflow-hidden bg-zinc-50/40">
           <button
             type="button"
             onClick={() => setIsNavListExpanded(!isNavListExpanded)}
-            className="w-full px-4 py-3.5 bg-stone-100/80 hover:bg-stone-200/60 transition flex items-center justify-between gap-3 text-left"
+            className="w-full px-4 py-3 bg-zinc-100/80 hover:bg-zinc-200/60 transition flex items-center justify-between gap-3 text-left"
           >
-            <div className="flex items-center gap-2.5 flex-wrap">
-              <span className="text-xs font-bold text-stone-700 uppercase tracking-wider">
-                Danh sách các nút hiện tại trên thanh công cụ ({navItems.length} nút)
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-bold text-zinc-800 uppercase tracking-wider">
+                Danh sách các nút trên menu ({navItems.length} nút)
               </span>
-              {!isNavListExpanded && (
-                <div className="flex items-center gap-1 ml-1">
-                  {navItems.map((item) => (
-                    <span
-                      key={item.id}
-                      className={`p-1.5 rounded-lg border ${
-                        item.visible
-                          ? 'bg-amber-100 text-amber-900 border-amber-200'
-                          : 'bg-stone-200 text-stone-400 border-stone-300 opacity-60'
-                      }`}
-                      title={`${item.label} (${item.visible ? 'Đang hiện' : 'Đang ẩn'})`}
-                    >
-                      <DynamicIcon name={item.iconName} className="w-3.5 h-3.5" />
-                    </span>
-                  ))}
-                </div>
-              )}
             </div>
 
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-800 bg-amber-100/80 px-2.5 py-1 rounded-xl border border-amber-200 shrink-0">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-zinc-800 bg-white px-2.5 py-1 rounded-lg border border-zinc-200 shrink-0">
               <span>{isNavListExpanded ? 'Thu gọn' : 'Mở danh sách'}</span>
               {isNavListExpanded ? (
-                <ChevronUp className="w-4 h-4 text-amber-700" />
+                <ChevronUp className="w-4 h-4 text-zinc-600" />
               ) : (
-                <ChevronDown className="w-4 h-4 text-amber-700" />
+                <ChevronDown className="w-4 h-4 text-zinc-600" />
               )}
             </div>
           </button>
 
           {isNavListExpanded && (
-            <div className="divide-y divide-stone-100 border-t border-stone-200">
+            <div className="divide-y divide-zinc-100 border-t border-zinc-200">
               {navItems.map((item, index) => {
                 const isEditing = editingNavId === item.id;
 
                 return (
                   <div
                     key={item.id}
-                    className={`p-4 transition ${
-                      item.visible ? 'bg-white hover:bg-amber-50/20' : 'bg-stone-100/60 opacity-60'
+                    className={`p-3.5 transition ${
+                      item.visible ? 'bg-white' : 'bg-zinc-100/60 opacity-60'
                     }`}
                   >
                     {isEditing ? (
-                      /* Edit Form Inline */
-                      <div className="space-y-3 bg-amber-50/50 p-4 rounded-xl border border-amber-200">
+                      <div className="space-y-3 bg-zinc-50 p-3.5 rounded-xl border border-zinc-200">
                         <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold text-amber-900 uppercase">Chỉnh sửa nút:</span>
+                          <span className="text-xs font-bold text-zinc-900 uppercase">Chỉnh sửa nút:</span>
                           <button
+                            type="button"
                             onClick={() => setEditingNavId(null)}
-                            className="text-stone-400 hover:text-stone-700 p-1"
+                            className="text-zinc-400 hover:text-zinc-700 p-1"
                           >
                             <X className="w-4 h-4" />
                           </button>
@@ -399,30 +510,30 @@ export const AdminConfigView: React.FC<AdminConfigViewProps> = ({
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                           <div>
-                            <label className="block text-xs font-bold text-stone-700 mb-1">
-                              Tên hiển thị trên thanh công cụ
+                            <label className="block text-xs font-bold text-zinc-700 mb-1">
+                              Tên hiển thị trên menu
                             </label>
                             <input
                               type="text"
                               value={editLabel}
                               onChange={(e) => setEditLabel(e.target.value)}
-                              className="w-full p-2 text-sm bg-white border border-stone-300 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none"
+                              className="w-full p-2 text-sm bg-white border border-zinc-300 rounded-xl outline-none"
                               placeholder="Nhập tên mới..."
                             />
                           </div>
 
                           <div>
-                            <label className="block text-xs font-bold text-stone-700 mb-1">
+                            <label className="block text-xs font-bold text-zinc-700 mb-1">
                               Biểu tượng (Icon)
                             </label>
                             <div className="flex items-center gap-2">
-                              <div className="p-2 bg-amber-100 rounded-lg border border-amber-300">
-                                <DynamicIcon name={editIcon} className="w-5 h-5 text-amber-800" />
+                              <div className="p-2 bg-zinc-100 rounded-lg border border-zinc-300">
+                                <DynamicIcon name={editIcon} className="w-5 h-5 text-zinc-800" />
                               </div>
                               <select
                                 value={editIcon}
                                 onChange={(e) => setEditIcon(e.target.value)}
-                                className="w-full p-2 text-xs bg-white border border-stone-300 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none"
+                                className="w-full p-2 text-xs bg-white border border-zinc-300 rounded-xl outline-none"
                               >
                                 {AVAILABLE_ICONS.map((ic) => (
                                   <option key={ic} value={ic}>
@@ -434,16 +545,15 @@ export const AdminConfigView: React.FC<AdminConfigViewProps> = ({
                           </div>
                         </div>
 
-                        {/* Target selection */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                           <div>
-                            <label className="block text-xs font-bold text-stone-700 mb-1">
+                            <label className="block text-xs font-bold text-zinc-700 mb-1">
                               Chức năng liên kết khi bấm
                             </label>
                             <select
                               value={editType}
                               onChange={(e) => setEditType(e.target.value as NavItemType)}
-                              className="w-full p-2 text-xs bg-white border border-stone-300 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none"
+                              className="w-full p-2 text-xs bg-white border border-zinc-300 rounded-xl outline-none"
                             >
                               <option value="checklist">Mở Bảng Checklist Nhân Viên</option>
                               <option value="chef_tasks">Mở Giao Việc Bếp Trưởng</option>
@@ -457,14 +567,14 @@ export const AdminConfigView: React.FC<AdminConfigViewProps> = ({
 
                           {editType === 'custom' && (
                             <div>
-                              <label className="block text-xs font-bold text-stone-700 mb-1">
+                              <label className="block text-xs font-bold text-zinc-700 mb-1">
                                 Tiêu đề trang chi tiết
                               </label>
                               <input
                                 type="text"
                                 value={editCustomTitle}
                                 onChange={(e) => setEditCustomTitle(e.target.value)}
-                                className="w-full p-2 text-xs bg-white border border-stone-300 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none"
+                                className="w-full p-2 text-xs bg-white border border-zinc-300 rounded-xl outline-none"
                                 placeholder="Tiêu đề trang..."
                               />
                             </div>
@@ -473,29 +583,31 @@ export const AdminConfigView: React.FC<AdminConfigViewProps> = ({
 
                         {editType === 'custom' && (
                           <div>
-                            <label className="block text-xs font-bold text-stone-700 mb-1">
-                              Nội dung hướng dẫn / quy trình chi tiết (Văn bản)
+                            <label className="block text-xs font-bold text-zinc-700 mb-1">
+                              Nội dung hướng dẫn / quy trình chi tiết
                             </label>
                             <textarea
                               rows={3}
                               value={editCustomContent}
                               onChange={(e) => setEditCustomContent(e.target.value)}
-                              className="w-full p-2 text-xs bg-white border border-stone-300 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none"
-                              placeholder="Ghi chú quy trình thực hiện, nội quy làm việc hoặc danh sách kiểm tra cần lưu ý..."
+                              className="w-full p-2 text-xs bg-white border border-zinc-300 rounded-xl outline-none"
+                              placeholder="Ghi chú quy trình thực hiện..."
                             />
                           </div>
                         )}
 
                         <div className="flex justify-end gap-2 pt-1">
                           <button
+                            type="button"
                             onClick={() => setEditingNavId(null)}
-                            className="px-3 py-1.5 text-xs text-stone-600 hover:bg-stone-200 rounded-lg"
+                            className="h-8 px-3 text-xs text-zinc-600 hover:bg-zinc-200 rounded-lg"
                           >
                             Hủy
                           </button>
                           <button
+                            type="button"
                             onClick={saveEditNav}
-                            className="px-4 py-1.5 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white rounded-lg flex items-center gap-1 shadow-sm"
+                            className="h-8 px-4 text-xs font-bold bg-zinc-950 hover:bg-zinc-800 text-white rounded-lg flex items-center gap-1"
                           >
                             <Save className="w-3.5 h-3.5" />
                             <span>Lưu thay đổi</span>
@@ -503,71 +615,61 @@ export const AdminConfigView: React.FC<AdminConfigViewProps> = ({
                         </div>
                       </div>
                     ) : (
-                      /* Normal Row View */
-                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                        <div className="flex items-center gap-3">
+                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
+                        <div className="flex items-center gap-2.5">
                           <div className="flex flex-col gap-0.5">
                             <button
+                              type="button"
                               onClick={() => handleMoveNav(index, 'up')}
                               disabled={index === 0}
-                              className={`p-1 rounded hover:bg-stone-200 ${
-                                index === 0 ? 'text-stone-300 cursor-not-allowed' : 'text-stone-600'
+                              className={`p-1 rounded hover:bg-zinc-200 ${
+                                index === 0 ? 'text-zinc-300 cursor-not-allowed' : 'text-zinc-600'
                               }`}
-                              title="Di chuyển lên trước"
                             >
                               <ArrowUp className="w-3.5 h-3.5" />
                             </button>
                             <button
+                              type="button"
                               onClick={() => handleMoveNav(index, 'down')}
                               disabled={index === navItems.length - 1}
-                              className={`p-1 rounded hover:bg-stone-200 ${
+                              className={`p-1 rounded hover:bg-zinc-200 ${
                                 index === navItems.length - 1
-                                  ? 'text-stone-300 cursor-not-allowed'
-                                  : 'text-stone-600'
+                                  ? 'text-zinc-300 cursor-not-allowed'
+                                  : 'text-zinc-600'
                               }`}
-                              title="Di chuyển xuống sau"
                             >
                               <ArrowDown className="w-3.5 h-3.5" />
                             </button>
                           </div>
 
-                          <div className="p-2.5 bg-amber-100 text-amber-900 rounded-xl border border-amber-200">
-                            <DynamicIcon name={item.iconName} className="w-5 h-5" />
+                          <div className="p-2 bg-zinc-100 text-zinc-900 rounded-xl border border-zinc-200">
+                            <DynamicIcon name={item.iconName} className="w-4 h-4" />
                           </div>
 
                           <div>
                             <div className="flex items-center gap-2">
-                              <span className="font-bold text-sm text-stone-900">{item.label}</span>
+                              <span className="font-bold text-sm text-zinc-900">{item.label}</span>
                               {!item.visible && (
-                                <span className="text-[10px] font-semibold bg-stone-200 text-stone-600 px-2 py-0.5 rounded-full">
+                                <span className="text-[10px] font-semibold bg-zinc-200 text-zinc-600 px-2 py-0.5 rounded-full">
                                   Đang ẩn
                                 </span>
                               )}
                             </div>
-                            <div className="flex items-center gap-2 text-xs text-stone-500 mt-0.5">
-                              <span className="font-mono text-[11px] bg-stone-100 px-1.5 py-0.5 rounded text-stone-600">
-                                Loại: {item.targetType}
-                              </span>
-                              <span>•</span>
-                              <span>Icon: {item.iconName}</span>
+                            <div className="text-[11px] text-zinc-500">
+                              Loại: {item.targetType} • Icon: {item.iconName}
                             </div>
                           </div>
                         </div>
 
-                        {/* Quick Action Buttons */}
-                        <div className="flex items-center gap-2 self-end sm:self-auto">
+                        <div className="flex items-center gap-1.5 self-end sm:self-auto">
                           <button
+                            type="button"
                             onClick={() => handleToggleNavVisibility(item.id)}
-                            className={`p-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition border ${
-                              item.visible
-                                ? 'bg-stone-100 hover:bg-stone-200 text-stone-700 border-stone-200'
-                                : 'bg-amber-100 hover:bg-amber-200 text-amber-800 border-amber-300'
-                            }`}
-                            title={item.visible ? 'Bấm để ẩn nút này' : 'Bấm để hiện nút này'}
+                            className="h-8 px-2.5 rounded-xl text-xs font-semibold flex items-center gap-1 transition border bg-zinc-50 hover:bg-zinc-100 text-zinc-700 border-zinc-200"
                           >
                             {item.visible ? (
                               <>
-                                <Eye className="w-3.5 h-3.5 text-stone-500" />
+                                <Eye className="w-3.5 h-3.5 text-zinc-500" />
                                 <span>Đang hiện</span>
                               </>
                             ) : (
@@ -579,16 +681,18 @@ export const AdminConfigView: React.FC<AdminConfigViewProps> = ({
                           </button>
 
                           <button
+                            type="button"
                             onClick={() => startEditNav(item)}
-                            className="p-2 bg-amber-50 hover:bg-amber-100 text-amber-800 rounded-xl text-xs font-semibold flex items-center gap-1.5 border border-amber-200 transition"
+                            className="h-8 px-2.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 rounded-xl text-xs font-semibold flex items-center gap-1 border border-zinc-200 transition"
                           >
                             <Edit2 className="w-3.5 h-3.5" />
-                            <span>Đổi tên & Icon</span>
+                            <span>Sửa</span>
                           </button>
 
                           <button
+                            type="button"
                             onClick={() => handleDeleteNav(item.id)}
-                            className="p-2 text-rose-500 hover:bg-rose-50 hover:text-rose-700 rounded-xl transition"
+                            className="w-8 h-8 text-rose-500 hover:bg-rose-50 hover:text-rose-700 rounded-xl flex items-center justify-center transition"
                             title="Xóa nút này"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -605,45 +709,46 @@ export const AdminConfigView: React.FC<AdminConfigViewProps> = ({
 
         {/* Modal: Thêm nút mới */}
         {isAddingNav && (
-          <div className="mt-6 bg-gradient-to-br from-amber-50 to-orange-50/40 p-5 rounded-2xl border-2 border-dashed border-amber-300 space-y-4">
+          <div className="mt-4 bg-zinc-50 p-4 rounded-2xl border border-zinc-200 space-y-4">
             <div className="flex items-center justify-between">
-              <h4 className="text-sm font-bold text-amber-950 uppercase flex items-center gap-2">
-                <Plus className="w-4 h-4 text-amber-600" /> Thêm Nút Mới Vào Thanh Công Cụ
+              <h4 className="text-xs font-bold text-zinc-900 uppercase flex items-center gap-1.5">
+                <Plus className="w-4 h-4" /> Thêm Nút Mới Vào Thanh Công Cụ
               </h4>
               <button
+                type="button"
                 onClick={() => setIsAddingNav(false)}
-                className="text-stone-400 hover:text-stone-700"
+                className="text-zinc-400 hover:text-zinc-700"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleAddNewNavItem} className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <form onSubmit={handleAddNewNavItem} className="space-y-3.5">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-stone-700 mb-1">
+                  <label className="block text-xs font-bold text-zinc-700 mb-1">
                     Tên Nút Hiển Thị <span className="text-rose-500">*</span>
                   </label>
                   <input
                     type="text"
                     required
-                    placeholder="Ví dụ: Kiểm Kê Kho, Sổ Tay Bếp, Quy Trình ATTP..."
+                    placeholder="Ví dụ: Kiểm Kê Kho, Sổ Tay Bếp..."
                     value={newNavLabel}
                     onChange={(e) => setNewNavLabel(e.target.value)}
-                    className="w-full p-2.5 bg-white border border-stone-300 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 outline-none"
+                    className="w-full p-2.5 bg-white border border-zinc-300 rounded-xl text-sm outline-none"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-stone-700 mb-1">
+                  <label className="block text-xs font-bold text-zinc-700 mb-1">
                     Chức Năng Khi Bấm Vào Nút
                   </label>
                   <select
                     value={newNavType}
                     onChange={(e) => setNewNavType(e.target.value as NavItemType)}
-                    className="w-full p-2.5 bg-white border border-stone-300 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 outline-none"
+                    className="w-full p-2.5 bg-white border border-zinc-300 rounded-xl text-sm outline-none"
                   >
-                    <option value="custom">Trang Tùy Chỉnh (Nội quy, checklist hoặc ghi chú riêng)</option>
+                    <option value="custom">Trang Tùy Chỉnh (Nội quy, ghi chú riêng)</option>
                     <option value="checklist">Mở Bảng Checklist Nhân Viên</option>
                     <option value="chef_tasks">Mở Giao Việc Bếp Trưởng</option>
                     <option value="history">Mở Lịch Sử Ca Bếp</option>
@@ -654,12 +759,11 @@ export const AdminConfigView: React.FC<AdminConfigViewProps> = ({
                 </div>
               </div>
 
-              {/* Icon Selector Grid */}
               <div>
-                <label className="block text-xs font-bold text-stone-700 mb-1.5">
-                  Chọn Biểu Tượng (Icon) Cho Nút
+                <label className="block text-xs font-bold text-zinc-700 mb-1.5">
+                  Chọn Biểu Tượng (Icon)
                 </label>
-                <div className="grid grid-cols-6 sm:grid-cols-10 gap-2 p-2 bg-white rounded-xl border border-stone-200 max-h-36 overflow-y-auto">
+                <div className="grid grid-cols-6 sm:grid-cols-10 gap-1.5 p-2 bg-white rounded-xl border border-zinc-200 max-h-32 overflow-y-auto">
                   {AVAILABLE_ICONS.map((ic) => (
                     <button
                       key={ic}
@@ -667,10 +771,9 @@ export const AdminConfigView: React.FC<AdminConfigViewProps> = ({
                       onClick={() => setNewNavIcon(ic)}
                       className={`p-2 rounded-lg flex items-center justify-center transition ${
                         newNavIcon === ic
-                          ? 'bg-amber-600 text-white shadow-sm ring-2 ring-amber-400'
-                          : 'bg-stone-50 hover:bg-stone-100 text-stone-700'
+                          ? 'bg-zinc-950 text-white'
+                          : 'bg-zinc-50 hover:bg-zinc-100 text-zinc-700'
                       }`}
-                      title={ic}
                     >
                       <DynamicIcon name={ic} className="w-4 h-4" />
                     </button>
@@ -679,48 +782,48 @@ export const AdminConfigView: React.FC<AdminConfigViewProps> = ({
               </div>
 
               {newNavType === 'custom' && (
-                <div className="space-y-3 bg-white p-4 rounded-xl border border-stone-200">
+                <div className="space-y-3 bg-white p-3.5 rounded-xl border border-zinc-200">
                   <div>
-                    <label className="block text-xs font-bold text-stone-700 mb-1">
+                    <label className="block text-xs font-bold text-zinc-700 mb-1">
                       Tiêu Đề Trang Tùy Chỉnh
                     </label>
                     <input
                       type="text"
-                      placeholder="Tiêu đề hiển thị khi mở trang này..."
+                      placeholder="Tiêu đề hiển thị..."
                       value={newNavCustomTitle}
                       onChange={(e) => setNewNavCustomTitle(e.target.value)}
-                      className="w-full p-2 text-sm bg-stone-50 border border-stone-300 rounded-xl"
+                      className="w-full p-2 text-sm bg-zinc-50 border border-zinc-300 rounded-xl"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-stone-700 mb-1">
+                    <label className="block text-xs font-bold text-zinc-700 mb-1">
                       Nội Dung Chi Tiết / Hướng Dẫn Vận Hành
                     </label>
                     <textarea
                       rows={3}
-                      placeholder="Nhập nội dung quy định bếp, quy chuẩn vệ sinh, hướng dẫn sử dụng máy móc..."
+                      placeholder="Nhập nội dung quy định bếp..."
                       value={newNavCustomContent}
                       onChange={(e) => setNewNavCustomContent(e.target.value)}
-                      className="w-full p-2 text-sm bg-stone-50 border border-stone-300 rounded-xl"
+                      className="w-full p-2 text-sm bg-zinc-50 border border-zinc-300 rounded-xl"
                     />
                   </div>
                 </div>
               )}
 
-              <div className="flex justify-end gap-2 pt-2">
+              <div className="flex justify-end gap-2 pt-1">
                 <button
                   type="button"
                   onClick={() => setIsAddingNav(false)}
-                  className="px-4 py-2 text-xs font-semibold text-stone-600 hover:bg-stone-100 rounded-xl"
+                  className="h-8 px-3.5 text-xs font-semibold text-zinc-600 hover:bg-zinc-100 rounded-xl"
                 >
                   Hủy
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white rounded-xl shadow-md transition flex items-center gap-1.5"
+                  className="h-8 px-4 text-xs font-bold bg-zinc-950 hover:bg-zinc-800 text-white rounded-xl transition flex items-center gap-1.5"
                 >
-                  <Plus className="w-4 h-4" />
-                  <span>Xác Nhận Thêm Vào Menu</span>
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Thêm Vào Menu</span>
                 </button>
               </div>
             </form>
@@ -729,20 +832,20 @@ export const AdminConfigView: React.FC<AdminConfigViewProps> = ({
       </div>
 
       {/* Card: Tùy biến Tên Nhà Hàng / App Branding */}
-      <div className="bg-white rounded-3xl shadow-sm border border-stone-200 p-6 sm:p-8">
-        <h3 className="text-base font-bold text-stone-900 mb-1 flex items-center gap-2">
-          <Sparkles className="w-4 h-4 text-amber-600" />
+      <div className="bg-white rounded-2xl shadow-xs border border-zinc-200 p-4 sm:p-6">
+        <h3 className="text-base font-bold text-zinc-900 mb-1 flex items-center gap-2">
+          <Sparkles className="w-4 h-4 text-amber-500" />
           Tùy Chỉnh Thương Hiệu Bếp & Tiêu Đề Header
         </h3>
-        <p className="text-xs text-stone-500 mb-5">
+        <p className="text-xs text-zinc-500 mb-4">
           Thay đổi tên nhà hàng và khẩu hiệu hiển thị ở góc trái trên cùng thanh công cụ.
         </p>
 
         <form onSubmit={handleSaveBranding} className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
             <div>
-              <label className="block text-xs font-bold text-stone-700 mb-1">
-                Tên Ứng Dụng / Nhà Hàng (App Title)
+              <label className="block text-xs font-bold text-zinc-700 mb-1">
+                Tên Ứng Dụng / Nhà Hàng
               </label>
               <input
                 type="text"
@@ -751,13 +854,13 @@ export const AdminConfigView: React.FC<AdminConfigViewProps> = ({
                 onChange={(e) =>
                   setBrandingForm({ ...brandingForm, appTitle: e.target.value })
                 }
-                className="w-full p-2.5 bg-stone-50 border border-stone-300 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 outline-none font-bold"
+                className="w-full p-2.5 bg-zinc-50 border border-zinc-300 rounded-xl text-sm outline-none font-bold"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-stone-700 mb-1">
-                Khẩu Hiệu / Mô Tả Phụ (Subtitle)
+              <label className="block text-xs font-bold text-zinc-700 mb-1">
+                Khẩu Hiệu / Mô Tả Phụ
               </label>
               <input
                 type="text"
@@ -765,12 +868,12 @@ export const AdminConfigView: React.FC<AdminConfigViewProps> = ({
                 onChange={(e) =>
                   setBrandingForm({ ...brandingForm, appSubtitle: e.target.value })
                 }
-                className="w-full p-2.5 bg-stone-50 border border-stone-300 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 outline-none"
+                className="w-full p-2.5 bg-zinc-50 border border-zinc-300 rounded-xl text-sm outline-none"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-stone-700 mb-1">
+              <label className="block text-xs font-bold text-zinc-700 mb-1">
                 Logo Biểu Tượng Bếp
               </label>
               <select
@@ -778,7 +881,7 @@ export const AdminConfigView: React.FC<AdminConfigViewProps> = ({
                 onChange={(e) =>
                   setBrandingForm({ ...brandingForm, brandIcon: e.target.value })
                 }
-                className="w-full p-2.5 bg-stone-50 border border-stone-300 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 outline-none"
+                className="w-full p-2.5 bg-zinc-50 border border-zinc-300 rounded-xl text-sm outline-none"
               >
                 <option value="Utensils">Dao Nĩa (Utensils)</option>
                 <option value="ChefHat">Nón Bếp Trưởng (ChefHat)</option>
@@ -790,7 +893,7 @@ export const AdminConfigView: React.FC<AdminConfigViewProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center justify-between pt-2">
+          <div className="flex items-center justify-between pt-1">
             {brandingSaved ? (
               <span className="text-xs text-emerald-600 font-bold flex items-center gap-1">
                 <Check className="w-4 h-4" /> Đã cập nhật tên thương hiệu thành công!
@@ -800,10 +903,10 @@ export const AdminConfigView: React.FC<AdminConfigViewProps> = ({
             )}
             <button
               type="submit"
-              className="px-5 py-2.5 bg-stone-900 hover:bg-black text-white font-bold text-xs rounded-xl shadow-md transition flex items-center gap-1.5"
+              className="h-9 px-4 bg-zinc-950 hover:bg-zinc-800 text-white font-bold text-xs rounded-xl transition flex items-center gap-1.5"
             >
               <Save className="w-3.5 h-3.5" />
-              <span>Lưu Tên Thương Hiệu</span>
+              <span>Lưu Thương Hiệu</span>
             </button>
           </div>
         </form>
