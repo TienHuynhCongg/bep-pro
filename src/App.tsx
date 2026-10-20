@@ -1758,41 +1758,74 @@ export default function App() {
     showToast(target ? `Đã xóa công thức: "${target.dishName}"` : 'Đã xóa công thức');
   };
 
-  // 2. Handlers Lưu Số Lượng Tồn Kiểm (Inventory Check)
+  // 2. Handlers Lưu Số Lượng Tồn Kiểm (Inventory Check - Sửa trực tiếp trong bảng, Lưu theo ngày, Chỉ Admin được xóa)
   const handleSaveInventoryItem = (itemPayload: InventoryCheckItem, isEdit: boolean) => {
-    const nextInventory = isEdit
-      ? inventory.map((i) => (i.id === itemPayload.id ? itemPayload : i))
-      : [itemPayload, ...inventory];
+    const exists = inventory.some((i) => i.id === itemPayload.id);
+    const nextInventory =
+      isEdit && exists
+        ? inventory.map((i) => (i.id === itemPayload.id ? itemPayload : i))
+        : [...inventory, itemPayload];
     setInventory(nextInventory);
 
+    // Chỉ tạo thông báo khi dòng đã có tên mặt hàng
+    if (itemPayload.itemName && itemPayload.itemName.trim()) {
+      const actorName = currentUser?.fullName || 'Nhân viên ca';
+      const summaryText = `[${itemPayload.dateStr}] ${itemPayload.itemName} (Tồn: ${itemPayload.stockQty || 0} / Hủy: ${itemPayload.wasteQty || 0} ${itemPayload.unit || ''})`;
+
+      const nextNotifs = createNotificationItem({
+        actorName,
+        actorRole: currentUser?.role || 'staff',
+        actionText: 'đã cập nhật trực tiếp bảng tồn kiểm',
+        targetText: summaryText.trim(),
+        type: 'task_completed',
+      });
+      pushStateToServer({ inventory: nextInventory, notifications: nextNotifs });
+    } else {
+      pushStateToServer({ inventory: nextInventory });
+    }
+  };
+
+  const handleSaveDailyInventoryTable = (
+    dateStr: string,
+    updatedAllItems: InventoryCheckItem[]
+  ) => {
+    setInventory(updatedAllItems);
+    const countForDate = updatedAllItems.filter((i) => i.dateStr === dateStr).length;
     const actorName = currentUser?.fullName || 'Nhân viên ca';
-    const summaryText =
-      itemPayload.statusType === 'huy'
-        ? `${itemPayload.itemName} (Hủy: ${itemPayload.wasteQty} ${itemPayload.unit})`
-        : `${itemPayload.itemName} (Tồn: ${itemPayload.stockQty} ${itemPayload.unit})`;
 
     const nextNotifs = createNotificationItem({
       actorName,
       actorRole: currentUser?.role || 'staff',
-      actionText: isEdit ? 'đã sửa số lượng tồn kiểm' : 'đã lưu số lượng tồn kiểm',
-      targetText: summaryText,
+      actionText: `đã lưu bảng tồn kiểm ngày ${dateStr}`,
+      targetText: `${countForDate} mặt hàng trong bảng`,
       type: 'task_completed',
     });
 
-    pushStateToServer({ inventory: nextInventory, notifications: nextNotifs });
-    showToast(
-      isEdit
-        ? `✅ Đã cập nhật tồn kiểm: "${itemPayload.itemName}"`
-        : `📦 Đã lưu tồn kiểm: "${itemPayload.itemName}"`
-    );
+    pushStateToServer({ inventory: updatedAllItems, notifications: nextNotifs });
+    showToast(`📦 Đã lưu bảng tồn kiểm ngày ${dateStr} (${countForDate} dòng)!`);
   };
 
   const handleDeleteInventoryItem = (id: string) => {
+    if (currentUser?.role !== 'admin') {
+      showToast('🔒 Chỉ Bếp Trưởng (Admin) mới có quyền xóa dữ liệu trong bảng tồn kiểm!', 'error');
+      return;
+    }
     const target = inventory.find((i) => i.id === id);
     const nextInventory = inventory.filter((i) => i.id !== id);
     setInventory(nextInventory);
     pushStateToServer({ inventory: nextInventory });
-    showToast(target ? `Đã xóa mục tồn kiểm: "${target.itemName}"` : 'Đã xóa mục tồn kiểm');
+    showToast(target?.itemName ? `Đã xóa dòng tồn kiểm: "${target.itemName}"` : 'Đã xóa dòng trong bảng');
+  };
+
+  const handleDeleteInventoryDateTable = (dateStr: string) => {
+    if (currentUser?.role !== 'admin') {
+      showToast('🔒 Chỉ Bếp Trưởng (Admin) mới có quyền xóa bảng tồn kiểm theo ngày!', 'error');
+      return;
+    }
+    const nextInventory = inventory.filter((i) => i.dateStr !== dateStr);
+    setInventory(nextInventory);
+    pushStateToServer({ inventory: nextInventory });
+    showToast(`🗑️ Admin đã xóa bảng tồn kiểm ngày ${dateStr}`);
   };
 
   // Find currently active nav item
@@ -2001,6 +2034,8 @@ export default function App() {
                   items={inventory}
                   onSaveItem={handleSaveInventoryItem}
                   onDeleteItem={handleDeleteInventoryItem}
+                  onSaveDailyTable={handleSaveDailyInventoryTable}
+                  onDeleteDateTable={handleDeleteInventoryDateTable}
                   currentUser={currentUser}
                 />
               )}

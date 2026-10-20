@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { InventoryCheckItem, StaffUser } from '../types.ts';
 import {
   PackageCheck,
@@ -6,17 +6,19 @@ import {
   Trash2,
   Search,
   Download,
-  Edit2,
-  X,
   Save,
   Calendar,
+  Copy,
+  Lock,
+  Check,
 } from 'lucide-react';
 
 interface InventoryCheckViewProps {
   items: InventoryCheckItem[];
   onSaveItem: (item: InventoryCheckItem, isEdit: boolean) => void;
   onDeleteItem: (id: string) => void;
-  onClearAllItems?: () => void;
+  onSaveDailyTable?: (dateStr: string, updatedAllItems: InventoryCheckItem[]) => void;
+  onDeleteDateTable?: (dateStr: string) => void;
   currentUser?: StaffUser | null;
 }
 
@@ -42,455 +44,530 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
   items,
   onSaveItem,
   onDeleteItem,
+  onSaveDailyTable,
+  onDeleteDateTable,
   currentUser = null,
 }) => {
-  const todayDefault = new Date().toLocaleDateString('vi-VN');
+  const todayStr = new Date().toLocaleDateString('vi-VN');
+  const isAdmin = currentUser?.role === 'admin';
 
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [dateStr, setDateStr] = useState<string>(todayDefault);
-  const [itemName, setItemName] = useState<string>('');
-  const [statusType, setStatusType] = useState<'ton' | 'huy' | 'both'>('ton');
-  const [stockQty, setStockQty] = useState<string>('');
-  const [wasteQty, setWasteQty] = useState<string>('');
-  const [unit, setUnit] = useState<string>('kg');
-  const [formError, setFormError] = useState<string>('');
+  // Danh sách các ngày đã có bảng lưu (luôn có ngày hôm nay ở đầu)
+  const existingDates = Array.from(
+    new Set([todayStr, ...items.map((i) => i.dateStr).filter(Boolean)])
+  );
 
+  const [selectedDate, setSelectedDate] = useState<string>(todayStr);
+  const [customDateInput, setCustomDateInput] = useState<string>('');
+  const [showNewDateBox, setShowNewDateBox] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [filterDate, setFilterDate] = useState<string>('all');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [confirmDeleteTableDate, setConfirmDeleteTableDate] = useState<boolean>(false);
+  const [justSavedBanner, setJustSavedBanner] = useState<boolean>(false);
 
-  const resetForm = () => {
-    setEditingId(null);
-    setDateStr(new Date().toLocaleDateString('vi-VN'));
-    setItemName('');
-    setStatusType('ton');
-    setStockQty('');
-    setWasteQty('');
-    setUnit('kg');
-    setFormError('');
-  };
+  // Bản nháp cục bộ để gõ mượt trực tiếp trong bảng không bị giật
+  const [localItems, setLocalItems] = useState<InventoryCheckItem[]>(items);
 
-  const handleStartEdit = (row: InventoryCheckItem) => {
-    setEditingId(row.id);
-    setDateStr(row.dateStr);
-    setItemName(row.itemName);
-    setStatusType(row.statusType || 'ton');
-    setStockQty(row.stockQty || '');
-    setWasteQty(row.wasteQty || '');
-    setUnit(row.unit || 'kg');
-    setFormError('');
-  };
+  useEffect(() => {
+    setLocalItems(items);
+  }, [items]);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const trimmedName = itemName.trim();
-    const trimmedDate = dateStr.trim() || todayDefault;
+  // Các dòng thuộc bảng của ngày đang chọn
+  const rowsForSelectedDate = localItems.filter((i) => i.dateStr === selectedDate);
 
-    if (!trimmedName) {
-      setFormError('Vui lòng nhập Tên nguyên liệu / mặt hàng tồn kiểm!');
-      return;
-    }
-
-    if (statusType === 'ton' && !stockQty.trim()) {
-      setFormError('Vui lòng nhập Số lượng Tồn (số)!');
-      return;
-    }
-    if (statusType === 'huy' && !wasteQty.trim()) {
-      setFormError('Vui lòng nhập Số lượng Hủy (số)!');
-      return;
-    }
-    if (statusType === 'both' && !stockQty.trim() && !wasteQty.trim()) {
-      setFormError('Vui lòng nhập Số lượng Tồn hoặc Số lượng Hủy!');
-      return;
-    }
-
-    const payload: InventoryCheckItem = {
-      id: editingId || `inv-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
-      dateStr: trimmedDate,
-      itemName: trimmedName,
-      statusType,
-      stockQty: statusType === 'huy' ? '0' : stockQty.trim() || '0',
-      wasteQty: statusType === 'ton' ? '0' : wasteQty.trim() || '0',
-      unit: unit.trim() || 'kg',
-      createdBy: currentUser?.fullName || 'Nhân viên ca',
-      createdAt: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
-    };
-
-    onSaveItem(payload, Boolean(editingId));
-    resetForm();
-  };
-
-  const uniqueDates = Array.from(new Set(items.map((i) => i.dateStr)));
-
-  const filteredItems = items.filter((item) => {
-    const matchesDate = filterDate === 'all' || item.dateStr === filterDate;
+  const filteredRows = rowsForSelectedDate.filter((row) => {
     const q = searchQuery.trim().toLowerCase();
-    const matchesSearch =
-      !q ||
-      item.itemName.toLowerCase().includes(q) ||
-      item.dateStr.toLowerCase().includes(q);
-    return matchesDate && matchesSearch;
+    if (!q) return true;
+    return (
+      row.itemName.toLowerCase().includes(q) ||
+      row.dateStr.toLowerCase().includes(q) ||
+      (row.unit || '').toLowerCase().includes(q)
+    );
   });
 
-  const formatStockWasteDisplay = (item: InventoryCheckItem) => {
-    const u = item.unit || '';
-    const hasStock = Number(item.stockQty) > 0;
-    const hasWaste = Number(item.wasteQty) > 0;
+  // Thay đổi trực tiếp 1 ô trong bảng (tự động cập nhật state)
+  const handleCellChange = (
+    id: string,
+    field: 'dateStr' | 'itemName' | 'stockQty' | 'wasteQty' | 'unit',
+    rawValue: string
+  ) => {
+    const value =
+      field === 'stockQty' || field === 'wasteQty'
+        ? sanitizeNumericInput(rawValue)
+        : rawValue;
 
-    if (item.statusType === 'ton' || (hasStock && !hasWaste)) {
-      return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 font-mono font-bold text-xs">
-          Tồn: {item.stockQty} {u}
-        </span>
-      );
-    }
-    if (item.statusType === 'huy' || (!hasStock && hasWaste)) {
-      return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 font-mono font-bold text-xs">
-          Hủy: {item.wasteQty} {u}
-        </span>
-      );
-    }
-    return (
-      <div className="inline-flex flex-wrap items-center justify-end gap-1">
-        <span className="px-2 py-0.5 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-800 font-mono font-bold text-xs">
-          Tồn: {item.stockQty || 0} {u}
-        </span>
-        <span className="px-2 py-0.5 rounded-md bg-rose-50 border border-rose-200 text-rose-700 font-mono font-bold text-xs">
-          Hủy: {item.wasteQty || 0} {u}
-        </span>
-      </div>
+    setLocalItems((prev) =>
+      prev.map((row) => {
+        if (row.id !== id) return row;
+        const nextStock = field === 'stockQty' ? value : row.stockQty;
+        const nextWaste = field === 'wasteQty' ? value : row.wasteQty;
+        const hasStock = Number(nextStock) > 0;
+        const hasWaste = Number(nextWaste) > 0;
+        const nextStatus: 'ton' | 'huy' | 'both' =
+          hasStock && hasWaste ? 'both' : hasWaste ? 'huy' : 'ton';
+
+        return {
+          ...row,
+          [field]: value,
+          statusType: nextStatus,
+          createdBy: currentUser?.fullName || row.createdBy || 'Nhân viên ca',
+          createdAt: new Date().toLocaleTimeString('vi-VN', {
+            hour: '2-digit',
+            minute: '2-digit',
+          }),
+        };
+      })
     );
   };
 
+  // Khi rời ô input (onBlur), tự động lưu dòng đó lên Server
+  const handleCellBlur = (id: string) => {
+    const updatedRow = localItems.find((r) => r.id === id);
+    if (!updatedRow) return;
+    onSaveItem(updatedRow, true);
+  };
+
+  // Thêm 1 dòng mới trực tiếp vào bảng của ngày đang chọn
+  const handleAddRowInline = () => {
+    const newRow: InventoryCheckItem = {
+      id: `inv-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+      dateStr: selectedDate,
+      itemName: '',
+      stockQty: '0',
+      wasteQty: '0',
+      unit: 'kg',
+      statusType: 'ton',
+      createdBy: currentUser?.fullName || 'Nhân viên ca',
+      createdAt: new Date().toLocaleTimeString('vi-VN', {
+        hour: '2-digit',
+        minute: '2-digit',
+      }),
+    };
+    const next = [...localItems, newRow];
+    setLocalItems(next);
+    onSaveItem(newRow, false);
+  };
+
+  // Sao chép danh mục tên mặt hàng từ ngày trước sang bảng ngày hiện tại để không phải gõ lại tên
+  const handleCopyTemplateFromPreviousDay = () => {
+    const otherDates = existingDates.filter((d) => d !== selectedDate);
+    const sourceDate = otherDates[0];
+    if (!sourceDate) return;
+
+    const sourceRows = localItems.filter((i) => i.dateStr === sourceDate && i.itemName.trim());
+    if (sourceRows.length === 0) return;
+
+    const existingNames = new Set(
+      rowsForSelectedDate.map((r) => r.itemName.trim().toLowerCase())
+    );
+
+    const copiedRows: InventoryCheckItem[] = sourceRows
+      .filter((r) => !existingNames.has(r.itemName.trim().toLowerCase()))
+      .map((r, idx) => ({
+        id: `inv-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 5)}`,
+        dateStr: selectedDate,
+        itemName: r.itemName,
+        stockQty: '0',
+        wasteQty: '0',
+        unit: r.unit || 'kg',
+        statusType: 'ton',
+        createdBy: currentUser?.fullName || 'Nhân viên ca',
+        createdAt: new Date().toLocaleTimeString('vi-VN', {
+          hour: '2-digit',
+          minute: '2-digit',
+        }),
+      }));
+
+    if (copiedRows.length === 0) return;
+
+    const nextAll = [...localItems, ...copiedRows];
+    setLocalItems(nextAll);
+    if (onSaveDailyTable) {
+      onSaveDailyTable(selectedDate, nextAll);
+    } else {
+      copiedRows.forEach((row) => onSaveItem(row, false));
+    }
+  };
+
+  // Lưu toàn bộ bảng theo ngày
+  const handleSaveEntireDailyTable = () => {
+    if (onSaveDailyTable) {
+      onSaveDailyTable(selectedDate, localItems);
+    } else {
+      rowsForSelectedDate.forEach((row) => onSaveItem(row, true));
+    }
+    setJustSavedBanner(true);
+    setTimeout(() => setJustSavedBanner(false), 2500);
+  };
+
+  // Tạo hoặc chuyển sang bảng ngày khác
+  const handleCreateOrSwitchDate = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = customDateInput.trim();
+    if (!trimmed) return;
+    setSelectedDate(trimmed);
+    setCustomDateInput('');
+    setShowNewDateBox(false);
+  };
+
   const handleExportCSV = () => {
-    if (filteredItems.length === 0) return;
-    const headers = ['Ngày', 'Tên mặt hàng', 'Số lượng Tồn', 'Số lượng Hủy', 'Định lượng', 'Người kiểm'];
-    const rows = filteredItems.map((i) => [
+    if (filteredRows.length === 0) return;
+    const headers = [
+      'Ngày',
+      'Tên mặt hàng',
+      'Số lượng Tồn',
+      'Số lượng Hủy',
+      'Định lượng',
+      'Người kiểm',
+      'Giờ lưu',
+    ];
+    const rows = filteredRows.map((i) => [
       `"${i.dateStr}"`,
-      `"${i.itemName.replace(/"/g, '""')}"`,
+      `"${(i.itemName || '').replace(/"/g, '""')}"`,
       `"${i.stockQty || '0'}"`,
       `"${i.wasteQty || '0'}"`,
       `"${i.unit || ''}"`,
       `"${i.createdBy || ''}"`,
+      `"${i.createdAt || ''}"`,
     ]);
-    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const csvContent =
+      '\uFEFF' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `Ton_Kiem_Bep_${new Date().toISOString().slice(0, 10)}.csv`;
+    link.download = `Bang_Ton_Kiem_${selectedDate.replace(/\//g, '-')}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
 
   return (
-    <div className="space-y-4">
-      {/* Form Nhập Số Lượng Tồn Kiểm */}
-      <div className="bg-white rounded-2xl border border-zinc-200/90 shadow-xs p-4 sm:p-5 space-y-4">
-        <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
+    <div className="space-y-3.5">
+      {/* Khung Bảng Lưu Số Lượng Tồn Kiểm Trực Tiếp Theo Ngày */}
+      <div className="bg-white rounded-2xl border border-zinc-200/90 shadow-xs p-3.5 sm:p-5 space-y-3.5">
+        {/* Header: Tiêu đề + Nút Lưu Bảng Theo Ngày */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-100 pb-3">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-xl bg-zinc-950 text-white flex items-center justify-center shrink-0">
               <PackageCheck className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-base sm:text-lg font-bold text-zinc-950">
-                {editingId ? 'Sửa Dòng Tồn Kiểm' : 'Lưu Số Lượng Tồn Kiểm'}
-              </h2>
-              <p className="text-[11px] text-zinc-500">
-                Ghi nhận nhanh theo 3 cột chuẩn: Ngày • Tên • Số lượng tồn / hủy
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-base sm:text-lg font-bold text-zinc-950">
+                  Bảng Lưu Tồn Kiểm Theo Ngày
+                </h2>
+                <span className="px-2 py-0.5 rounded-md text-xs font-mono font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                  Ngày: {selectedDate}
+                </span>
+              </div>
+              <p className="text-[11px] text-zinc-500 mt-0.5">
+                Chạm trực tiếp vào từng ô trong bảng để sửa • Lưu bảng theo ngày • Chỉ Admin (@admin) được quyền xóa
               </p>
             </div>
           </div>
 
-          {editingId && (
+          <div className="flex items-center gap-2 flex-wrap">
             <button
               type="button"
-              onClick={resetForm}
-              className="h-8 px-3 rounded-xl text-xs font-semibold bg-zinc-100 hover:bg-zinc-200 text-zinc-700 flex items-center gap-1"
+              onClick={handleAddRowInline}
+              className="h-9 px-3 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-900 text-xs font-bold flex items-center gap-1.5 transition active:scale-95"
             >
-              <X className="w-3.5 h-3.5" />
-              <span>Hủy sửa</span>
+              <Plus className="w-3.5 h-3.5" />
+              <span>Thêm dòng</span>
             </button>
-          )}
+
+            <button
+              type="button"
+              onClick={handleSaveEntireDailyTable}
+              className="h-9 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs transition active:scale-95"
+            >
+              {justSavedBanner ? (
+                <>
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Đã Lưu Bảng ({selectedDate})</span>
+                </>
+              ) : (
+                <>
+                  <Save className="w-3.5 h-3.5" />
+                  <span>Lưu Bảng Ngày {selectedDate}</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-3.5">
-          <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
-            {/* Cột 1: Ngày */}
-            <div className="sm:col-span-3">
-              <label className="block text-xs font-bold text-zinc-800 uppercase tracking-wider mb-1">
-                1. Ngày Kiểm
-              </label>
-              <div className="relative">
-                <Calendar className="w-3.5 h-3.5 text-zinc-400 absolute left-3 top-3" />
-                <input
-                  type="text"
-                  value={dateStr}
-                  onChange={(e) => {
-                    setDateStr(e.target.value);
-                    setFormError('');
-                  }}
-                  placeholder="DD/MM/YYYY"
-                  className="w-full h-10 pl-8 pr-3 bg-zinc-50 border border-zinc-300 rounded-xl text-xs sm:text-sm font-semibold text-zinc-900 focus:bg-white focus:ring-2 focus:ring-zinc-900 outline-none"
-                />
-              </div>
-            </div>
-
-            {/* Cột 2: Tên nguyên liệu / hàng hóa */}
-            <div className="sm:col-span-5">
-              <label className="block text-xs font-bold text-zinc-800 uppercase tracking-wider mb-1">
-                2. Tên Mặt Hàng / Nguyên Liệu <span className="text-rose-600">*</span>
-              </label>
-              <input
-                type="text"
-                value={itemName}
-                onChange={(e) => {
-                  setItemName(e.target.value);
-                  setFormError('');
-                }}
-                placeholder="VD: Thăn bò Úc, Sốt kem tươi, Rau xà lách..."
-                className="w-full h-10 px-3 bg-zinc-50 border border-zinc-300 rounded-xl text-xs sm:text-sm font-semibold text-zinc-900 focus:bg-white focus:ring-2 focus:ring-zinc-900 outline-none"
-              />
-            </div>
-
-            {/* Cột 3: Loại ghi nhận (Tồn / Hủy / Cả hai) */}
-            <div className="sm:col-span-4">
-              <label className="block text-xs font-bold text-zinc-800 uppercase tracking-wider mb-1">
-                3. Phân Loại Tồn / Hủy
-              </label>
-              <div className="grid grid-cols-3 gap-1 bg-zinc-100 p-1 rounded-xl h-10">
-                <button
-                  type="button"
-                  onClick={() => setStatusType('ton')}
-                  className={`rounded-lg text-xs font-bold transition ${
-                    statusType === 'ton'
-                      ? 'bg-emerald-600 text-white shadow-2xs'
-                      : 'text-zinc-600 hover:text-zinc-900'
-                  }`}
-                >
-                  Tồn kho
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setStatusType('huy')}
-                  className={`rounded-lg text-xs font-bold transition ${
-                    statusType === 'huy'
-                      ? 'bg-rose-600 text-white shadow-2xs'
-                      : 'text-zinc-600 hover:text-zinc-900'
-                  }`}
-                >
-                  Báo hủy
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setStatusType('both')}
-                  className={`rounded-lg text-xs font-bold transition ${
-                    statusType === 'both'
-                      ? 'bg-zinc-900 text-white shadow-2xs'
-                      : 'text-zinc-600 hover:text-zinc-900'
-                  }`}
-                >
-                  Tồn & Hủy
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Hàng nhập Số Lượng Tồn / Hủy (chỉ cho phép nhập số) + Định lượng */}
-          <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end bg-zinc-50 p-3 rounded-xl border border-zinc-200/80">
-            {(statusType === 'ton' || statusType === 'both') && (
-              <div className={statusType === 'both' ? 'sm:col-span-4' : 'sm:col-span-6'}>
-                <label className="block text-xs font-bold text-emerald-800 mb-1">
-                  Số Lượng Tồn (chỉ ghi số)
-                </label>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={stockQty}
-                  onChange={(e) => {
-                    setStockQty(sanitizeNumericInput(e.target.value));
-                    setFormError('');
-                  }}
-                  placeholder="Nhập số tồn (VD: 4.5)"
-                  className="w-full h-9 px-3 bg-white border border-emerald-300 rounded-lg text-sm font-mono font-bold text-emerald-900 focus:ring-2 focus:ring-emerald-600 outline-none"
-                />
-              </div>
-            )}
-
-            {(statusType === 'huy' || statusType === 'both') && (
-              <div className={statusType === 'both' ? 'sm:col-span-4' : 'sm:col-span-6'}>
-                <label className="block text-xs font-bold text-rose-800 mb-1">
-                  Số Lượng Hủy (chỉ ghi số)
-                </label>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={wasteQty}
-                  onChange={(e) => {
-                    setWasteQty(sanitizeNumericInput(e.target.value));
-                    setFormError('');
-                  }}
-                  placeholder="Nhập số hủy (VD: 0.5)"
-                  className="w-full h-9 px-3 bg-white border border-rose-300 rounded-lg text-sm font-mono font-bold text-rose-900 focus:ring-2 focus:ring-rose-600 outline-none"
-                />
-              </div>
-            )}
-
-            <div className={statusType === 'both' ? 'sm:col-span-2' : 'sm:col-span-3'}>
-              <label className="block text-xs font-bold text-zinc-700 mb-1">
-                Định Lượng
-              </label>
-              <input
-                type="text"
-                list="inventory-unit-options"
-                value={unit}
-                onChange={(e) => setUnit(e.target.value)}
-                placeholder="kg, g, ml, phần..."
-                className="w-full h-9 px-2.5 bg-white border border-zinc-300 rounded-lg text-xs sm:text-sm font-semibold text-zinc-800 focus:ring-2 focus:ring-zinc-900 outline-none"
-              />
-              <datalist id="inventory-unit-options">
-                {COMMON_UNITS.map((u) => (
-                  <option key={u} value={u} />
-                ))}
-              </datalist>
-            </div>
-
-            <div className={statusType === 'both' ? 'sm:col-span-2' : 'sm:col-span-3'}>
-              <button
-                type="submit"
-                className="w-full h-9 px-4 bg-zinc-950 hover:bg-zinc-800 active:scale-95 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition"
-              >
-                {editingId ? <Save className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
-                <span>{editingId ? 'Lưu Sửa' : 'Lưu Tồn Kiểm'}</span>
-              </button>
-            </div>
-          </div>
-
-          {formError && (
-            <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold">
-              {formError}
-            </div>
-          )}
-        </form>
-      </div>
-
-      {/* Bảng Danh Sách Số Lượng Tồn Kiểm (3 Cột: Ngày | Tên | Số lượng tồn / hủy) */}
-      <div className="bg-white rounded-2xl border border-zinc-200/90 shadow-xs p-4 sm:p-5 space-y-3.5">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-3 border-b border-zinc-100">
-          <div className="flex items-center gap-2 flex-wrap">
-            <h3 className="text-sm sm:text-base font-bold text-zinc-950">
-              Bảng Lưu Số Lượng Tồn Kiểm
-            </h3>
-            <span className="px-2 py-0.5 rounded-md text-xs font-bold bg-zinc-100 text-zinc-800">
-              {filteredItems.length} mục
+        {/* Thanh Chọn Bảng Theo Ngày (Tabs Ngày) */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-zinc-50 p-2.5 rounded-xl border border-zinc-200/80">
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">
+            <span className="text-[11px] font-bold text-zinc-500 uppercase px-1.5 flex items-center gap-1 shrink-0">
+              <Calendar className="w-3.5 h-3.5" />
+              <span>Bảng ngày:</span>
             </span>
+
+            {existingDates.map((d) => {
+              const count = localItems.filter((i) => i.dateStr === d).length;
+              const isSelected = d === selectedDate;
+              return (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => {
+                    setSelectedDate(d);
+                    setConfirmDeleteTableDate(false);
+                  }}
+                  className={`h-8 px-3 rounded-lg text-xs font-bold whitespace-nowrap transition flex items-center gap-1.5 shrink-0 ${
+                    isSelected
+                      ? 'bg-zinc-950 text-white shadow-2xs'
+                      : 'bg-white hover:bg-zinc-100 text-zinc-700 border border-zinc-200'
+                  }`}
+                >
+                  <span>{d === todayStr ? `Hôm nay (${d})` : d}</span>
+                  <span
+                    className={`px-1.5 py-0.2 rounded text-[10px] ${
+                      isSelected ? 'bg-white/20 text-white' : 'bg-zinc-100 text-zinc-600'
+                    }`}
+                  >
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+
+            <button
+              type="button"
+              onClick={() => setShowNewDateBox(!showNewDateBox)}
+              className="h-8 px-2.5 rounded-lg text-xs font-semibold bg-white hover:bg-zinc-100 text-zinc-700 border border-dashed border-zinc-300 whitespace-nowrap shrink-0 flex items-center gap-1"
+            >
+              <Plus className="w-3 h-3" />
+              <span>Ngày khác</span>
+            </button>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <select
-              value={filterDate}
-              onChange={(e) => setFilterDate(e.target.value)}
-              className="h-8 px-2.5 text-xs font-semibold bg-zinc-100 border border-zinc-200 rounded-lg text-zinc-800 outline-none"
-            >
-              <option value="all">Tất cả ngày ({items.length})</option>
-              {uniqueDates.map((d) => (
-                <option key={d} value={d}>
-                  Ngày: {d}
-                </option>
-              ))}
-            </select>
-
-            <div className="relative min-w-[160px] flex-1 sm:flex-initial">
+          {/* Tìm kiếm & Xuất Excel & Xóa Bảng Ngày (Chỉ Admin) */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            <div className="relative min-w-[140px] flex-1 sm:flex-initial">
               <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-2.5 top-2.5" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Tìm tên mặt hàng..."
-                className="w-full h-8 pl-8 pr-3 text-xs bg-zinc-50 border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-zinc-900"
+                placeholder="Lọc nhanh tên..."
+                className="w-full h-8 pl-8 pr-2.5 text-xs bg-white border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-zinc-900"
               />
             </div>
 
-            {filteredItems.length > 0 && (
+            {filteredRows.length > 0 && (
               <button
                 type="button"
                 onClick={handleExportCSV}
-                className="h-8 px-3 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold flex items-center gap-1.5 transition"
+                className="h-8 px-2.5 rounded-lg bg-white hover:bg-zinc-100 text-zinc-800 border border-zinc-200 text-xs font-semibold flex items-center gap-1 transition shrink-0"
+                title="Xuất bảng ngày này ra Excel"
               >
                 <Download className="w-3.5 h-3.5" />
-                <span>Xuất Excel</span>
+                <span className="hidden sm:inline">Excel</span>
               </button>
+            )}
+
+            {/* Chỉ Admin mới được xóa toàn bộ bảng ngày */}
+            {isAdmin && rowsForSelectedDate.length > 0 && onDeleteDateTable && (
+              confirmDeleteTableDate ? (
+                <div className="flex items-center gap-1 bg-rose-50 border border-rose-200 rounded-lg p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onDeleteDateTable(selectedDate);
+                      setConfirmDeleteTableDate(false);
+                    }}
+                    className="h-7 px-2 bg-rose-600 text-white rounded text-[11px] font-bold whitespace-nowrap"
+                  >
+                    Xác nhận xóa bảng {selectedDate}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDeleteTableDate(false)}
+                    className="h-7 px-1.5 text-zinc-600 text-[11px] font-semibold"
+                  >
+                    Hủy
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setConfirmDeleteTableDate(true)}
+                  className="h-8 px-2.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold flex items-center gap-1 transition shrink-0"
+                  title="Xóa toàn bộ bảng ngày này (Chỉ Admin)"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Xóa bảng ngày</span>
+                </button>
+              )
             )}
           </div>
         </div>
 
-        {/* Bảng 3 Cột Chuẩn: Ngày | Tên | Số lượng tồn / hủy */}
+        {/* Ô nhập ngày tùy chọn khi bấm "+ Ngày khác" */}
+        {showNewDateBox && (
+          <form
+            onSubmit={handleCreateOrSwitchDate}
+            className="flex items-center gap-2 bg-zinc-50 p-2.5 rounded-xl border border-zinc-200"
+          >
+            <span className="text-xs font-semibold text-zinc-700">Nhập ngày (DD/MM/YYYY):</span>
+            <input
+              type="text"
+              value={customDateInput}
+              onChange={(e) => setCustomDateInput(e.target.value)}
+              placeholder="VD: 21/10/2026"
+              className="h-8 px-3 bg-white border border-zinc-300 rounded-lg text-xs font-mono font-bold text-zinc-900 focus:ring-2 focus:ring-zinc-900 outline-none"
+              autoFocus
+            />
+            <button
+              type="submit"
+              className="h-8 px-3 bg-zinc-950 text-white rounded-lg text-xs font-bold"
+            >
+              Mở Bảng Ngày Này
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowNewDateBox(false)}
+              className="h-8 px-2.5 text-xs text-zinc-500 hover:text-zinc-800"
+            >
+              Đóng
+            </button>
+          </form>
+        )}
+
+        {/* BẢNG 3 CỘT THAY ĐỔI TRỰC TIẾP: NGÀY | TÊN | SỐ LƯỢNG TỒN / HỦY */}
         <div className="border border-zinc-200 rounded-xl overflow-hidden">
-          <div className="grid grid-cols-12 bg-zinc-950 text-white px-3 sm:px-4 py-2.5 text-[11px] font-bold uppercase tracking-wider items-center">
-            <div className="col-span-3 sm:col-span-3">Ngày</div>
-            <div className="col-span-5 sm:col-span-5">Tên</div>
-            <div className="col-span-4 sm:col-span-4 text-right">Số lượng tồn / hủy</div>
+          <div className="grid grid-cols-12 bg-zinc-950 text-white px-2.5 sm:px-4 py-2.5 text-[11px] font-bold uppercase tracking-wider items-center">
+            <div className="col-span-3 sm:col-span-2">Ngày</div>
+            <div className="col-span-4 sm:col-span-5">Tên mặt hàng</div>
+            <div className="col-span-5 sm:col-span-5 text-right pr-1">
+              Số lượng tồn / hủy (Sửa trực tiếp)
+            </div>
           </div>
 
-          {filteredItems.length === 0 ? (
-            <div className="py-10 text-center text-zinc-400 bg-zinc-50 text-xs sm:text-sm">
-              Chưa có dữ liệu tồn kiểm nào. Hãy nhập ở khung bên trên!
+          {filteredRows.length === 0 ? (
+            <div className="py-8 px-4 text-center bg-zinc-50 space-y-3">
+              <p className="text-xs sm:text-sm text-zinc-500 font-medium">
+                Bảng ngày <strong>{selectedDate}</strong> chưa có dòng kiểm hàng nào.
+              </p>
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleAddRowInline}
+                  className="h-9 px-4 rounded-xl bg-zinc-950 hover:bg-zinc-800 text-white text-xs font-bold inline-flex items-center gap-1.5 transition"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Thêm dòng đầu tiên</span>
+                </button>
+
+                {existingDates.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={handleCopyTemplateFromPreviousDay}
+                    className="h-9 px-4 rounded-xl bg-white hover:bg-zinc-100 text-zinc-800 border border-zinc-300 text-xs font-bold inline-flex items-center gap-1.5 transition"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>Lấy danh sách tên mặt hàng từ ngày trước</span>
+                  </button>
+                )}
+              </div>
             </div>
           ) : (
             <div className="divide-y divide-zinc-200/80 bg-white">
-              {filteredItems.map((row) => (
+              {filteredRows.map((row, idx) => (
                 <div
                   key={row.id}
-                  className="grid grid-cols-12 px-3 sm:px-4 py-3 items-center gap-2 hover:bg-zinc-50/80 transition text-xs sm:text-sm"
+                  className="grid grid-cols-12 px-2 sm:px-4 py-2 items-center gap-1.5 sm:gap-2.5 hover:bg-zinc-50/70 transition"
                 >
-                  {/* Cột 1: Ngày */}
-                  <div className="col-span-3 sm:col-span-3 pr-1">
-                    <div className="font-mono font-bold text-zinc-900 text-xs sm:text-sm">
-                      {row.dateStr}
-                    </div>
-                    {row.createdAt && (
-                      <div className="text-[10px] text-zinc-400 truncate">
-                        {row.createdAt}
-                      </div>
-                    )}
+                  {/* Cột 1: Ngày (Gõ sửa trực tiếp hoặc giữ mặc định theo bảng ngày) */}
+                  <div className="col-span-3 sm:col-span-2">
+                    <input
+                      type="text"
+                      value={row.dateStr}
+                      onChange={(e) => handleCellChange(row.id, 'dateStr', e.target.value)}
+                      onBlur={() => handleCellBlur(row.id)}
+                      className="w-full h-8 px-1.5 sm:px-2 bg-zinc-50 hover:bg-white focus:bg-white border border-transparent hover:border-zinc-200 focus:border-zinc-900 rounded-lg font-mono font-bold text-zinc-800 text-[11px] sm:text-xs outline-none transition"
+                      title="Ngày kiểm"
+                    />
                   </div>
 
-                  {/* Cột 2: Tên */}
-                  <div className="col-span-5 sm:col-span-5 pr-2 min-w-0">
-                    <div className="font-semibold text-zinc-950 break-words leading-snug">
-                      {row.itemName}
-                    </div>
-                    {row.createdBy && (
-                      <div className="text-[10px] text-zinc-400 truncate mt-0.5">
-                        Kiểm bởi: {row.createdBy}
-                      </div>
-                    )}
+                  {/* Cột 2: Tên Mặt Hàng (Gõ trực tiếp trong bảng) */}
+                  <div className="col-span-4 sm:col-span-5">
+                    <input
+                      type="text"
+                      value={row.itemName}
+                      onChange={(e) => handleCellChange(row.id, 'itemName', e.target.value)}
+                      onBlur={() => handleCellBlur(row.id)}
+                      placeholder={`Nhập tên mặt hàng #${idx + 1}...`}
+                      className="w-full h-8 px-2 bg-transparent hover:bg-zinc-50 focus:bg-white border border-transparent hover:border-zinc-200 focus:border-zinc-900 rounded-lg font-semibold text-zinc-950 text-xs sm:text-sm outline-none transition"
+                    />
                   </div>
 
-                  {/* Cột 3: Số lượng tồn / hủy + thao tác */}
-                  <div className="col-span-4 sm:col-span-4 flex flex-col sm:flex-row items-end sm:items-center justify-end gap-1.5">
-                    {formatStockWasteDisplay(row)}
+                  {/* Cột 3: Số Lượng Tồn / Hủy + Đơn vị + Xóa (Chỉ Admin) */}
+                  <div className="col-span-5 sm:col-span-5 flex items-center justify-end gap-1 sm:gap-1.5">
+                    {/* Ô Tồn (chỉ nhận số) */}
+                    <div className="flex items-center bg-emerald-50/90 border border-emerald-200 rounded-lg px-1.5 h-8 focus-within:ring-2 focus-within:ring-emerald-600">
+                      <span className="text-[10px] font-bold text-emerald-700 mr-1 hidden sm:inline">
+                        Tồn:
+                      </span>
+                      <span className="text-[10px] font-bold text-emerald-700 mr-0.5 sm:hidden">
+                        T:
+                      </span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={row.stockQty}
+                        onChange={(e) => handleCellChange(row.id, 'stockQty', e.target.value)}
+                        onBlur={() => handleCellBlur(row.id)}
+                        placeholder="0"
+                        className="w-10 sm:w-14 bg-transparent font-mono font-bold text-emerald-900 text-xs text-right outline-none"
+                        title="Số lượng Tồn (chỉ nhập số)"
+                      />
+                    </div>
 
-                    <div className="flex items-center gap-1 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => handleStartEdit(row)}
-                        className="w-7 h-7 rounded-lg text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100 flex items-center justify-center transition"
-                        title="Sửa dòng này"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
+                    {/* Ô Hủy (chỉ nhận số) */}
+                    <div className="flex items-center bg-rose-50/90 border border-rose-200 rounded-lg px-1.5 h-8 focus-within:ring-2 focus-within:ring-rose-600">
+                      <span className="text-[10px] font-bold text-rose-700 mr-1 hidden sm:inline">
+                        Hủy:
+                      </span>
+                      <span className="text-[10px] font-bold text-rose-700 mr-0.5 sm:hidden">
+                        H:
+                      </span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={row.wasteQty}
+                        onChange={(e) => handleCellChange(row.id, 'wasteQty', e.target.value)}
+                        onBlur={() => handleCellBlur(row.id)}
+                        placeholder="0"
+                        className="w-10 sm:w-14 bg-transparent font-mono font-bold text-rose-900 text-xs text-right outline-none"
+                        title="Số lượng Hủy (chỉ nhập số)"
+                      />
+                    </div>
 
-                      {confirmDeleteId === row.id ? (
+                    {/* Ô Đơn vị (kg, g, ml...) */}
+                    <input
+                      type="text"
+                      list="inventory-inline-units"
+                      value={row.unit}
+                      onChange={(e) => handleCellChange(row.id, 'unit', e.target.value)}
+                      onBlur={() => handleCellBlur(row.id)}
+                      placeholder="đv"
+                      className="w-11 sm:w-14 h-8 px-1.5 bg-zinc-100 hover:bg-white focus:bg-white border border-zinc-200 focus:border-zinc-900 rounded-lg text-[11px] font-semibold text-zinc-700 text-center outline-none"
+                      title="Định lượng (kg, g, ml, phần...)"
+                    />
+
+                    {/* Nút Xóa dòng: CHỈ HIỆN & CHO PHÉP VỚI ADMIN (@admin) */}
+                    {isAdmin ? (
+                      confirmDeleteId === row.id ? (
                         <button
                           type="button"
                           onClick={() => {
                             onDeleteItem(row.id);
                             setConfirmDeleteId(null);
                           }}
-                          className="h-7 px-2 rounded-lg bg-rose-600 text-white text-[10px] font-bold whitespace-nowrap"
+                          className="h-7 px-2 rounded-lg bg-rose-600 text-white text-[10px] font-bold whitespace-nowrap shrink-0"
                         >
                           Xóa
                         </button>
@@ -498,19 +575,71 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                         <button
                           type="button"
                           onClick={() => setConfirmDeleteId(row.id)}
-                          className="w-7 h-7 rounded-lg text-zinc-400 hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center transition"
-                          title="Xóa dòng này"
+                          className="w-7 h-7 rounded-lg text-zinc-400 hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center transition shrink-0"
+                          title="Xóa dòng này (Quyền Admin)"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
-                      )}
-                    </div>
+                      )
+                    ) : (
+                      <span
+                        className="w-6 h-7 flex items-center justify-center text-zinc-300 shrink-0"
+                        title="Chỉ Admin mới có quyền xóa dòng kiểm hàng"
+                      >
+                        <Lock className="w-3 h-3" />
+                      </span>
+                    )}
                   </div>
                 </div>
               ))}
             </div>
           )}
+
+          {/* Chân bảng: Nút thêm nhanh dòng mới + Sao chép danh mục ngày cũ + Lưu bảng ngày */}
+          <div className="bg-zinc-50 border-t border-zinc-200/80 px-3 sm:px-4 py-2.5 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={handleAddRowInline}
+                className="h-8 px-3 rounded-lg bg-white hover:bg-zinc-100 text-zinc-900 border border-zinc-300 text-xs font-bold flex items-center gap-1.5 transition active:scale-95"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>+ Thêm dòng vào bảng</span>
+              </button>
+
+              {existingDates.length > 1 && (
+                <button
+                  type="button"
+                  onClick={handleCopyTemplateFromPreviousDay}
+                  className="h-8 px-3 rounded-lg bg-white hover:bg-zinc-100 text-zinc-700 border border-zinc-200 text-xs font-semibold flex items-center gap-1.5 transition"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>Sao chép tên mặt hàng từ ngày trước</span>
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-zinc-500 hidden sm:inline">
+                Tự động lưu khi sửa ô • Chỉ <strong>@admin</strong> được xóa
+              </span>
+              <button
+                type="button"
+                onClick={handleSaveEntireDailyTable}
+                className="h-8 px-3.5 rounded-lg bg-zinc-950 hover:bg-zinc-800 text-white text-xs font-bold flex items-center gap-1.5 transition active:scale-95"
+              >
+                <Save className="w-3.5 h-3.5" />
+                <span>Lưu Bảng Ngày {selectedDate}</span>
+              </button>
+            </div>
+          </div>
         </div>
+
+        <datalist id="inventory-inline-units">
+          {COMMON_UNITS.map((u) => (
+            <option key={u} value={u} />
+          ))}
+        </datalist>
       </div>
     </div>
   );
