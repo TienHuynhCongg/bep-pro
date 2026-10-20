@@ -355,6 +355,8 @@ export const NavConfigModal: React.FC<NavConfigModalProps> = ({
                       >
                         <option value="custom">Trang Ghi Chú / Nội Quy Riêng</option>
                         <option value="checklist">Checklist Nhân Viên</option>
+                        <option value="recipes">Lưu Công Thức</option>
+                        <option value="inventory">Lưu Số Lượng Tồn Kiểm</option>
                         <option value="chef_tasks">Giao Việc Bếp Trưởng</option>
                         <option value="history">Lịch Sử Ca</option>
                         <option value="analytics">Thống Kê</option>

@@ -1,4 +1,13 @@
-import { KitchenTask, ShiftLog, StaffUser, NavItem, DeleteRequest, AppNotificationItem } from '../types';
+import {
+  KitchenTask,
+  ShiftLog,
+  StaffUser,
+  NavItem,
+  DeleteRequest,
+  AppNotificationItem,
+  KitchenRecipe,
+  InventoryCheckItem,
+} from '../types';
 
 export interface ServerSyncPayload {
   tasks?: KitchenTask[];
@@ -7,6 +16,8 @@ export interface ServerSyncPayload {
   toolbarItems?: NavItem[];
   deleteRequests?: DeleteRequest[];
   notifications?: AppNotificationItem[];
+  recipes?: KitchenRecipe[];
+  inventory?: InventoryCheckItem[];
   notification?: {
     kind: 'TASK_TOGGLED' | 'TASK_ASSIGNED' | 'DELETE_REQUEST' | 'MANAGER_1430_CHECK';
     taskTitle?: string;
@@ -58,6 +69,8 @@ export async function fetchStateFromServer(): Promise<{
     toolbarItems?: NavItem[];
     deleteRequests?: DeleteRequest[];
     notifications?: AppNotificationItem[];
+    recipes?: KitchenRecipe[];
+    inventory?: InventoryCheckItem[];
     updatedAt?: number;
   };
 }> {

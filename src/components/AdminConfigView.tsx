@@ -171,6 +171,8 @@ export const AdminConfigView: React.FC<AdminConfigViewProps> = ({
   const handleResetNavItems = () => {
     const defaultNav: NavItem[] = [
       { id: 'nav-checklist', label: 'Checklist Nhân Viên', iconName: 'ListChecks', targetType: 'checklist', visible: true, colorTheme: 'amber' },
+      { id: 'nav-recipes', label: 'Lưu Công Thức', iconName: 'BookOpen', targetType: 'recipes', visible: true, colorTheme: 'amber' },
+      { id: 'nav-inventory', label: 'Lưu Tồn Kiểm', iconName: 'PackageCheck', targetType: 'inventory', visible: true, colorTheme: 'emerald' },
       { id: 'nav-history', label: 'Lịch Sử Ca', iconName: 'Archive', targetType: 'history', visible: true, colorTheme: 'emerald' },
       { id: 'nav-analytics', label: 'Thống Kê Ca', iconName: 'BarChart3', targetType: 'analytics', visible: true, colorTheme: 'blue' },
       { id: 'nav-chef-tasks', label: 'Giao Việc Bếp Trưởng', iconName: 'ChefHat', targetType: 'chef_tasks', visible: true, colorTheme: 'amber' },
@@ -556,6 +558,8 @@ export const AdminConfigView: React.FC<AdminConfigViewProps> = ({
                               className="w-full p-2 text-xs bg-white border border-zinc-300 rounded-xl outline-none"
                             >
                               <option value="checklist">Mở Bảng Checklist Nhân Viên</option>
+                              <option value="recipes">Mở Lưu Công Thức Món</option>
+                              <option value="inventory">Mở Lưu Số Lượng Tồn Kiểm</option>
                               <option value="chef_tasks">Mở Giao Việc Bếp Trưởng</option>
                               <option value="history">Mở Lịch Sử Báo Cáo Ca</option>
                               <option value="analytics">Mở Thống Kê & Báo Cáo</option>
@@ -750,6 +754,8 @@ export const AdminConfigView: React.FC<AdminConfigViewProps> = ({
                   >
                     <option value="custom">Trang Tùy Chỉnh (Nội quy, ghi chú riêng)</option>
                     <option value="checklist">Mở Bảng Checklist Nhân Viên</option>
+                    <option value="recipes">Mở Lưu Công Thức Món</option>
+                    <option value="inventory">Mở Lưu Số Lượng Tồn Kiểm</option>
                     <option value="chef_tasks">Mở Giao Việc Bếp Trưởng</option>
                     <option value="history">Mở Lịch Sử Ca Bếp</option>
                     <option value="analytics">Mở Báo Cáo & Thống Kê</option>

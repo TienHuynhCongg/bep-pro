@@ -1,4 +1,12 @@
-import { AppConfig, DynamicField, KitchenTask, NavItem, ShiftLog } from './types.ts';
+import {
+  AppConfig,
+  DynamicField,
+  KitchenTask,
+  NavItem,
+  ShiftLog,
+  KitchenRecipe,
+  InventoryCheckItem,
+} from './types.ts';
 
 export const DEFAULT_APP_CONFIG: AppConfig = {
   appTitle: 'KITCHEN LOG PRO',
@@ -14,6 +22,22 @@ export const DEFAULT_NAV_ITEMS: NavItem[] = [
     targetType: 'checklist',
     visible: true,
     colorTheme: 'amber',
+  },
+  {
+    id: 'nav-recipes',
+    label: 'Lưu Công Thức',
+    iconName: 'BookOpen',
+    targetType: 'recipes',
+    visible: true,
+    colorTheme: 'amber',
+  },
+  {
+    id: 'nav-inventory',
+    label: 'Lưu Tồn Kiểm',
+    iconName: 'PackageCheck',
+    targetType: 'inventory',
+    visible: true,
+    colorTheme: 'emerald',
   },
   {
     id: 'nav-history',
@@ -57,6 +81,69 @@ export const DEFAULT_NAV_ITEMS: NavItem[] = [
   },
 ];
 
+export const DEFAULT_RECIPES: KitchenRecipe[] = [
+  {
+    id: 'recipe-1',
+    dishName: 'Sốt Bò Đen Tiêu Xanh Chuẩn Bếp',
+    updatedAt: '20/10/2026, 09:00',
+    createdBy: 'Chef Hoàng Nam (Bếp Trưởng)',
+    ingredients: [
+      { id: 'ing-1', name: 'Nước dùng bò cô đặc', quantity: '500', unit: 'ml' },
+      { id: 'ing-2', name: 'Tiêu xanh tươi đập dập', quantity: '45', unit: 'g' },
+      { id: 'ing-3', name: 'Dầu hào thượng hạng', quantity: '3', unit: 'muỗng canh' },
+      { id: 'ing-4', name: 'Bơ lạt Anchor', quantity: '30', unit: 'g' },
+    ],
+  },
+  {
+    id: 'recipe-2',
+    dishName: 'Nước Dùng Cốt Phở / Lẩu Thanh Ngọt',
+    updatedAt: '20/10/2026, 08:30',
+    createdBy: 'Chef Hoàng Nam (Bếp Trưởng)',
+    ingredients: [
+      { id: 'ing-21', name: 'Xương ống bò tươi', quantity: '5', unit: 'kg' },
+      { id: 'ing-22', name: 'Nước lọc tinh khiết', quantity: '20', unit: 'lít' },
+      { id: 'ing-23', name: 'Đường phèn kết tinh', quantity: '120', unit: 'g' },
+      { id: 'ing-24', name: 'Muối hạt hầm', quantity: '4', unit: 'muỗng cà phê' },
+    ],
+  },
+];
+
+export const DEFAULT_INVENTORY: InventoryCheckItem[] = [
+  {
+    id: 'inv-1',
+    dateStr: new Date().toLocaleDateString('vi-VN'),
+    itemName: 'Thăn bò Úc tươi (Chilled)',
+    stockQty: '4.5',
+    wasteQty: '0',
+    unit: 'kg',
+    statusType: 'ton',
+    createdBy: 'Trần Văn Hưng (Trưởng Ca)',
+    createdAt: '08:15',
+  },
+  {
+    id: 'inv-2',
+    dateStr: new Date().toLocaleDateString('vi-VN'),
+    itemName: 'Rau xà lách Romaine thủy canh',
+    stockQty: '2',
+    wasteQty: '0.3',
+    unit: 'kg',
+    statusType: 'both',
+    createdBy: 'Lê Minh Tuấn (Phụ Bếp)',
+    createdAt: '14:10',
+  },
+  {
+    id: 'inv-3',
+    dateStr: new Date().toLocaleDateString('vi-VN'),
+    itemName: 'Sốt kem tươi Whipping mở nắp quá 24h',
+    stockQty: '0',
+    wasteQty: '350',
+    unit: 'ml',
+    statusType: 'huy',
+    createdBy: 'Trần Văn Hưng (Trưởng Ca)',
+    createdAt: '21:30',
+  },
+];
+
 export const DEFAULT_STAFF_USERS = [
   {
     id: 'staff-1',
@@ -95,7 +182,6 @@ export const DEFAULT_STAFF_USERS = [
     avatarColor: 'bg-blue-600',
   },
 ];
-
 
 export const DEFAULT_TASKS: KitchenTask[] = [
   {

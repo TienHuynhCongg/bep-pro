@@ -9,6 +9,8 @@ import {
   DeleteRequest,
   DeleteTargetType,
   AppNotificationItem,
+  KitchenRecipe,
+  InventoryCheckItem,
   canRoleAccessTab,
 } from './types.ts';
 import {
@@ -18,9 +20,13 @@ import {
   DEFAULT_TASKS,
   INITIAL_SAMPLE_LOGS,
   DEFAULT_STAFF_USERS,
+  DEFAULT_RECIPES,
+  DEFAULT_INVENTORY,
 } from './defaultData.ts';
 import { HeaderNav } from './components/HeaderNav.tsx';
 import { ChecklistView } from './components/ChecklistView.tsx';
+import { RecipeBookView } from './components/RecipeBookView.tsx';
+import { InventoryCheckView } from './components/InventoryCheckView.tsx';
 import { HistoryView } from './components/HistoryView.tsx';
 import { AnalyticsView } from './components/AnalyticsView.tsx';
 import { ChefTasksView } from './components/ChefTasksView.tsx';
@@ -55,6 +61,8 @@ const STORAGE_KEYS = {
   AUTH: 'kitchen_auth_user_v2',
   DELETE_REQUESTS: 'kitchen_delete_requests_v2',
   NOTIFICATIONS: 'kitchen_fb_notifications_v2',
+  RECIPES: 'kitchen_recipes_v2',
+  INVENTORY: 'kitchen_inventory_v2',
   MANAGER_1430_NOTIF_DATE: 'kitchen_manager_1430_notif_date_v2',
   MANAGER_1430_ACK_DATE: 'kitchen_manager_1430_ack_date_v2',
 };
@@ -82,6 +90,50 @@ const INITIAL_NOTIFICATIONS: AppNotificationItem[] = [
   },
 ];
 
+function ensureLatestNavItems(list: NavItem[]): NavItem[] {
+  const cloned = [...list];
+  if (!cloned.some((i) => i.targetType === 'recipes')) {
+    const recipeNav: NavItem = {
+      id: 'nav-recipes',
+      label: 'Lưu Công Thức',
+      iconName: 'BookOpen',
+      targetType: 'recipes',
+      visible: true,
+      colorTheme: 'amber',
+    };
+    const checklistIdx = cloned.findIndex((i) => i.targetType === 'checklist');
+    if (checklistIdx >= 0) cloned.splice(checklistIdx + 1, 0, recipeNav);
+    else cloned.unshift(recipeNav);
+  }
+  if (!cloned.some((i) => i.targetType === 'inventory')) {
+    const invNav: NavItem = {
+      id: 'nav-inventory',
+      label: 'Lưu Tồn Kiểm',
+      iconName: 'PackageCheck',
+      targetType: 'inventory',
+      visible: true,
+      colorTheme: 'emerald',
+    };
+    const recipeIdx = cloned.findIndex((i) => i.targetType === 'recipes');
+    if (recipeIdx >= 0) cloned.splice(recipeIdx + 1, 0, invNav);
+    else cloned.push(invNav);
+  }
+  if (!cloned.some((i) => i.targetType === 'chef_tasks')) {
+    const chefItem: NavItem = {
+      id: 'nav-chef-tasks',
+      label: 'Giao Việc Bếp Trưởng',
+      iconName: 'ChefHat',
+      targetType: 'chef_tasks',
+      visible: true,
+      colorTheme: 'amber',
+    };
+    const adminIdx = cloned.findIndex((i) => i.targetType === 'admin');
+    if (adminIdx >= 0) cloned.splice(adminIdx, 0, chefItem);
+    else cloned.push(chefItem);
+  }
+  return cloned;
+}
+
 export default function App() {
   // App Branding Config
   const [appConfig, setAppConfig] = useState<AppConfig>(() => {
@@ -99,23 +151,7 @@ export default function App() {
       const saved = localStorage.getItem(STORAGE_KEYS.NAV);
       if (saved) {
         const parsed: NavItem[] = JSON.parse(saved);
-        if (!parsed.some((i) => i.targetType === 'chef_tasks')) {
-          const chefItem: NavItem = {
-            id: 'nav-chef-tasks',
-            label: 'Giao Việc Bếp Trưởng',
-            iconName: 'ChefHat',
-            targetType: 'chef_tasks',
-            visible: true,
-            colorTheme: 'amber',
-          };
-          const adminIdx = parsed.findIndex((i) => i.targetType === 'admin');
-          if (adminIdx >= 0) {
-            parsed.splice(adminIdx, 0, chefItem);
-          } else {
-            parsed.push(chefItem);
-          }
-        }
-        return parsed;
+        return ensureLatestNavItems(parsed);
       }
       return DEFAULT_NAV_ITEMS;
     } catch {
@@ -190,6 +226,26 @@ export default function App() {
       return saved ? JSON.parse(saved) : INITIAL_NOTIFICATIONS;
     } catch {
       return INITIAL_NOTIFICATIONS;
+    }
+  });
+
+  // 1. Lưu Công Thức Món Ăn (Recipes)
+  const [recipes, setRecipes] = useState<KitchenRecipe[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.RECIPES);
+      return saved ? JSON.parse(saved) : DEFAULT_RECIPES;
+    } catch {
+      return DEFAULT_RECIPES;
+    }
+  });
+
+  // 2. Lưu Số Lượng Tồn Kiểm (Inventory Check)
+  const [inventory, setInventory] = useState<InventoryCheckItem[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.INVENTORY);
+      return saved ? JSON.parse(saved) : DEFAULT_INVENTORY;
+    } catch {
+      return DEFAULT_INVENTORY;
     }
   });
 
@@ -279,6 +335,22 @@ export default function App() {
       // ignore
     }
   }, [notifications]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEYS.RECIPES, JSON.stringify(recipes));
+    } catch {
+      // ignore
+    }
+  }, [recipes]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEYS.INVENTORY, JSON.stringify(inventory));
+    } catch {
+      // ignore
+    }
+  }, [inventory]);
 
   // Role-based route protection: if current activeTab is not allowed for user role, redirect to first allowed tab
   useEffect(() => {
@@ -561,12 +633,16 @@ export default function App() {
           }
           if (Array.isArray(s.logs)) setLogs(s.logs);
           if (Array.isArray(s.staffList) && s.staffList.length > 0) setStaffList(s.staffList);
-          if (Array.isArray(s.toolbarItems) && s.toolbarItems.length > 0) setNavItems(s.toolbarItems);
+          if (Array.isArray(s.toolbarItems) && s.toolbarItems.length > 0) {
+            setNavItems(ensureLatestNavItems(s.toolbarItems));
+          }
           if (Array.isArray(s.deleteRequests)) setDeleteRequests(s.deleteRequests);
           if (Array.isArray(s.notifications) && s.notifications.length > 0) {
             notificationsRef.current = s.notifications;
             setNotifications(s.notifications);
           }
+          if (Array.isArray(s.recipes)) setRecipes(s.recipes);
+          if (Array.isArray(s.inventory)) setInventory(s.inventory);
         } else {
           // Seed server with initial local data if server is fresh
           pushStateToServer({
@@ -576,6 +652,8 @@ export default function App() {
             toolbarItems: navItems,
             deleteRequests,
             notifications: notificationsRef.current,
+            recipes,
+            inventory,
           });
         }
       }
@@ -597,12 +675,16 @@ export default function App() {
               }
               if (Array.isArray(s.logs)) setLogs(s.logs);
               if (Array.isArray(s.staffList) && s.staffList.length > 0) setStaffList(s.staffList);
-              if (Array.isArray(s.toolbarItems) && s.toolbarItems.length > 0) setNavItems(s.toolbarItems);
+              if (Array.isArray(s.toolbarItems) && s.toolbarItems.length > 0) {
+                setNavItems(ensureLatestNavItems(s.toolbarItems));
+              }
               if (Array.isArray(s.deleteRequests)) setDeleteRequests(s.deleteRequests);
               if (Array.isArray(s.notifications)) {
                 notificationsRef.current = s.notifications;
                 setNotifications(s.notifications);
               }
+              if (Array.isArray(s.recipes)) setRecipes(s.recipes);
+              if (Array.isArray(s.inventory)) setInventory(s.inventory);
             }
 
             const notif = data.notification;
@@ -1507,6 +1589,75 @@ export default function App() {
     showToast('Đã xuất file Excel (CSV) thành công!');
   };
 
+  // 1. Handlers Lưu Công Thức (Recipes)
+  const handleSaveRecipe = (recipePayload: KitchenRecipe, isEdit: boolean) => {
+    const nextRecipes = isEdit
+      ? recipes.map((r) => (r.id === recipePayload.id ? recipePayload : r))
+      : [recipePayload, ...recipes];
+    setRecipes(nextRecipes);
+
+    const actorName = currentUser?.fullName || 'Đầu Bếp';
+    const nextNotifs = createNotificationItem({
+      actorName,
+      actorRole: currentUser?.role || 'staff',
+      actionText: isEdit ? 'đã cập nhật công thức món' : 'đã lưu công thức mới',
+      targetText: recipePayload.dishName,
+      type: 'task_completed',
+    });
+
+    pushStateToServer({ recipes: nextRecipes, notifications: nextNotifs });
+    showToast(
+      isEdit
+        ? `✅ Đã cập nhật công thức: "${recipePayload.dishName}"`
+        : `📖 Đã lưu công thức món: "${recipePayload.dishName}"`
+    );
+  };
+
+  const handleDeleteRecipe = (id: string) => {
+    const target = recipes.find((r) => r.id === id);
+    const nextRecipes = recipes.filter((r) => r.id !== id);
+    setRecipes(nextRecipes);
+    pushStateToServer({ recipes: nextRecipes });
+    showToast(target ? `Đã xóa công thức: "${target.dishName}"` : 'Đã xóa công thức');
+  };
+
+  // 2. Handlers Lưu Số Lượng Tồn Kiểm (Inventory Check)
+  const handleSaveInventoryItem = (itemPayload: InventoryCheckItem, isEdit: boolean) => {
+    const nextInventory = isEdit
+      ? inventory.map((i) => (i.id === itemPayload.id ? itemPayload : i))
+      : [itemPayload, ...inventory];
+    setInventory(nextInventory);
+
+    const actorName = currentUser?.fullName || 'Nhân viên ca';
+    const summaryText =
+      itemPayload.statusType === 'huy'
+        ? `${itemPayload.itemName} (Hủy: ${itemPayload.wasteQty} ${itemPayload.unit})`
+        : `${itemPayload.itemName} (Tồn: ${itemPayload.stockQty} ${itemPayload.unit})`;
+
+    const nextNotifs = createNotificationItem({
+      actorName,
+      actorRole: currentUser?.role || 'staff',
+      actionText: isEdit ? 'đã sửa số lượng tồn kiểm' : 'đã lưu số lượng tồn kiểm',
+      targetText: summaryText,
+      type: 'task_completed',
+    });
+
+    pushStateToServer({ inventory: nextInventory, notifications: nextNotifs });
+    showToast(
+      isEdit
+        ? `✅ Đã cập nhật tồn kiểm: "${itemPayload.itemName}"`
+        : `📦 Đã lưu tồn kiểm: "${itemPayload.itemName}"`
+    );
+  };
+
+  const handleDeleteInventoryItem = (id: string) => {
+    const target = inventory.find((i) => i.id === id);
+    const nextInventory = inventory.filter((i) => i.id !== id);
+    setInventory(nextInventory);
+    pushStateToServer({ inventory: nextInventory });
+    showToast(target ? `Đã xóa mục tồn kiểm: "${target.itemName}"` : 'Đã xóa mục tồn kiểm');
+  };
+
   // Find currently active nav item
   const currentNavItem = navItems.find((item) => item.id === activeTabId) || navItems[0];
   const pendingTasksCount = tasks.filter((t) => !t.completed).length;
@@ -1693,6 +1844,24 @@ export default function App() {
                   onDeleteTask={handleDeleteTask}
                   onRefreshTasks={handleRefreshTasks}
                   onSubmitShift={handleSubmitShift}
+                  currentUser={currentUser}
+                />
+              )}
+
+              {currentNavItem.targetType === 'recipes' && (
+                <RecipeBookView
+                  recipes={recipes}
+                  onSaveRecipe={handleSaveRecipe}
+                  onDeleteRecipe={handleDeleteRecipe}
+                  currentUser={currentUser}
+                />
+              )}
+
+              {currentNavItem.targetType === 'inventory' && (
+                <InventoryCheckView
+                  items={inventory}
+                  onSaveItem={handleSaveInventoryItem}
+                  onDeleteItem={handleDeleteInventoryItem}
                   currentUser={currentUser}
                 />
               )}

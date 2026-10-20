@@ -18,6 +18,8 @@ export interface KitchenServerState {
   toolbarItems?: unknown[];
   deleteRequests?: unknown[];
   notifications?: unknown[];
+  recipes?: unknown[];
+  inventory?: unknown[];
   updatedAt: number;
 }
 
@@ -79,7 +81,18 @@ export function createKitchenApiMiddleware() {
 
   // POST /api/sync - Đồng bộ dữ liệu từ bất kỳ máy iOS/Android/PC nào lên Server
   router.post('/api/sync', (req, res) => {
-    const { tasks, logs, staffList, toolbarItems, deleteRequests, notifications, notification, senderId } = req.body || {};
+    const {
+      tasks,
+      logs,
+      staffList,
+      toolbarItems,
+      deleteRequests,
+      notifications,
+      recipes,
+      inventory,
+      notification,
+      senderId,
+    } = req.body || {};
 
     dbState.initialized = true;
     if (Array.isArray(tasks)) dbState.tasks = tasks;
@@ -88,6 +101,8 @@ export function createKitchenApiMiddleware() {
     if (Array.isArray(toolbarItems)) dbState.toolbarItems = toolbarItems;
     if (Array.isArray(deleteRequests)) dbState.deleteRequests = deleteRequests;
     if (Array.isArray(notifications)) dbState.notifications = notifications;
+    if (Array.isArray(recipes)) dbState.recipes = recipes;
+    if (Array.isArray(inventory)) dbState.inventory = inventory;
     dbState.updatedAt = Date.now();
 
     saveDb(dbState);

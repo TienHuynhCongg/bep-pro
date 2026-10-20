@@ -28,9 +28,39 @@ export interface AppNotificationItem {
   actorName: string;
   actorRole?: UserRole;
   actionText: string;
-  targetText: string;
+  targetText?: string;
   createdAtMs: number;
-  type: 'urgent_assigned' | 'task_assigned' | 'task_completed' | 'task_reset' | 'system';
+  type: 'urgent_assigned' | 'task_urgent' | 'task_assigned' | 'task_completed' | 'task_reset' | 'system';
+}
+
+// 1. Chức năng Lưu Công Thức (Recipe)
+export interface RecipeIngredient {
+  id: string;
+  name: string;     // Tên nguyên liệu (tự ghi)
+  quantity: string; // Số lượng (chỉ được ghi số)
+  unit: string;     // Định lượng (ml, g, kg, muỗng...)
+}
+
+export interface KitchenRecipe {
+  id: string;
+  dishName: string; // Tên món ăn ở trên cùng
+  ingredients: RecipeIngredient[];
+  note?: string;
+  createdBy?: string;
+  updatedAt: string;
+}
+
+// 2. Chức năng Lưu Số Lượng Tồn Kiểm (Inventory Check)
+export interface InventoryCheckItem {
+  id: string;
+  dateStr: string;       // Cột: Ngày
+  itemName: string;      // Cột: Tên nguyên liệu / hàng hóa
+  stockQty: string;      // Số lượng Tồn (chỉ ghi số)
+  wasteQty: string;      // Số lượng Hủy (chỉ ghi số)
+  unit: string;          // Đơn vị (kg, g, ml, phần, bịch...)
+  statusType: 'ton' | 'huy' | 'both'; // Tồn / Hủy / Cả hai
+  createdBy?: string;
+  createdAt?: string;
 }
 
 export type DeleteTargetType = 'log_single' | 'log_all' | 'staff' | 'nav_item';
@@ -76,7 +106,16 @@ export interface ShiftLog {
   fields: ShiftLogField[];
 }
 
-export type NavItemType = 'checklist' | 'history' | 'analytics' | 'chef_tasks' | 'admin' | 'staff' | 'custom';
+export type NavItemType =
+  | 'checklist'
+  | 'recipes'
+  | 'inventory'
+  | 'history'
+  | 'analytics'
+  | 'chef_tasks'
+  | 'admin'
+  | 'staff'
+  | 'custom';
 
 export interface NavItem {
   id: string;
@@ -124,10 +163,12 @@ export const canRoleAccessTab = (
     return !!role && item.allowedRoles.includes(role);
   }
 
-  // Manager (Trưởng Ca): checklist, history, analytics, chef_tasks, and custom tabs
+  // Manager (Trưởng Ca)
   if (role === 'manager') {
     return (
       targetType === 'checklist' ||
+      targetType === 'recipes' ||
+      targetType === 'inventory' ||
       targetType === 'history' ||
       targetType === 'analytics' ||
       targetType === 'chef_tasks' ||
@@ -135,7 +176,11 @@ export const canRoleAccessTab = (
     );
   }
 
-  // Staff (Nhân Viên Bếp) or guest: ONLY checklist and history
-  return targetType === 'checklist' || targetType === 'history';
+  // Staff (Nhân Viên Bếp): checklist, recipes, inventory, history
+  return (
+    targetType === 'checklist' ||
+    targetType === 'recipes' ||
+    targetType === 'inventory' ||
+    targetType === 'history'
+  );
 };
-
