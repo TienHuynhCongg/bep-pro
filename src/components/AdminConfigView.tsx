@@ -82,14 +82,9 @@ export const AdminConfigView: React.FC<AdminConfigViewProps> = ({
   };
 
   const handleDeleteNav = (id: string) => {
-    if (navItems.length <= 1) {
-      alert('Thanh công cụ cần có ít nhất 1 nút!');
-      return;
-    }
-    if (window.confirm('Bạn có chắc chắn muốn xóa nút này khỏi thanh công cụ?')) {
-      const updated = navItems.filter((i) => i.id !== id);
-      onUpdateNavItems(updated);
-    }
+    if (navItems.length <= 1) return;
+    const updated = navItems.filter((i) => i.id !== id);
+    onUpdateNavItems(updated);
   };
 
   const startEditNav = (item: NavItem) => {
@@ -145,17 +140,15 @@ export const AdminConfigView: React.FC<AdminConfigViewProps> = ({
   };
 
   const handleResetNavItems = () => {
-    if (window.confirm('Khôi phục thanh công cụ về mặc định ban đầu?')) {
-      const defaultNav: NavItem[] = [
-        { id: 'nav-checklist', label: 'Checklist Nhân Viên', iconName: 'ListChecks', targetType: 'checklist', visible: true, colorTheme: 'amber' },
-        { id: 'nav-history', label: 'Lịch Sử Ca', iconName: 'Archive', targetType: 'history', visible: true, colorTheme: 'emerald' },
-        { id: 'nav-analytics', label: 'Thống Kê Ca', iconName: 'BarChart3', targetType: 'analytics', visible: true, colorTheme: 'blue' },
-        { id: 'nav-chef-tasks', label: 'Giao Việc Bếp Trưởng', iconName: 'ChefHat', targetType: 'chef_tasks', visible: true, colorTheme: 'amber' },
-        { id: 'nav-staff', label: 'Quản Lý Nhân Sự', iconName: 'UserCheck', targetType: 'staff', visible: true, colorTheme: 'purple' },
-        { id: 'nav-admin', label: 'Cấu Hình Admin', iconName: 'Sliders', targetType: 'admin', visible: true, colorTheme: 'amber' },
-      ];
-      onUpdateNavItems(defaultNav);
-    }
+    const defaultNav: NavItem[] = [
+      { id: 'nav-checklist', label: 'Checklist Nhân Viên', iconName: 'ListChecks', targetType: 'checklist', visible: true, colorTheme: 'amber' },
+      { id: 'nav-history', label: 'Lịch Sử Ca', iconName: 'Archive', targetType: 'history', visible: true, colorTheme: 'emerald' },
+      { id: 'nav-analytics', label: 'Thống Kê Ca', iconName: 'BarChart3', targetType: 'analytics', visible: true, colorTheme: 'blue' },
+      { id: 'nav-chef-tasks', label: 'Giao Việc Bếp Trưởng', iconName: 'ChefHat', targetType: 'chef_tasks', visible: true, colorTheme: 'amber' },
+      { id: 'nav-staff', label: 'Quản Lý Nhân Sự', iconName: 'UserCheck', targetType: 'staff', visible: true, colorTheme: 'purple' },
+      { id: 'nav-admin', label: 'Cấu Hình Admin', iconName: 'Sliders', targetType: 'admin', visible: true, colorTheme: 'amber' },
+    ];
+    onUpdateNavItems(defaultNav);
   };
 
   const handleDownloadInstallPDF = () => {

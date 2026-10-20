@@ -51,6 +51,7 @@ export const StaffManagementView: React.FC<StaffManagementViewProps> = ({
   const [role, setRole] = useState<UserRole>('staff');
   const [station, setStation] = useState('Khu Bếp Nóng & Ra Món');
   const [phone, setPhone] = useState('');
+  const [addError, setAddError] = useState('');
 
   // Form states for edit staff
   const [editFullName, setEditFullName] = useState('');
@@ -70,11 +71,12 @@ export const StaffManagementView: React.FC<StaffManagementViewProps> = ({
 
   const handleCreateStaff = (e: React.FormEvent) => {
     e.preventDefault();
+    setAddError('');
     if (!fullName.trim() || !username.trim()) return;
 
     // Check duplicate username
     if (staffList.some((s) => s.username.toLowerCase() === username.trim().toLowerCase())) {
-      alert('Tên đăng nhập này đã tồn tại! Vui lòng chọn tên đăng nhập khác.');
+      setAddError('Tên đăng nhập này đã tồn tại! Vui lòng chọn tên đăng nhập khác.');
       return;
     }
 
@@ -440,14 +442,10 @@ export const StaffManagementView: React.FC<StaffManagementViewProps> = ({
 
                         {isAdmin && (
                           <button
+                            type="button"
                             onClick={() => {
-                              if (staffList.length <= 1) {
-                                alert('Hệ thống cần ít nhất 1 tài khoản nhân sự!');
-                                return;
-                              }
-                              if (window.confirm(`Xóa nhân sự "${staff.fullName}" (@${staff.username}) khỏi danh sách?`)) {
-                                onDeleteStaff(staff.id);
-                              }
+                              if (staffList.length <= 1) return;
+                              onDeleteStaff(staff.id);
                             }}
                             className="p-1.5 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg text-xs"
                             title="Xóa tài khoản"
@@ -488,6 +486,11 @@ export const StaffManagementView: React.FC<StaffManagementViewProps> = ({
             </div>
 
             <form onSubmit={handleCreateStaff} className="p-6 space-y-4">
+              {addError && (
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold">
+                  {addError}
+                </div>
+              )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold uppercase text-stone-700 mb-1">

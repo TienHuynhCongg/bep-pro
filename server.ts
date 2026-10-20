@@ -11,11 +11,13 @@ const DATA_DIR = path.join(__dirname, 'data');
 const DB_FILE = path.join(DATA_DIR, 'kitchen-db.json');
 
 export interface KitchenServerState {
+  initialized?: boolean;
   tasks?: unknown[];
   logs?: unknown[];
   staffList?: unknown[];
   toolbarItems?: unknown[];
   deleteRequests?: unknown[];
+  notifications?: unknown[];
   updatedAt: number;
 }
 
@@ -77,13 +79,15 @@ export function createKitchenApiMiddleware() {
 
   // POST /api/sync - Đồng bộ dữ liệu từ bất kỳ máy iOS/Android/PC nào lên Server
   router.post('/api/sync', (req, res) => {
-    const { tasks, logs, staffList, toolbarItems, deleteRequests, notification, senderId } = req.body || {};
+    const { tasks, logs, staffList, toolbarItems, deleteRequests, notifications, notification, senderId } = req.body || {};
 
+    dbState.initialized = true;
     if (Array.isArray(tasks)) dbState.tasks = tasks;
     if (Array.isArray(logs)) dbState.logs = logs;
     if (Array.isArray(staffList)) dbState.staffList = staffList;
     if (Array.isArray(toolbarItems)) dbState.toolbarItems = toolbarItems;
     if (Array.isArray(deleteRequests)) dbState.deleteRequests = deleteRequests;
+    if (Array.isArray(notifications)) dbState.notifications = notifications;
     dbState.updatedAt = Date.now();
 
     saveDb(dbState);

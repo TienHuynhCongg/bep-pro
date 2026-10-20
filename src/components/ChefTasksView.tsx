@@ -58,6 +58,8 @@ export const ChefTasksView: React.FC<ChefTasksViewProps> = ({
   const [showQuickAddInline, setShowQuickAddInline] = useState(false);
   const [inlineNewTitle, setInlineNewTitle] = useState('');
   const [inlineNewType, setInlineNewType] = useState<TaskScheduleType>('urgent_today');
+  const [confirmClearAll, setConfirmClearAll] = useState(false);
+  const [confirmResetAll, setConfirmResetAll] = useState(false);
 
   // Lọc danh sách nhân viên đang hoạt động (online / active)
   const onlineStaffList = staffList.filter((s) => s.status === 'active');
@@ -478,33 +480,69 @@ export const ChefTasksView: React.FC<ChefTasksViewProps> = ({
               </button>
 
               {currentUser?.role === 'admin' && onResetTasks && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (window.confirm('Xác nhận Reset thủ công toàn bộ tích chọn Checklist về 0%?')) {
-                      onResetTasks();
-                    }
-                  }}
-                  className="px-3 py-1.5 rounded-xl text-xs font-bold bg-rose-100 hover:bg-rose-200 text-rose-800 border border-rose-300 flex items-center gap-1 transition"
-                  title="Reset toàn bộ tích chọn Checklist về 0% (Chỉ Admin)"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  <span>Reset Checklist</span>
-                </button>
+                confirmResetAll ? (
+                  <div className="flex items-center gap-1 bg-rose-50 border border-rose-200 rounded-xl p-0.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onResetTasks();
+                        setConfirmResetAll(false);
+                      }}
+                      className="px-2.5 py-1 bg-rose-600 text-white rounded-lg text-xs font-bold"
+                    >
+                      Xác nhận Reset
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmResetAll(false)}
+                      className="px-2 py-1 text-xs text-stone-600 font-semibold"
+                    >
+                      Hủy
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmResetAll(true)}
+                    className="px-3 py-1.5 rounded-xl text-xs font-bold bg-rose-100 hover:bg-rose-200 text-rose-800 border border-rose-300 flex items-center gap-1 transition"
+                    title="Reset toàn bộ tích chọn Checklist về 0% (Chỉ Admin)"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Reset Checklist</span>
+                  </button>
+                )
               )}
 
               {tasks.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (window.confirm('CẢNH BÁO: Bạn có chắc chắn muốn xóa TẤT CẢ các đầu việc đã giao?')) {
-                      onClearAllTasks();
-                    }
-                  }}
-                  className="px-2.5 py-1.5 rounded-xl text-xs text-rose-600 hover:bg-rose-50 font-bold border border-rose-200 transition"
-                >
-                  Xóa tất cả
-                </button>
+                confirmClearAll ? (
+                  <div className="flex items-center gap-1 bg-rose-50 border border-rose-200 rounded-xl p-0.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClearAllTasks();
+                        setConfirmClearAll(false);
+                      }}
+                      className="px-2.5 py-1 bg-rose-600 text-white rounded-lg text-xs font-bold"
+                    >
+                      Xác nhận xóa hết
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmClearAll(false)}
+                      className="px-2 py-1 text-xs text-stone-600 font-semibold"
+                    >
+                      Hủy
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmClearAll(true)}
+                    className="px-2.5 py-1.5 rounded-xl text-xs text-rose-600 hover:bg-rose-50 font-bold border border-rose-200 transition"
+                  >
+                    Xóa tất cả
+                  </button>
+                )
               )}
             </div>
           </div>

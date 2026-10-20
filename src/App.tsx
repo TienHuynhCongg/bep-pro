@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   AppConfig,
   DynamicField,
@@ -8,6 +8,7 @@ import {
   StaffUser,
   DeleteRequest,
   DeleteTargetType,
+  AppNotificationItem,
   canRoleAccessTab,
 } from './types.ts';
 import {
@@ -29,6 +30,7 @@ import { CustomPageView } from './components/CustomPageView.tsx';
 import { NavConfigModal } from './components/NavConfigModal.tsx';
 import { LoginModal } from './components/LoginModal.tsx';
 import { MobileBottomNav } from './components/MobileBottomNav.tsx';
+import { NotificationFeedBox } from './components/NotificationFeedBox.tsx';
 import {
   sendTaskNotification,
   sendAssignedTaskNotification,
@@ -41,7 +43,7 @@ import {
   fetchStateFromServer,
   getClientSenderId,
 } from './utils/serverSync.ts';
-import { CheckCircle2, AlertCircle, ShieldAlert, Check, X, BellRing, Clock } from 'lucide-react';
+import { CheckCircle2, AlertCircle, ShieldAlert, Check, X, BellRing } from 'lucide-react';
 
 const STORAGE_KEYS = {
   CONFIG: 'kitchen_app_config_v2',
@@ -52,11 +54,33 @@ const STORAGE_KEYS = {
   STAFF: 'kitchen_staff_users_v2',
   AUTH: 'kitchen_auth_user_v2',
   DELETE_REQUESTS: 'kitchen_delete_requests_v2',
+  NOTIFICATIONS: 'kitchen_fb_notifications_v2',
   MANAGER_1430_NOTIF_DATE: 'kitchen_manager_1430_notif_date_v2',
   MANAGER_1430_ACK_DATE: 'kitchen_manager_1430_ack_date_v2',
 };
 
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
+
+const INITIAL_NOTIFICATIONS: AppNotificationItem[] = [
+  {
+    id: 'notif-init-1',
+    actorName: 'Trưởng Ca Bếp',
+    actorRole: 'manager',
+    actionText: 'đã giao việc cho bạn',
+    targetText: 'Kiểm tra nhiệt độ tủ đông & tủ mát đầu ca',
+    createdAtMs: Date.now() - 60 * 1000, // 1p trước
+    type: 'task_assigned',
+  },
+  {
+    id: 'notif-init-2',
+    actorName: 'Đầu Bếp Ca Sáng',
+    actorRole: 'staff',
+    actionText: 'đã hoàn thành việc',
+    targetText: 'Vệ sinh thớt & khử khuẩn khu sơ chế',
+    createdAtMs: Date.now() - 3 * 60 * 1000, // 3p trước
+    type: 'task_completed',
+  },
+];
 
 export default function App() {
   // App Branding Config
@@ -139,7 +163,7 @@ export default function App() {
     }
   });
 
-  // Current Logged-in User (Starts at null if not logged in, and persists across phone app restarts once logged in)
+  // Current Logged-in User (Persists in localStorage across phone app restarts)
   const [currentUser, setCurrentUser] = useState<StaffUser | null>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.AUTH);
@@ -159,18 +183,39 @@ export default function App() {
     }
   });
 
+  // Facebook-style Notification Feed (Hiển thị số phút đã trôi qua, bấm vào để xóa)
+  const [notifications, setNotifications] = useState<AppNotificationItem[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.NOTIFICATIONS);
+      return saved ? JSON.parse(saved) : INITIAL_NOTIFICATIONS;
+    } catch {
+      return INITIAL_NOTIFICATIONS;
+    }
+  });
+
+  // Keep latest state refs to avoid stale closures in SSE / BroadcastChannel / timers
+  const currentUserRef = useRef<StaffUser | null>(currentUser);
+  useEffect(() => {
+    currentUserRef.current = currentUser;
+  }, [currentUser]);
+
+  const tasksRef = useRef<KitchenTask[]>(tasks);
+  useEffect(() => {
+    tasksRef.current = tasks;
+  }, [tasks]);
+
+  const notificationsRef = useRef<AppNotificationItem[]>(notifications);
+  useEffect(() => {
+    notificationsRef.current = notifications;
+  }, [notifications]);
+
   // Login Modal state
   const [showLoginModal, setShowLoginModal] = useState<boolean>(false);
 
   const [serverConnected, setServerConnected] = useState<boolean>(false);
 
   // Active Tab
-  const [activeTabId, setActiveTabId] = useState<string>(() => {
-    return 'nav-checklist';
-  });
-
-  // Admin Sub-tab router
-  const [adminInitialSubTab, setAdminInitialSubTab] = useState<'nav' | 'tasks' | 'schema'>('nav');
+  const [activeTabId, setActiveTabId] = useState<string>('nav-checklist');
 
   // Quick Nav Config Modal
   const [showNavConfigModal, setShowNavConfigModal] = useState<boolean>(false);
@@ -200,20 +245,40 @@ export default function App() {
 
   // Save to LocalStorage effects
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.STAFF, JSON.stringify(staffList));
+    try {
+      localStorage.setItem(STORAGE_KEYS.STAFF, JSON.stringify(staffList));
+    } catch {
+      // ignore
+    }
   }, [staffList]);
 
   useEffect(() => {
-    if (currentUser) {
-      localStorage.setItem(STORAGE_KEYS.AUTH, JSON.stringify(currentUser));
-    } else {
-      localStorage.removeItem(STORAGE_KEYS.AUTH);
+    try {
+      if (currentUser) {
+        localStorage.setItem(STORAGE_KEYS.AUTH, JSON.stringify(currentUser));
+      } else {
+        localStorage.removeItem(STORAGE_KEYS.AUTH);
+      }
+    } catch {
+      // ignore
     }
   }, [currentUser]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.DELETE_REQUESTS, JSON.stringify(deleteRequests));
+    try {
+      localStorage.setItem(STORAGE_KEYS.DELETE_REQUESTS, JSON.stringify(deleteRequests));
+    } catch {
+      // ignore
+    }
   }, [deleteRequests]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEYS.NOTIFICATIONS, JSON.stringify(notifications));
+    } catch {
+      // ignore
+    }
+  }, [notifications]);
 
   // Role-based route protection: if current activeTab is not allowed for user role, redirect to first allowed tab
   useEffect(() => {
@@ -228,72 +293,168 @@ export default function App() {
     }
   }, [currentUser, activeTabId, navItems]);
 
-  // Save to LocalStorage effects
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.CONFIG, JSON.stringify(appConfig));
+    try {
+      localStorage.setItem(STORAGE_KEYS.CONFIG, JSON.stringify(appConfig));
+    } catch {
+      // ignore
+    }
   }, [appConfig]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.NAV, JSON.stringify(navItems));
+    try {
+      localStorage.setItem(STORAGE_KEYS.NAV, JSON.stringify(navItems));
+    } catch {
+      // ignore
+    }
   }, [navItems]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(tasks));
+    try {
+      localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(tasks));
+    } catch {
+      // ignore
+    }
   }, [tasks]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEYS.SCHEMA, JSON.stringify(schema));
+    } catch {
+      // ignore
+    }
+  }, [schema]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(logs));
+    } catch {
+      // ignore
+    }
+  }, [logs]);
+
+  // Show Toast Helper
+  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => {
+      setToast(null);
+    }, 3200);
+  };
+
+  // Helper: Thêm thông báo kiểu Facebook vào Ô thông báo & đồng bộ
+  const createNotificationItem = (
+    payload: Omit<AppNotificationItem, 'id' | 'createdAtMs'>
+  ): AppNotificationItem[] => {
+    const newItem: AppNotificationItem = {
+      ...payload,
+      id: `notif-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      createdAtMs: Date.now(),
+    };
+    const nextList = [newItem, ...notificationsRef.current].slice(0, 40);
+    notificationsRef.current = nextList;
+    setNotifications(nextList);
+    return nextList;
+  };
+
+  // Nhấp vào thông báo để xóa ngay lập tức
+  const handleDeleteNotification = (id: string) => {
+    const nextList = notificationsRef.current.filter((n) => n.id !== id);
+    notificationsRef.current = nextList;
+    setNotifications(nextList);
+    pushStateToServer({ notifications: nextList });
+
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      try {
+        const channel = new BroadcastChannel('kitchen_tasks_sync_channel');
+        channel.postMessage({
+          type: 'NOTIFICATIONS_UPDATED',
+          notifications: nextList,
+        });
+        channel.close();
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  const handleClearAllNotifications = () => {
+    notificationsRef.current = [];
+    setNotifications([]);
+    pushStateToServer({ notifications: [] });
+
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      try {
+        const channel = new BroadcastChannel('kitchen_tasks_sync_channel');
+        channel.postMessage({
+          type: 'NOTIFICATIONS_UPDATED',
+          notifications: [],
+        });
+        channel.close();
+      } catch {
+        // ignore
+      }
+    }
+  };
 
   // 1. Tự động Reset các đầu việc Daily sau 24h kể từ lúc tích hoàn thành
   useEffect(() => {
     const checkDaily24hReset = () => {
       const now = Date.now();
+      const currentTasks = tasksRef.current;
+      let hasChanges = false;
       const resetTitles: string[] = [];
 
-      setTasks((prev) => {
-        let hasChanges = false;
-        const updated = prev.map((t) => {
-          const isDaily = (t.taskType || 'daily') === 'daily';
-          if (isDaily && t.completed && t.completedTimestamp && now - t.completedTimestamp >= TWENTY_FOUR_HOURS_MS) {
-            hasChanges = true;
-            resetTitles.push(t.title);
-            return {
-              ...t,
-              completed: false,
-              completedAt: undefined,
-              completedTimestamp: undefined,
-              completedBy: undefined,
-              completedById: undefined,
-              completedByRole: undefined,
-            };
-          }
-          return t;
-        });
-
-        if (hasChanges) {
-          pushStateToServer({ tasks: updated });
-          if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
-            try {
-              const channel = new BroadcastChannel('kitchen_tasks_sync_channel');
-              channel.postMessage({
-                type: 'TASKS_UPDATED',
-                tasks: updated,
-              });
-              channel.close();
-            } catch {
-              // ignore
-            }
-          }
-          return updated;
+      const updated = currentTasks.map((t) => {
+        const isDaily = (t.taskType || 'daily') === 'daily';
+        if (isDaily && t.completed && t.completedTimestamp && now - t.completedTimestamp >= TWENTY_FOUR_HOURS_MS) {
+          hasChanges = true;
+          resetTitles.push(t.title);
+          return {
+            ...t,
+            completed: false,
+            completedAt: undefined,
+            completedTimestamp: undefined,
+            completedBy: undefined,
+            completedById: undefined,
+            completedByRole: undefined,
+          };
         }
-        return prev;
+        return t;
       });
 
-      if (resetTitles.length > 0) {
+      if (hasChanges) {
+        tasksRef.current = updated;
+        setTasks(updated);
+        const nextNotifs = createNotificationItem({
+          actorName: 'Hệ Thống Bếp',
+          actorRole: 'admin',
+          actionText: `đã tự động reset ${resetTitles.length} việc Daily sau 24h:`,
+          targetText: resetTitles.join(', '),
+          type: 'system',
+        });
+        pushStateToServer({ tasks: updated, notifications: nextNotifs });
+
+        if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+          try {
+            const channel = new BroadcastChannel('kitchen_tasks_sync_channel');
+            channel.postMessage({
+              type: 'TASKS_UPDATED',
+              tasks: updated,
+              notifications: nextNotifs,
+            });
+            channel.close();
+          } catch {
+            // ignore
+          }
+        }
+
         sendDailyResetNotification(resetTitles);
         showToast(`Đã tự động reset ${resetTitles.length} đầu việc Daily sau 24h!`);
       }
     };
 
     checkDaily24hReset();
-    const interval = setInterval(checkDaily24hReset, 30000); // Kiểm tra mỗi 30 giây
+    const interval = setInterval(checkDaily24hReset, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -308,13 +469,22 @@ export default function App() {
     }
     setManager1430AlertActive(true);
 
-    const completedCount = tasks.filter((t) => t.completed).length;
-    const totalCount = tasks.length;
-    const urgentPendingCount = tasks.filter(
+    const currentTasks = tasksRef.current;
+    const completedCount = currentTasks.filter((t) => t.completed).length;
+    const totalCount = currentTasks.length;
+    const urgentPendingCount = currentTasks.filter(
       (t) => !t.completed && (t.taskType === 'urgent_today' || t.priority === 'Gấp' || t.priority === 'Tối khẩn')
     ).length;
 
-    if (currentUser?.role === 'manager' || currentUser?.role === 'admin') {
+    const nextNotifs = createNotificationItem({
+      actorName: 'Lịch Kiểm Tra 14:30',
+      actorRole: 'manager',
+      actionText: 'nhắc @manager kiểm tra tiến độ Checklist ca bếp',
+      targetText: `Hoàn thành ${completedCount}/${totalCount} việc`,
+      type: 'system',
+    });
+
+    if (currentUserRef.current?.role === 'manager' || currentUserRef.current?.role === 'admin') {
       sendManagerCheckNotification(completedCount, totalCount, urgentPendingCount);
       showToast(
         `⏰ [14:30] Nhắc @manager kiểm tra Checklist! (${completedCount}/${totalCount} việc đã xong)`
@@ -322,6 +492,7 @@ export default function App() {
     }
 
     pushStateToServer({
+      notifications: nextNotifs,
       notification: {
         kind: 'MANAGER_1430_CHECK',
         completedCount,
@@ -338,6 +509,7 @@ export default function App() {
           completedCount,
           totalCount,
           urgentPendingCount,
+          notifications: nextNotifs,
         });
         channel.close();
       } catch {
@@ -365,32 +537,45 @@ export default function App() {
     check1430Schedule();
     const timer = setInterval(check1430Schedule, 15000);
     return () => clearInterval(timer);
-  }, [tasks, currentUser]);
+  }, []);
 
   // Real-time Server Synchronization (Cross-Device iOS & Android via /api/events SSE + /api/state)
+  // Chạy 1 lần duy nhất khi mở app để kết nối siêu tốc và không ghi đè state khi đổi user
   useEffect(() => {
     let eventSource: EventSource | null = null;
 
-    // Initial state sync with backend server
     fetchStateFromServer().then((res) => {
       if (res.ok && res.state) {
         setServerConnected(true);
         const s = res.state;
-        const hasServerData = Array.isArray(s.tasks) && s.tasks.length > 0;
-        if (hasServerData) {
-          if (Array.isArray(s.tasks)) setTasks(s.tasks);
+        const isServerInitialized = Boolean(
+          s.initialized ||
+            (Array.isArray(s.tasks) && s.tasks.length > 0) ||
+            (Array.isArray(s.logs) && s.logs.length > 0) ||
+            (Array.isArray(s.staffList) && s.staffList.length > 0)
+        );
+        if (isServerInitialized) {
+          if (Array.isArray(s.tasks)) {
+            tasksRef.current = s.tasks;
+            setTasks(s.tasks);
+          }
           if (Array.isArray(s.logs)) setLogs(s.logs);
-          if (Array.isArray(s.staffList)) setStaffList(s.staffList);
-          if (Array.isArray(s.toolbarItems)) setNavItems(s.toolbarItems);
+          if (Array.isArray(s.staffList) && s.staffList.length > 0) setStaffList(s.staffList);
+          if (Array.isArray(s.toolbarItems) && s.toolbarItems.length > 0) setNavItems(s.toolbarItems);
           if (Array.isArray(s.deleteRequests)) setDeleteRequests(s.deleteRequests);
+          if (Array.isArray(s.notifications) && s.notifications.length > 0) {
+            notificationsRef.current = s.notifications;
+            setNotifications(s.notifications);
+          }
         } else {
           // Seed server with initial local data if server is fresh
           pushStateToServer({
-            tasks,
+            tasks: tasksRef.current,
             logs,
             staffList,
             toolbarItems: navItems,
             deleteRequests,
+            notifications: notificationsRef.current,
           });
         }
       }
@@ -406,11 +591,18 @@ export default function App() {
           if (data.type === 'STATE_UPDATED' && data.senderId !== getClientSenderId()) {
             const s = data.state;
             if (s) {
-              if (Array.isArray(s.tasks)) setTasks(s.tasks);
+              if (Array.isArray(s.tasks)) {
+                tasksRef.current = s.tasks;
+                setTasks(s.tasks);
+              }
               if (Array.isArray(s.logs)) setLogs(s.logs);
-              if (Array.isArray(s.staffList)) setStaffList(s.staffList);
-              if (Array.isArray(s.toolbarItems)) setNavItems(s.toolbarItems);
+              if (Array.isArray(s.staffList) && s.staffList.length > 0) setStaffList(s.staffList);
+              if (Array.isArray(s.toolbarItems) && s.toolbarItems.length > 0) setNavItems(s.toolbarItems);
               if (Array.isArray(s.deleteRequests)) setDeleteRequests(s.deleteRequests);
+              if (Array.isArray(s.notifications)) {
+                notificationsRef.current = s.notifications;
+                setNotifications(s.notifications);
+              }
             }
 
             const notif = data.notification;
@@ -448,7 +640,8 @@ export default function App() {
                 sendDeleteRequestNotification(notif.requesterName, notif.newRequestLabel);
               } else if (notif.kind === 'MANAGER_1430_CHECK') {
                 setManager1430AlertActive(true);
-                if (currentUser?.role === 'manager' || currentUser?.role === 'admin') {
+                const role = currentUserRef.current?.role;
+                if (role === 'manager' || role === 'admin') {
                   sendManagerCheckNotification(
                     notif.completedCount ?? 0,
                     notif.totalCount ?? 0,
@@ -470,7 +663,7 @@ export default function App() {
     return () => {
       eventSource?.close();
     };
-  }, [currentUser]);
+  }, []);
 
   // Real-time synchronization across browser tabs and devices via BroadcastChannel & storage events
   useEffect(() => {
@@ -479,13 +672,20 @@ export default function App() {
       try {
         channel = new BroadcastChannel('kitchen_tasks_sync_channel');
         channel.onmessage = (event) => {
+          if (Array.isArray(event.data?.notifications)) {
+            notificationsRef.current = event.data.notifications;
+            setNotifications(event.data.notifications);
+          }
+
           if (event.data?.type === 'TASKS_UPDATED' && Array.isArray(event.data.tasks)) {
+            tasksRef.current = event.data.tasks;
             setTasks(event.data.tasks);
             if (event.data.isCompleted && event.data.staffName && event.data.taskTitle) {
               showToast(`🔔 ${event.data.staffName} vừa xong: "${event.data.taskTitle}"`);
               sendTaskNotification(event.data.taskTitle, event.data.staffName, true);
             }
           } else if (event.data?.type === 'TASK_ASSIGNED' && Array.isArray(event.data.tasks)) {
+            tasksRef.current = event.data.tasks;
             setTasks(event.data.tasks);
             const assignedName = event.data.assignedStaffName || 'Toàn bộ ca';
             const isUrgentNotif =
@@ -519,7 +719,8 @@ export default function App() {
             }
           } else if (event.data?.type === 'MANAGER_1430_CHECK') {
             setManager1430AlertActive(true);
-            if (currentUser?.role === 'manager' || currentUser?.role === 'admin') {
+            const role = currentUserRef.current?.role;
+            if (role === 'manager' || role === 'admin') {
               sendManagerCheckNotification(
                 event.data.completedCount ?? 0,
                 event.data.totalCount ?? 0,
@@ -537,7 +738,9 @@ export default function App() {
     const handleStorageEvent = (e: StorageEvent) => {
       if (e.key === STORAGE_KEYS.TASKS && e.newValue) {
         try {
-          setTasks(JSON.parse(e.newValue));
+          const parsed = JSON.parse(e.newValue);
+          tasksRef.current = parsed;
+          setTasks(parsed);
         } catch {
           // ignore
         }
@@ -553,6 +756,14 @@ export default function App() {
         } catch {
           // ignore
         }
+      } else if (e.key === STORAGE_KEYS.NOTIFICATIONS && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          notificationsRef.current = parsed;
+          setNotifications(parsed);
+        } catch {
+          // ignore
+        }
       }
     };
     window.addEventListener('storage', handleStorageEvent);
@@ -561,30 +772,13 @@ export default function App() {
       channel?.close();
       window.removeEventListener('storage', handleStorageEvent);
     };
-  }, [currentUser]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.SCHEMA, JSON.stringify(schema));
-  }, [schema]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(logs));
-  }, [logs]);
-
-  // Show Toast Helper
-  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
-    setToast({ message, type });
-    setTimeout(() => {
-      setToast(null);
-    }, 3500);
-  };
+  }, []);
 
   // Helper: Tạo yêu cầu xóa khi người thao tác không phải Admin (ví dụ: Quản lý / Trưởng ca)
   const createDeleteRequest = (targetType: DeleteTargetType, targetLabel: string, targetId?: string) => {
     const requesterName = currentUser?.fullName || 'Quản Lý Ca';
     const requesterRole = currentUser?.role || 'manager';
 
-    // Kiểm tra xem đã có yêu cầu đang chờ duyệt cho mục này chưa
     const alreadyExists = deleteRequests.some(
       (r) => r.status === 'pending' && r.targetType === targetType && r.targetId === targetId
     );
@@ -607,8 +801,17 @@ export default function App() {
     const updatedRequests = [newReq, ...deleteRequests];
     setDeleteRequests(updatedRequests);
 
+    const nextNotifs = createNotificationItem({
+      actorName: requesterName,
+      actorRole: requesterRole,
+      actionText: 'đã gửi yêu cầu xóa',
+      targetText: targetLabel,
+      type: 'system',
+    });
+
     pushStateToServer({
       deleteRequests: updatedRequests,
+      notifications: nextNotifs,
       notification: {
         kind: 'DELETE_REQUEST',
         requesterName,
@@ -616,7 +819,6 @@ export default function App() {
       },
     });
 
-    // Đồng bộ sang tab/máy của Admin
     if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
       try {
         const channel = new BroadcastChannel('kitchen_tasks_sync_channel');
@@ -625,6 +827,7 @@ export default function App() {
           requests: updatedRequests,
           newRequestLabel: targetLabel,
           requesterName,
+          notifications: nextNotifs,
         });
         channel.close();
       } catch {
@@ -691,21 +894,21 @@ export default function App() {
     }
   };
 
-  // Task Actions with Live Synchronization & Phone Alerts
+  // Task Actions with Live Synchronization & Facebook-style Notification Feed
   const handleToggleTask = (taskId: string) => {
-    const existingTask = tasks.find((t) => t.id === taskId);
+    const currentTasks = tasksRef.current;
+    const existingTask = currentTasks.find((t) => t.id === taskId);
     if (!existingTask) return;
 
     const staffName = currentUser ? currentUser.fullName : 'Đầu Bếp Ca Trực';
     const staffId = currentUser?.id;
     const staffRole = currentUser ? currentUser.role : 'staff';
 
-    // 1. Nếu việc đã được tích hoàn thành:
-    // Chỉ cho phép CHÍNH NHÂN VIÊN ĐÓ được tích lại (bỏ tích), người khác không được phép đụng vào
     if (existingTask.completed) {
       const isSameOwner =
         (existingTask.completedById && staffId && existingTask.completedById === staffId) ||
-        existingTask.completedBy === staffName;
+        existingTask.completedBy === staffName ||
+        currentUser?.role === 'admin';
 
       if (!isSameOwner) {
         showToast(
@@ -715,15 +918,13 @@ export default function App() {
         return;
       }
     } else {
-      // 2. Khi việc chưa hoàn thành mà có chỉ định đích danh nhân viên (assignedStaffId):
-      // Chỉ đúng người được giao (hoặc Admin) mới được tích
       if (
         existingTask.assignedStaffId &&
         currentUser?.id !== existingTask.assignedStaffId &&
         currentUser?.role !== 'admin'
       ) {
         showToast(
-          `⚠️ Việc này được Bếp Trưởng chỉ định riêng cho "${existingTask.assignedStaffName}", bạn không thể tích thay!`,
+          `⚠️ Việc này được chỉ định riêng cho "${existingTask.assignedStaffName}", bạn không thể tích thay!`,
           'error'
         );
         return;
@@ -736,66 +937,69 @@ export default function App() {
       second: '2-digit',
     });
 
-    let toggledTaskTitle = '';
-    let isNowCompleted = false;
+    const willComplete = !existingTask.completed;
+    const toggledTaskTitle = existingTask.title;
 
-    setTasks((prev) => {
-      const updated = prev.map((t) => {
-        if (t.id === taskId) {
-          const willComplete = !t.completed;
-          isNowCompleted = willComplete;
-          toggledTaskTitle = t.title;
-          return {
-            ...t,
-            completed: willComplete,
-            completedAt: willComplete ? `${nowTime}, ${new Date().toLocaleDateString('vi-VN')}` : undefined,
-            completedTimestamp: willComplete ? Date.now() : undefined,
-            completedBy: willComplete ? staffName : undefined,
-            completedById: willComplete ? staffId : undefined,
-            completedByRole: willComplete ? staffRole : undefined,
-          };
-        }
-        return t;
-      });
-
-      // Push to backend server for cross-device iOS/Android sync
-      pushStateToServer({
-        tasks: updated,
-        notification: {
-          kind: 'TASK_TOGGLED',
-          taskTitle: toggledTaskTitle,
-          staffName,
-          isCompleted: isNowCompleted,
-        },
-      });
-
-      // Broadcast to other tabs & devices in real-time
-      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
-        try {
-          const channel = new BroadcastChannel('kitchen_tasks_sync_channel');
-          channel.postMessage({
-            type: 'TASKS_UPDATED',
-            tasks: updated,
-            staffName,
-            taskTitle: toggledTaskTitle,
-            isCompleted: isNowCompleted,
-          });
-          channel.close();
-        } catch {
-          // ignore
-        }
+    const updated = currentTasks.map((t) => {
+      if (t.id === taskId) {
+        return {
+          ...t,
+          completed: willComplete,
+          completedAt: willComplete ? `${nowTime}, ${new Date().toLocaleDateString('vi-VN')}` : undefined,
+          completedTimestamp: willComplete ? Date.now() : undefined,
+          completedBy: willComplete ? staffName : undefined,
+          completedById: willComplete ? staffId : undefined,
+          completedByRole: willComplete ? staffRole : undefined,
+        };
       }
-
-      return updated;
+      return t;
     });
 
-    if (toggledTaskTitle) {
-      if (isNowCompleted) {
-        showToast(`✅ ${staffName} đã hoàn thành: "${toggledTaskTitle}"`);
-        sendTaskNotification(toggledTaskTitle, staffName, true);
-      } else {
-        showToast(`↩️ ${staffName} đã bỏ tích: "${toggledTaskTitle}"`);
+    tasksRef.current = updated;
+    setTasks(updated);
+
+    // Thêm vào Ô thông báo kiểu Facebook (VD: "B đã hoàn thành việc ... Vừa xong / 1p trước")
+    const nextNotifs = createNotificationItem({
+      actorName: staffName,
+      actorRole: staffRole,
+      actionText: willComplete ? 'đã hoàn thành việc' : 'đã mở lại việc',
+      targetText: toggledTaskTitle,
+      type: 'task_completed',
+    });
+
+    pushStateToServer({
+      tasks: updated,
+      notifications: nextNotifs,
+      notification: {
+        kind: 'TASK_TOGGLED',
+        taskTitle: toggledTaskTitle,
+        staffName,
+        isCompleted: willComplete,
+      },
+    });
+
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      try {
+        const channel = new BroadcastChannel('kitchen_tasks_sync_channel');
+        channel.postMessage({
+          type: 'TASKS_UPDATED',
+          tasks: updated,
+          notifications: nextNotifs,
+          staffName,
+          taskTitle: toggledTaskTitle,
+          isCompleted: willComplete,
+        });
+        channel.close();
+      } catch {
+        // ignore
       }
+    }
+
+    if (willComplete) {
+      showToast(`✅ ${staffName} đã hoàn thành: "${toggledTaskTitle}"`);
+      sendTaskNotification(toggledTaskTitle, staffName, true);
+    } else {
+      showToast(`↩️ ${staffName} đã bỏ tích: "${toggledTaskTitle}"`);
     }
   };
 
@@ -803,14 +1007,21 @@ export default function App() {
   const handleRefreshTasks = () => {
     fetchStateFromServer().then((res) => {
       if (res.ok && res.state && Array.isArray(res.state.tasks)) {
+        tasksRef.current = res.state.tasks;
         setTasks(res.state.tasks);
+        if (Array.isArray(res.state.notifications)) {
+          notificationsRef.current = res.state.notifications;
+          setNotifications(res.state.notifications);
+        }
         showToast('Đã đồng bộ danh sách việc mới nhất từ Server!');
         return;
       }
       try {
         const saved = localStorage.getItem(STORAGE_KEYS.TASKS);
         if (saved) {
-          setTasks(JSON.parse(saved));
+          const parsed = JSON.parse(saved);
+          tasksRef.current = parsed;
+          setTasks(parsed);
         }
         showToast('Đã cập nhật lại danh sách việc mới nhất!');
       } catch {
@@ -824,31 +1035,63 @@ export default function App() {
       showToast('Chỉ Bếp Trưởng (Admin) mới có quyền làm mới toàn bộ tích ca!', 'error');
       return;
     }
-    setTasks((prev) => {
-      const updated = prev.map((t) => ({
-        ...t,
-        completed: false,
-        completedAt: undefined,
-        completedTimestamp: undefined,
-        completedBy: undefined,
-        completedById: undefined,
-        completedByRole: undefined,
-      }));
-      pushStateToServer({ tasks: updated });
-      return updated;
+
+    const updated = tasksRef.current.map((t) => ({
+      ...t,
+      completed: false,
+      completedAt: undefined,
+      completedTimestamp: undefined,
+      completedBy: undefined,
+      completedById: undefined,
+      completedByRole: undefined,
+    }));
+
+    tasksRef.current = updated;
+    setTasks(updated);
+
+    const actorName = currentUser?.fullName || 'Bếp Trưởng (Admin)';
+    const nextNotifs = createNotificationItem({
+      actorName,
+      actorRole: 'admin',
+      actionText: 'đã làm mới (Reset) toàn bộ Checklist ca bếp',
+      type: 'system',
     });
+
+    pushStateToServer({ tasks: updated, notifications: nextNotifs });
+
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      try {
+        const channel = new BroadcastChannel('kitchen_tasks_sync_channel');
+        channel.postMessage({
+          type: 'TASKS_UPDATED',
+          tasks: updated,
+          notifications: nextNotifs,
+        });
+        channel.close();
+      } catch {
+        // ignore
+      }
+    }
+
     showToast('Đã làm mới danh sách việc ca này!');
   };
 
   const handleAddTask = (newTask: Omit<KitchenTask, 'id' | 'completed'>) => {
+    const trimmedTitle = (newTask.title || '').trim();
+    if (!trimmedTitle) {
+      showToast('Vui lòng nhập nội dung công việc!', 'error');
+      return;
+    }
+
     const nowShort = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
     const assignedBy = newTask.createdBy || currentUser?.fullName || 'Trưởng Ca';
     const assignedByRole = newTask.createdByRole || currentUser?.role || 'manager';
 
     const task: KitchenTask = {
       ...newTask,
+      title: trimmedTitle,
       taskType: newTask.taskType || 'daily',
-      id: `task-${Date.now()}`,
+      id: `task-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
       completed: false,
       createdBy: assignedBy,
       createdByRole: assignedByRole,
@@ -868,43 +1111,62 @@ export default function App() {
       });
     }
 
-    setTasks((prev) => {
-      const updated = [task, ...prev];
-      pushStateToServer({
-        tasks: updated,
-        notification: {
-          kind: 'TASK_ASSIGNED',
+    const updated = [task, ...tasksRef.current];
+    tasksRef.current = updated;
+    setTasks(updated);
+
+    // Thêm vào Ô thông báo kiểu Facebook (VD: "A đã giao việc cho bạn 1p trước")
+    const actionText = isUrgent
+      ? task.assignedStaffName
+        ? `đã giao VIỆC GẤP cho ${task.assignedStaffName}`
+        : 'đã giao việc gấp cho bạn'
+      : task.assignedStaffName
+      ? `đã giao việc cho ${task.assignedStaffName}`
+      : 'đã giao việc cho bạn';
+
+    const nextNotifs = createNotificationItem({
+      actorName: assignedBy,
+      actorRole: assignedByRole,
+      actionText,
+      targetText: task.title,
+      type: isUrgent ? 'task_urgent' : 'task_assigned',
+    });
+
+    pushStateToServer({
+      tasks: updated,
+      notifications: nextNotifs,
+      notification: {
+        kind: 'TASK_ASSIGNED',
+        taskTitle: task.title,
+        assignedStaffName: assignedTargetName,
+        priority: task.priority,
+        assignedBy,
+        assignedByRole,
+        isUrgent,
+      },
+    });
+
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      try {
+        const channel = new BroadcastChannel('kitchen_tasks_sync_channel');
+        channel.postMessage({
+          type: 'TASK_ASSIGNED',
+          tasks: updated,
+          notifications: nextNotifs,
           taskTitle: task.title,
+          assignedStaffId: task.assignedStaffId,
           assignedStaffName: assignedTargetName,
           priority: task.priority,
           assignedBy,
           assignedByRole,
           isUrgent,
-        },
-      });
-      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
-        try {
-          const channel = new BroadcastChannel('kitchen_tasks_sync_channel');
-          channel.postMessage({
-            type: 'TASK_ASSIGNED',
-            tasks: updated,
-            taskTitle: task.title,
-            assignedStaffId: task.assignedStaffId,
-            assignedStaffName: assignedTargetName,
-            priority: task.priority,
-            assignedBy,
-            assignedByRole,
-            isUrgent,
-          });
-          channel.close();
-        } catch {
-          // ignore
-        }
+        });
+        channel.close();
+      } catch {
+        // ignore
       }
-      return updated;
-    });
+    }
 
-    // Bắn thông báo nổi lên điện thoại ngay lập tức
     sendAssignedTaskNotification(
       task.title,
       assignedTargetName,
@@ -915,103 +1177,155 @@ export default function App() {
     );
 
     if (isUrgent) {
-      showToast(`🚨 Đã giao VIỆC GẤP mới ("${task.title}") & phát thông báo khẩn toàn ca!`);
+      showToast(`🚨 Đã giao VIỆC GẤP mới ("${task.title}") & phát thông báo khẩn!`);
     } else if (task.assignedStaffName) {
-      showToast(`📲 Đã giao việc cho ${task.assignedStaffName} & phát thông báo lên điện thoại!`);
+      showToast(`📲 Đã giao việc cho ${task.assignedStaffName}!`);
     } else {
-      showToast('📲 Đã thêm đầu việc mới & thông báo cho toàn ca bếp!');
+      showToast('📲 Đã thêm đầu việc mới cho ca bếp!');
     }
   };
 
   // Cập nhật / chỉnh sửa đầu việc (dành cho Trưởng Ca @manager & Admin @admin)
   const handleUpdateTask = (updatedTask: KitchenTask) => {
+    const trimmedTitle = (updatedTask.title || '').trim();
+    if (!trimmedTitle) {
+      showToast('Tên đầu việc không được để trống!', 'error');
+      return;
+    }
+
+    const cleanTask: KitchenTask = {
+      ...updatedTask,
+      title: trimmedTitle,
+    };
+
     const nowShort = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-    const assignedBy = currentUser?.fullName || updatedTask.createdBy || 'Trưởng Ca';
-    const assignedByRole = currentUser?.role || updatedTask.createdByRole || 'manager';
+    const assignedBy = currentUser?.fullName || cleanTask.createdBy || 'Trưởng Ca';
+    const assignedByRole = currentUser?.role || cleanTask.createdByRole || 'manager';
     const isUrgent =
-      updatedTask.taskType === 'urgent_today' ||
-      updatedTask.priority === 'Gấp' ||
-      updatedTask.priority === 'Tối khẩn';
+      cleanTask.taskType === 'urgent_today' ||
+      cleanTask.priority === 'Gấp' ||
+      cleanTask.priority === 'Tối khẩn';
 
     if (isUrgent) {
       setUrgentManagerTaskAlert({
-        taskTitle: updatedTask.title,
+        taskTitle: cleanTask.title,
         assignedBy,
         assignedByRole,
         time: nowShort,
       });
     }
 
-    setTasks((prev) => {
-      const next = prev.map((t) => (t.id === updatedTask.id ? updatedTask : t));
-      pushStateToServer({
-        tasks: next,
-        notification: isUrgent
-          ? {
-              kind: 'TASK_ASSIGNED',
-              taskTitle: updatedTask.title,
-              assignedStaffName: updatedTask.assignedStaffName || 'Toàn bộ ca bếp',
-              priority: updatedTask.priority,
-              assignedBy,
-              assignedByRole,
-              isUrgent: true,
-            }
-          : undefined,
-      });
-      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
-        try {
-          const channel = new BroadcastChannel('kitchen_tasks_sync_channel');
-          channel.postMessage({
-            type: isUrgent ? 'TASK_ASSIGNED' : 'TASKS_UPDATED',
-            tasks: next,
-            taskTitle: updatedTask.title,
-            assignedStaffName: updatedTask.assignedStaffName || 'Toàn bộ ca bếp',
-            priority: updatedTask.priority,
+    const next = tasksRef.current.map((t) => (t.id === cleanTask.id ? cleanTask : t));
+    tasksRef.current = next;
+    setTasks(next);
+
+    const nextNotifs = createNotificationItem({
+      actorName: assignedBy,
+      actorRole: assignedByRole,
+      actionText: isUrgent ? 'đã cập nhật thành VIỆC GẤP' : 'đã chỉnh sửa đầu việc',
+      targetText: cleanTask.title,
+      type: isUrgent ? 'task_urgent' : 'task_assigned',
+    });
+
+    pushStateToServer({
+      tasks: next,
+      notifications: nextNotifs,
+      notification: isUrgent
+        ? {
+            kind: 'TASK_ASSIGNED',
+            taskTitle: cleanTask.title,
+            assignedStaffName: cleanTask.assignedStaffName || 'Toàn bộ ca bếp',
+            priority: cleanTask.priority,
             assignedBy,
             assignedByRole,
-            isUrgent,
-          });
-          channel.close();
-        } catch {
-          // ignore
-        }
-      }
-      return next;
+            isUrgent: true,
+          }
+        : undefined,
     });
+
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      try {
+        const channel = new BroadcastChannel('kitchen_tasks_sync_channel');
+        channel.postMessage({
+          type: isUrgent ? 'TASK_ASSIGNED' : 'TASKS_UPDATED',
+          tasks: next,
+          notifications: nextNotifs,
+          taskTitle: cleanTask.title,
+          assignedStaffName: cleanTask.assignedStaffName || 'Toàn bộ ca bếp',
+          priority: cleanTask.priority,
+          assignedBy,
+          assignedByRole,
+          isUrgent,
+        });
+        channel.close();
+      } catch {
+        // ignore
+      }
+    }
 
     if (isUrgent) {
       sendAssignedTaskNotification(
-        updatedTask.title,
-        updatedTask.assignedStaffName || 'Toàn bộ ca bếp',
-        updatedTask.priority,
+        cleanTask.title,
+        cleanTask.assignedStaffName || 'Toàn bộ ca bếp',
+        cleanTask.priority,
         assignedBy,
         true,
         assignedByRole
       );
-      showToast(`🚨 Đã cập nhật thành VIỆC GẤP & thông báo cho toàn ca: "${updatedTask.title}"`);
+      showToast(`🚨 Đã cập nhật thành VIỆC GẤP: "${cleanTask.title}"`);
     } else {
-      showToast(`✅ Đã cập nhật đầu việc: "${updatedTask.title}"`);
+      showToast(`✅ Đã cập nhật đầu việc: "${cleanTask.title}"`);
     }
   };
 
-  // Riêng xóa trong Checklist Giao Việc của Bếp Trưởng / Trưởng Ca thì được xóa trực tiếp theo yêu cầu
+  // Xóa trực tiếp đầu việc trong Checklist / Giao Việc (không dùng window.confirm gây đơ trên đt)
   const handleDeleteTask = (id: string) => {
-    setTasks((prev) => {
-      const updated = prev.filter((t) => t.id !== id);
-      pushStateToServer({ tasks: updated });
-      return updated;
-    });
-    showToast('Đã xóa đầu việc khỏi danh sách giao việc');
+    const target = tasksRef.current.find((t) => t.id === id);
+    const updated = tasksRef.current.filter((t) => t.id !== id);
+    tasksRef.current = updated;
+    setTasks(updated);
+    pushStateToServer({ tasks: updated });
+
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      try {
+        const channel = new BroadcastChannel('kitchen_tasks_sync_channel');
+        channel.postMessage({
+          type: 'TASKS_UPDATED',
+          tasks: updated,
+        });
+        channel.close();
+      } catch {
+        // ignore
+      }
+    }
+
+    showToast(target ? `Đã xóa việc: "${target.title}"` : 'Đã xóa đầu việc');
   };
 
   const handleClearAllTasks = () => {
+    tasksRef.current = [];
     setTasks([]);
     pushStateToServer({ tasks: [] });
+
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      try {
+        const channel = new BroadcastChannel('kitchen_tasks_sync_channel');
+        channel.postMessage({
+          type: 'TASKS_UPDATED',
+          tasks: [],
+        });
+        channel.close();
+      } catch {
+        // ignore
+      }
+    }
+
     showToast('Đã dọn dẹp toàn bộ danh sách việc giao');
   };
 
   const handleLoadTaskPreset = (type: 'standard' | 'haccp' | 'bakery') => {
     if (type === 'standard') {
+      tasksRef.current = DEFAULT_TASKS;
       setTasks(DEFAULT_TASKS);
       pushStateToServer({ tasks: DEFAULT_TASKS });
       showToast('Đã nạp mẫu Bếp Tiêu Chuẩn!');
@@ -1024,52 +1338,35 @@ export default function App() {
         { id: 'h5', title: 'Vệ sinh bẫy mỡ inox và khử trùng bồn rửa bát', category: 'Vệ sinh', priority: 'Thường', taskType: 'daily', completed: false, assignedShift: 'Ca Chiều' },
         { id: 'h6', title: 'Nghiệm thu rác hữu cơ đóng kín & khóa van an toàn hệ thống gas', category: 'An toàn ATTP', priority: 'Tối khẩn', taskType: 'urgent_today', completed: false, assignedShift: 'Tất cả ca' },
       ];
+      tasksRef.current = haccpTasks;
       setTasks(haccpTasks);
       pushStateToServer({ tasks: haccpTasks });
       showToast('Đã nạp mẫu Vệ Sinh An Toàn HACCP!');
     }
   };
 
-  // Dynamic Field Actions
-  const handleAddField = (newField: Omit<DynamicField, 'id'>) => {
-    const field: DynamicField = {
-      ...newField,
-      id: `field-${Date.now()}`,
-    };
-    setSchema((prev) => [...prev, field]);
-    showToast('Đã thêm trường thông tin mới!');
-  };
-
-  const handleDeleteField = (id: string) => {
-    if (currentUser?.role !== 'admin') {
-      const target = schema.find((f) => f.id === id);
-      createDeleteRequest('nav_item', `Trường thông tin: ${target?.label || id}`, id);
-      return;
-    }
-    setSchema((prev) => prev.filter((f) => f.id !== id));
-    showToast('Đã xóa trường thông tin');
-  };
-
   // Staff Personnel Actions
   const handleAddStaff = (newStaff: Omit<StaffUser, 'id'>) => {
+    const trimmedName = (newStaff.fullName || '').trim();
+    if (!trimmedName) {
+      showToast('Vui lòng nhập họ tên nhân sự!', 'error');
+      return;
+    }
     const staff: StaffUser = {
       ...newStaff,
-      id: `staff-${Date.now()}`,
+      fullName: trimmedName,
+      id: `staff-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
     };
-    setStaffList((prev) => {
-      const updated = [...prev, staff];
-      pushStateToServer({ staffList: updated });
-      return updated;
-    });
+    const updated = [...staffList, staff];
+    setStaffList(updated);
+    pushStateToServer({ staffList: updated });
     showToast(`Đã thêm nhân sự: ${staff.fullName}`);
   };
 
   const handleUpdateStaff = (updated: StaffUser) => {
-    setStaffList((prev) => {
-      const next = prev.map((s) => (s.id === updated.id ? updated : s));
-      pushStateToServer({ staffList: next });
-      return next;
-    });
+    const next = staffList.map((s) => (s.id === updated.id ? updated : s));
+    setStaffList(next);
+    pushStateToServer({ staffList: next });
     if (currentUser?.id === updated.id) {
       setCurrentUser(updated);
     }
@@ -1077,19 +1374,16 @@ export default function App() {
   };
 
   const handleDeleteStaff = (id: string) => {
-    const target = staffList.filter((s) => s.id === id)[0];
+    const target = staffList.find((s) => s.id === id);
     if (currentUser?.role !== 'admin') {
       createDeleteRequest('staff', `Nhân sự: ${target?.fullName || id}`, id);
       return;
     }
-    setStaffList((prev) => {
-      const next = prev.filter((s) => s.id !== id);
-      pushStateToServer({ staffList: next });
-      return next;
-    });
+    const next = staffList.filter((s) => s.id !== id);
+    setStaffList(next);
+    pushStateToServer({ staffList: next });
     if (currentUser?.id === id) {
-      const remaining = staffList.filter((s) => s.id !== id);
-      setCurrentUser(remaining[0] || null);
+      setCurrentUser(next[0] || null);
     }
     showToast('Đã xóa tài khoản nhân sự');
   };
@@ -1100,23 +1394,21 @@ export default function App() {
   };
 
   const handleLogin = (user: StaffUser) => {
-    const updated = {
+    const updated: StaffUser = {
       ...user,
       status: 'active' as const,
       lastLogin: new Date().toLocaleString('vi-VN'),
     };
     setCurrentUser(updated);
-    setStaffList((prev) => {
-      const next = prev.map((s) => (s.id === user.id ? updated : s));
-      pushStateToServer({ staffList: next });
-      return next;
-    });
-    showToast(`Xin chào ${user.fullName}! Đăng nhập thành công.`);
+    const next = staffList.map((s) => (s.id === user.id ? updated : s));
+    setStaffList(next);
+    pushStateToServer({ staffList: next });
+    showToast(`Xin chào ${updated.fullName}!`);
   };
 
   const handleLogout = () => {
     setCurrentUser(null);
-    showToast('Đã đăng xuất ca làm việc.');
+    showToast('Đã đăng xuất tài khoản.');
   };
 
   // Submit Shift Log
@@ -1126,28 +1418,32 @@ export default function App() {
       id: `LOG-${Date.now().toString().slice(-4)}`,
       timestamp: new Date().toLocaleString('vi-VN'),
     };
-    setLogs((prev) => {
-      const updated = [newLog, ...prev];
-      pushStateToServer({ logs: updated });
-      return updated;
+    const updated = [newLog, ...logs];
+    setLogs(updated);
+
+    const nextNotifs = createNotificationItem({
+      actorName: logData.staffName || currentUser?.fullName || 'Nhân viên ca',
+      actorRole: currentUser?.role || 'staff',
+      actionText: `đã nộp biên bản bàn giao ${logData.shiftName}`,
+      targetText: `${logData.completedCount}/${logData.totalCount} việc hoàn tất`,
+      type: 'task_completed',
     });
+
+    pushStateToServer({ logs: updated, notifications: nextNotifs });
     showToast('🎉 Đã nộp báo cáo ca bếp thành công!');
 
-    // Automatically navigate to history tab if available, else first visible tab
     const historyItem = navItems.find((item) => item.targetType === 'history' && item.visible);
     if (historyItem) {
       setActiveTabId(historyItem.id);
     }
   };
 
-  // Log Actions (Chỉ Admin được xóa thẳng, Quản lý bấm xóa sẽ gửi yêu cầu cho Admin duyệt)
+  // Log Actions
   const handleDeleteLog = (id: string) => {
     if (currentUser?.role === 'admin') {
-      setLogs((prev) => {
-        const updated = prev.filter((l) => l.id !== id);
-        pushStateToServer({ logs: updated });
-        return updated;
-      });
+      const updated = logs.filter((l) => l.id !== id);
+      setLogs(updated);
+      pushStateToServer({ logs: updated });
       showToast('Đã xóa báo cáo ca');
     } else if (currentUser?.role === 'manager') {
       const targetLog = logs.find((l) => l.id === id);
@@ -1231,8 +1527,8 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-stone-100/90 text-stone-800 flex flex-col font-sans selection:bg-amber-500 selection:text-white">
-      {/* Dynamic Header Navbar with Toolbar items & Quick Config */}
+    <div className="min-h-screen bg-zinc-50 text-zinc-900 flex flex-col font-sans antialiased selection:bg-zinc-900 selection:text-white">
+      {/* International Production Header Navbar with Notification Bell & Dropdown */}
       <HeaderNav
         config={appConfig}
         navItems={navItems}
@@ -1243,26 +1539,30 @@ export default function App() {
         totalLogsCount={logs.length}
         currentUser={currentUser}
         onOpenLogin={() => setShowLoginModal(true)}
+        notifications={notifications}
+        onDeleteNotification={handleDeleteNotification}
+        onClearAllNotifications={handleClearAllNotifications}
+        serverConnected={serverConnected}
       />
 
       {/* Global Urgent Task Notification Banner (Khi Trưởng Ca giao việc gấp mới) */}
       {urgentManagerTaskAlert && (
-        <div className="max-w-7xl w-full mx-auto px-3.5 pt-3 sm:px-6 lg:px-8">
-          <div className="bg-gradient-to-r from-rose-950 via-red-900 to-rose-950 text-white border-2 border-rose-400 rounded-2xl p-4 shadow-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-fadeIn">
+        <div className="max-w-5xl w-full mx-auto px-3 sm:px-6 pt-3">
+          <div className="bg-rose-600 text-white rounded-2xl p-3.5 sm:p-4 shadow-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <div className="flex items-start sm:items-center gap-3 text-xs sm:text-sm">
-              <div className="p-2.5 bg-rose-500 text-white rounded-xl shadow-md shrink-0 animate-bounce">
-                <BellRing className="w-5 h-5" />
+              <div className="p-2 bg-white/15 text-white rounded-xl shrink-0">
+                <BellRing className="w-5 h-5 animate-bounce" />
               </div>
               <div>
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="px-2 py-0.5 rounded-md bg-rose-500 text-white font-mono font-extrabold text-[11px] uppercase">
-                    VIỆC GẤP MỚI TỪ TRƯỞNG CA • {urgentManagerTaskAlert.time}
+                  <span className="px-2 py-0.5 rounded-md bg-rose-900/50 text-white font-mono font-bold text-[10px] uppercase">
+                    VIỆC GẤP MỚI • {urgentManagerTaskAlert.time}
                   </span>
-                  <span className="font-extrabold text-amber-200">
-                    Giao bởi: {urgentManagerTaskAlert.assignedBy} (@{urgentManagerTaskAlert.assignedByRole || 'manager'})
+                  <span className="font-semibold text-rose-100 text-xs">
+                    Từ: {urgentManagerTaskAlert.assignedBy}
                   </span>
                 </div>
-                <p className="text-white font-bold text-sm sm:text-base mt-1">
+                <p className="text-white font-bold text-sm sm:text-base mt-0.5">
                   &ldquo;{urgentManagerTaskAlert.taskTitle}&rdquo;
                 </p>
               </div>
@@ -1276,17 +1576,17 @@ export default function App() {
                     if (checklistTab) setActiveTabId(checklistTab.id);
                     setUrgentManagerTaskAlert(null);
                   }}
-                  className="px-3 py-1.5 bg-white text-rose-950 hover:bg-rose-100 rounded-xl text-xs font-extrabold transition"
+                  className="px-3 py-1.5 bg-white text-rose-700 hover:bg-rose-50 rounded-xl text-xs font-bold transition"
                 >
-                  Xem Việc Gấp Ngay
+                  Mở Checklist
                 </button>
               )}
               <button
                 onClick={() => setUrgentManagerTaskAlert(null)}
-                className="px-3.5 py-1.5 bg-rose-700 hover:bg-rose-600 text-white border border-rose-400/50 rounded-xl text-xs font-bold flex items-center gap-1 transition"
+                className="px-3 py-1.5 bg-rose-800 hover:bg-rose-900 text-white rounded-xl text-xs font-semibold flex items-center gap-1 transition"
               >
                 <Check className="w-3.5 h-3.5" />
-                <span>Đã nhận thông báo</span>
+                <span>Đã xem</span>
               </button>
             </div>
           </div>
@@ -1295,84 +1595,73 @@ export default function App() {
 
       {/* Global 14:30 PM Notification Banner for @manager (and @admin) */}
       {manager1430AlertActive && (currentUser?.role === 'manager' || currentUser?.role === 'admin') && (
-        <div className="max-w-7xl w-full mx-auto px-3.5 pt-3 sm:px-6 lg:px-8">
-          <div className="bg-gradient-to-r from-indigo-900 via-purple-900 to-indigo-950 text-white border-2 border-indigo-400/50 rounded-2xl p-4 shadow-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div className="max-w-5xl w-full mx-auto px-3 sm:px-6 pt-3">
+          <div className="bg-zinc-900 text-white border border-zinc-800 rounded-2xl p-3.5 sm:p-4 shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <div className="flex items-start sm:items-center gap-3 text-xs sm:text-sm">
-              <div className="p-2.5 bg-amber-500 text-stone-950 rounded-xl shadow-md shrink-0 animate-bounce">
-                <BellRing className="w-5 h-5" />
+              <div className="p-2 bg-amber-500 text-zinc-950 rounded-xl shrink-0">
+                <BellRing className="w-4 h-4" />
               </div>
               <div>
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="px-2 py-0.5 rounded-md bg-amber-400 text-stone-950 font-mono font-extrabold text-[11px]">
+                  <span className="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 font-mono font-bold text-[10px]">
                     14:30 CHIỀU • @manager
                   </span>
-                  <span className="font-extrabold text-amber-200">
-                    Đến giờ kiểm tra tiến độ Checklist ca bếp!
+                  <span className="font-bold text-white">
+                    Kiểm tra tiến độ Checklist ca bếp
                   </span>
                 </div>
-                <p className="text-indigo-100 text-xs mt-1">
-                  Hiện đã hoàn thành <strong>{completedTasksCount}/{tasks.length}</strong> đầu việc
+                <p className="text-zinc-300 text-xs mt-0.5">
+                  Đã xong <strong>{completedTasksCount}/{tasks.length}</strong> việc
                   {urgentPendingCount > 0 ? (
-                    <span className="text-rose-300 font-bold">
-                      {' '}• Còn {urgentPendingCount} việc Trong ngày gấp chưa xong!
+                    <span className="text-rose-400 font-semibold">
+                      {' '}• Còn {urgentPendingCount} việc gấp chưa xong!
                     </span>
                   ) : (
-                    <span className="text-emerald-300 font-semibold"> • Không còn việc gấp tồn đọng.</span>
+                    <span className="text-emerald-400 font-semibold"> • Không còn việc gấp tồn đọng.</span>
                   )}
                 </p>
               </div>
             </div>
 
             <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
-              {currentNavItem?.targetType !== 'checklist' && (
-                <button
-                  onClick={() => {
-                    const checklistTab = navItems.find((i) => i.targetType === 'checklist');
-                    if (checklistTab) setActiveTabId(checklistTab.id);
-                  }}
-                  className="px-3 py-1.5 bg-white/15 hover:bg-white/25 text-white border border-white/20 rounded-xl text-xs font-bold transition"
-                >
-                  Mở Checklist
-                </button>
-              )}
               <button
                 onClick={handleAcknowledgeManager1430}
-                className="px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow-sm transition"
+                className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center gap-1 transition"
               >
                 <Check className="w-3.5 h-3.5" />
-                <span>Đã kiểm tra (14:30)</span>
+                <span>Đã kiểm tra</span>
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Global Admin Approval Banner: Hiển thị nổi bật cho Admin ở mọi trang nếu có yêu cầu xóa từ Quản lý */}
+      {/* Global Admin Approval Banner */}
       {currentUser?.role === 'admin' && pendingDeleteRequests.length > 0 && currentNavItem?.targetType !== 'history' && (
-        <div className="max-w-7xl w-full mx-auto px-3.5 pt-3 sm:px-6 lg:px-8">
-          <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-3.5 sm:p-4 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div className="max-w-5xl w-full mx-auto px-3 sm:px-6 pt-3">
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3.5 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <div className="flex items-center gap-2.5 text-xs sm:text-sm text-amber-950">
               <ShieldAlert className="w-5 h-5 text-amber-600 shrink-0" />
               <div>
-                <span className="font-bold">Có {pendingDeleteRequests.length} yêu cầu xóa từ Quản lý chờ bạn duyệt: </span>
+                <span className="font-bold">Yêu cầu xóa chờ duyệt ({pendingDeleteRequests.length}): </span>
                 <span className="text-rose-700 font-semibold">{pendingDeleteRequests[0].targetLabel}</span>
-                <span className="text-stone-500 text-xs"> (Gửi bởi {pendingDeleteRequests[0].requestedBy})</span>
+                <span className="text-zinc-500 text-xs"> ({pendingDeleteRequests[0].requestedBy})</span>
               </div>
             </div>
             <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
               <button
                 onClick={() => handleRejectDeleteRequest(pendingDeleteRequests[0].id)}
-                className="px-3 py-1.5 bg-white hover:bg-stone-100 text-stone-700 border border-stone-200 rounded-xl text-xs font-bold flex items-center gap-1 transition"
+                className="px-3 py-1.5 bg-white hover:bg-zinc-100 text-zinc-700 border border-zinc-200 rounded-xl text-xs font-semibold flex items-center gap-1 transition"
               >
                 <X className="w-3.5 h-3.5" />
-                <span>Không duyệt</span>
+                <span>Từ chối</span>
               </button>
               <button
                 onClick={() => handleApproveDeleteRequest(pendingDeleteRequests[0].id)}
-                className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow-xs transition"
+                className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1 transition"
               >
                 <Check className="w-3.5 h-3.5" />
-                <span>Duyệt xóa ngay</span>
+                <span>Duyệt xóa</span>
               </button>
             </div>
           </div>
@@ -1380,7 +1669,15 @@ export default function App() {
       )}
 
       {/* Main Body */}
-      <main className="flex-grow max-w-7xl w-full mx-auto px-3.5 py-4 sm:p-6 lg:p-8 pb-24 md:pb-8">
+      <main className="flex-grow max-w-5xl w-full mx-auto px-3 sm:px-6 py-4 sm:py-6 pb-24 md:pb-10 space-y-4">
+        {/* Ô Thông Báo Kiểu Facebook (Hiện số phút đã trôi qua: 1p trước, 5p trước... Nhấp vào để xóa ngay) */}
+        <NotificationFeedBox
+          notifications={notifications}
+          onDeleteNotification={handleDeleteNotification}
+          onClearAllNotifications={handleClearAllNotifications}
+          variant="inline"
+        />
+
         {/* Render View based on targetType of active Tab with role-based permission verification */}
         {currentNavItem && canRoleAccessTab(currentUser?.role, currentNavItem.targetType, currentNavItem) ? (
           <>
@@ -1469,16 +1766,16 @@ export default function App() {
             )}
           </>
         ) : (
-          <div className="bg-white rounded-2xl p-8 sm:p-12 text-center border border-stone-200 shadow-sm max-w-md mx-auto my-12 space-y-4">
-            <div className="w-14 h-14 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto shadow-inner">
-              <AlertCircle className="w-7 h-7" />
+          <div className="bg-white rounded-2xl p-8 text-center border border-zinc-200/80 shadow-xs max-w-md mx-auto my-10 space-y-4">
+            <div className="w-12 h-12 rounded-2xl bg-zinc-100 text-zinc-700 flex items-center justify-center mx-auto">
+              <AlertCircle className="w-6 h-6" />
             </div>
             <div>
-              <h3 className="text-base sm:text-lg font-black text-stone-900">
-                Giao Diện Giới Hạn Theo Vai Trò
+              <h3 className="text-base font-bold text-zinc-900">
+                Khu Vực Giới Hạn Quyền Truy Cập
               </h3>
-              <p className="text-xs sm:text-sm text-stone-500 mt-1">
-                Tài khoản của bạn ({currentUser ? currentUser.fullName : 'Chưa đăng nhập'} - {currentUser?.role === 'manager' ? 'Trưởng Ca' : 'Nhân Viên Bếp'}) không có quyền truy cập vào mục này.
+              <p className="text-xs text-zinc-500 mt-1">
+                Tài khoản ({currentUser ? currentUser.fullName : 'Chưa đăng nhập'}) không có quyền mở trang này.
               </p>
             </div>
             <button
@@ -1486,33 +1783,30 @@ export default function App() {
                 const firstAllowed = navItems.find((i) => i.visible && canRoleAccessTab(currentUser?.role, i.targetType, i));
                 if (firstAllowed) setActiveTabId(firstAllowed.id);
               }}
-              className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs sm:text-sm font-bold shadow-md transition"
+              className="px-4 py-2.5 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-semibold transition"
             >
-              Về Bảng Kiểm Ca Nhân Viên
+              Về Checklist Ca Bếp
             </button>
           </div>
         )}
       </main>
 
-      {/* Footer */}
-      <footer className="bg-stone-900 text-stone-400 text-xs py-4 border-t border-stone-800 text-center mb-16 md:mb-0">
-        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
-          <p>© {new Date().getFullYear()} {appConfig.appTitle} • Hệ Thống Quản Lý Bếp & ATTP</p>
+      {/* Minimalist Production Footer */}
+      <footer className="bg-white text-zinc-400 text-[11px] py-3.5 border-t border-zinc-200/80 text-center mb-14 md:mb-0">
+        <div className="max-w-5xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
+          <p>© {new Date().getFullYear()} {appConfig.appTitle} • Hệ Thống Vận Hành Bếp</p>
           {currentUser?.role === 'admin' && (
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => {
-                  const adminItem = navItems.find((i) => i.targetType === 'admin');
-                  if (adminItem) {
-                    setActiveTabId(adminItem.id);
-                    setAdminInitialSubTab('nav');
-                  }
-                }}
-                className="text-amber-400 hover:underline font-medium"
-              >
-                Cấu hình thanh công cụ (Admin)
-              </button>
-            </div>
+            <button
+              onClick={() => {
+                const adminItem = navItems.find((i) => i.targetType === 'admin');
+                if (adminItem) {
+                  setActiveTabId(adminItem.id);
+                }
+              }}
+              className="text-zinc-600 hover:text-zinc-900 font-semibold transition"
+            >
+              Cấu hình hệ thống (Admin)
+            </button>
           )}
         </div>
       </footer>
@@ -1536,13 +1830,12 @@ export default function App() {
         onUpdateNavItems={(items) => {
           setNavItems(items);
           pushStateToServer({ toolbarItems: items });
-          showToast('Đã cập nhật thanh công cụ thành công!');
+          showToast('Đã cập nhật thanh công cụ!');
         }}
         onOpenFullAdmin={() => {
           const adminItem = navItems.find((i) => i.targetType === 'admin');
           if (adminItem) {
             setActiveTabId(adminItem.id);
-            setAdminInitialSubTab('nav');
           }
         }}
       />
@@ -1558,21 +1851,21 @@ export default function App() {
         onRegisterStaff={handleAddStaff}
       />
 
-      {/* Floating Toast Notification (Positioned above mobile bottom bar) */}
+      {/* Floating Toast Notification */}
       {toast && (
         <div
-          className={`fixed bottom-20 md:bottom-5 right-3 md:right-5 left-3 sm:left-auto z-50 px-4 py-3 sm:px-5 sm:py-3.5 rounded-2xl shadow-2xl flex items-center space-x-3 transition-all duration-300 border-l-4 ${
+          className={`fixed bottom-16 md:bottom-5 right-3 md:right-5 left-3 sm:left-auto z-50 px-4 py-3 rounded-xl shadow-lg flex items-center space-x-2.5 transition-all duration-200 border ${
             toast.type === 'error'
-              ? 'bg-rose-950 text-white border-rose-500'
-              : 'bg-stone-900 text-white border-emerald-500'
+              ? 'bg-rose-950 text-white border-rose-800'
+              : 'bg-zinc-900 text-white border-zinc-800'
           }`}
         >
           {toast.type === 'error' ? (
-            <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
+            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
           ) : (
-            <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
           )}
-          <span className="text-xs sm:text-sm font-semibold">{toast.message}</span>
+          <span className="text-xs sm:text-sm font-medium">{toast.message}</span>
         </div>
       )}
     </div>

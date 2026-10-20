@@ -23,6 +23,16 @@ export interface KitchenTask {
   createdAt?: string;
 }
 
+export interface AppNotificationItem {
+  id: string;
+  actorName: string;
+  actorRole?: UserRole;
+  actionText: string;
+  targetText: string;
+  createdAtMs: number;
+  type: 'urgent_assigned' | 'task_assigned' | 'task_completed' | 'task_reset' | 'system';
+}
+
 export type DeleteTargetType = 'log_single' | 'log_all' | 'staff' | 'nav_item';
 
 export interface DeleteRequest {

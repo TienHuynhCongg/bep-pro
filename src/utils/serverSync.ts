@@ -1,4 +1,4 @@
-import { KitchenTask, ShiftLog, StaffUser, NavItem, DeleteRequest } from '../types';
+import { KitchenTask, ShiftLog, StaffUser, NavItem, DeleteRequest, AppNotificationItem } from '../types';
 
 export interface ServerSyncPayload {
   tasks?: KitchenTask[];
@@ -6,6 +6,7 @@ export interface ServerSyncPayload {
   staffList?: StaffUser[];
   toolbarItems?: NavItem[];
   deleteRequests?: DeleteRequest[];
+  notifications?: AppNotificationItem[];
   notification?: {
     kind: 'TASK_TOGGLED' | 'TASK_ASSIGNED' | 'DELETE_REQUEST' | 'MANAGER_1430_CHECK';
     taskTitle?: string;
@@ -14,6 +15,8 @@ export interface ServerSyncPayload {
     assignedStaffName?: string;
     priority?: string;
     assignedBy?: string;
+    assignedByRole?: string;
+    isUrgent?: boolean;
     requesterName?: string;
     newRequestLabel?: string;
     completedCount?: number;
@@ -48,11 +51,13 @@ export async function pushStateToServer(payload: ServerSyncPayload): Promise<boo
 export async function fetchStateFromServer(): Promise<{
   ok: boolean;
   state?: {
+    initialized?: boolean;
     tasks?: KitchenTask[];
     logs?: ShiftLog[];
     staffList?: StaffUser[];
     toolbarItems?: NavItem[];
     deleteRequests?: DeleteRequest[];
+    notifications?: AppNotificationItem[];
     updatedAt?: number;
   };
 }> {

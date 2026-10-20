@@ -42,6 +42,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
+  const [confirmClearAll, setConfirmClearAll] = useState(false);
 
   const isAdmin = currentUser?.role === 'admin';
   const isManager = currentUser?.role === 'manager';
@@ -192,32 +193,45 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
           </div>
 
           {logs.length > 0 && canDeleteOrRequest && (
-            <button
-              onClick={() => {
-                if (isAdmin) {
-                  if (window.confirm('CẢNH BÁO: Bạn có chắc chắn muốn xóa TOÀN BỘ lịch sử ca làm việc?')) {
+            confirmClearAll ? (
+              <div className="flex items-center gap-1.5 bg-rose-50 border border-rose-200 rounded-xl p-1 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
                     onClearAllLogs();
-                  }
-                } else {
-                  if (window.confirm('Gửi yêu cầu xóa TOÀN BỘ lịch sử ca cho Bếp Trưởng (Admin) phê duyệt?')) {
-                    onClearAllLogs();
-                  }
-                }
-              }}
-              className="px-3 py-2 text-xs font-semibold text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded-xl border border-rose-200 transition shrink-0 flex items-center justify-center gap-1.5"
-            >
-              {isAdmin ? (
-                <>
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span>Xóa hết lịch sử</span>
-                </>
-              ) : (
-                <>
-                  <Send className="w-3.5 h-3.5" />
-                  <span>Yêu cầu xóa hết lịch sử</span>
-                </>
-              )}
-            </button>
+                    setConfirmClearAll(false);
+                  }}
+                  className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold"
+                >
+                  {isAdmin ? 'Xác nhận xóa hết' : 'Xác nhận gửi yêu cầu'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmClearAll(false)}
+                  className="px-2.5 py-1.5 text-xs font-semibold text-stone-600"
+                >
+                  Hủy
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setConfirmClearAll(true)}
+                className="px-3 py-2 text-xs font-semibold text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded-xl border border-rose-200 transition shrink-0 flex items-center justify-center gap-1.5"
+              >
+                {isAdmin ? (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Xóa hết lịch sử</span>
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-3.5 h-3.5" />
+                    <span>Yêu cầu xóa hết lịch sử</span>
+                  </>
+                )}
+              </button>
+            )
           )}
         </div>
 
@@ -296,21 +310,8 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
 
                         {canDeleteOrRequest && (
                           <button
-                            onClick={() => {
-                              if (isAdmin) {
-                                if (window.confirm(`Xóa báo cáo ${log.id}?`)) {
-                                  onDeleteLog(log.id);
-                                }
-                              } else {
-                                if (
-                                  window.confirm(
-                                    `Gửi yêu cầu xóa báo cáo ${log.id} (${log.staffName}) cho Admin phê duyệt?`
-                                  )
-                                ) {
-                                  onDeleteLog(log.id);
-                                }
-                              }
-                            }}
+                            type="button"
+                            onClick={() => onDeleteLog(log.id)}
                             disabled={isPendingDelete && !isAdmin}
                             className={`p-1.5 rounded-lg transition ${
                               isPendingDelete && !isAdmin

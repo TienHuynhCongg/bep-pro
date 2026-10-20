@@ -61,13 +61,8 @@ export const NavConfigModal: React.FC<NavConfigModalProps> = ({
   };
 
   const handleDelete = (id: string) => {
-    if (navItems.length <= 1) {
-      alert('Thanh công cụ cần tối thiểu 1 nút!');
-      return;
-    }
-    if (window.confirm('Bạn có chắc chắn muốn xóa nút này khỏi thanh menu?')) {
-      onUpdateNavItems(navItems.filter((item) => item.id !== id));
-    }
+    if (navItems.length <= 1) return;
+    onUpdateNavItems(navItems.filter((item) => item.id !== id));
   };
 
   const startEdit = (item: NavItem) => {
