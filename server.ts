@@ -8,7 +8,8 @@ import type { IncomingMessage, ServerResponse } from 'http';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const DATA_DIR = path.join(__dirname, 'data');
+// DATA_DIR có thể trỏ tới ổ đĩa bền vững (VD: Render Disk mount /var/data) để dữ liệu không mất khi deploy.
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const DB_FILE = path.join(DATA_DIR, 'kitchen-db.json');
 
 export interface PushSubscriptionRecord {
@@ -44,6 +45,7 @@ export interface KitchenServerState {
   notifications?: Array<Record<string, any>>;
   recipes?: unknown[];
   inventory?: unknown[];
+  appConfig?: Record<string, any>;
   vapidKeys?: {
     publicKey: string;
     privateKeyJwk: crypto.JsonWebKey;
@@ -51,6 +53,7 @@ export interface KitchenServerState {
   pushSubscriptions?: PushSubscriptionRecord[];
   latestPushMessage?: PushPayloadMessage;
   lastManager1430Date?: string;
+  lastHourlyReminderKey?: string;
   updatedAt: number;
 }
 
@@ -170,7 +173,7 @@ function loadDb(): KitchenServerState {
       fs.mkdirSync(DATA_DIR, { recursive: true });
     }
     if (fs.existsSync(DB_FILE)) {
-      const raw = fs.readFileSync(DB_FILE, 'utf-8');
+      const raw = fs.readFileSync(DB_FILE, 'utf-8').replace(/^\uFEFF/, '');
       return JSON.parse(raw);
     }
   } catch (err) {
@@ -187,6 +190,46 @@ function saveDb(state: KitchenServerState) {
     fs.writeFileSync(DB_FILE, JSON.stringify(state, null, 2), 'utf-8');
   } catch (err) {
     console.error('Error saving kitchen-db.json:', err);
+  }
+}
+
+const BACKUPS_DIR = path.join(DATA_DIR, 'backups');
+
+function createAutoBackup(state: KitchenServerState, reason = 'admin_action'): string | null {
+  try {
+    if (!fs.existsSync(BACKUPS_DIR)) {
+      fs.mkdirSync(BACKUPS_DIR, { recursive: true });
+    }
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const tsStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
+    const safeReason = String(reason || 'admin').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 30);
+    const filename = `backup_${tsStr}_${safeReason}.json`;
+    const filepath = path.join(BACKUPS_DIR, filename);
+
+    fs.writeFileSync(filepath, JSON.stringify(state, null, 2), 'utf-8');
+    fs.writeFileSync(path.join(BACKUPS_DIR, 'backup_latest.json'), JSON.stringify(state, null, 2), 'utf-8');
+
+    // Giữ lại 30 bản sao lưu gần nhất để bảo vệ dung lượng đĩa
+    const files = fs
+      .readdirSync(BACKUPS_DIR)
+      .filter((f) => f.startsWith('backup_') && f.endsWith('.json') && f !== 'backup_latest.json')
+      .sort()
+      .reverse();
+
+    if (files.length > 30) {
+      for (const oldFile of files.slice(30)) {
+        try {
+          fs.unlinkSync(path.join(BACKUPS_DIR, oldFile));
+        } catch {
+          // ignore
+        }
+      }
+    }
+    return filename;
+  } catch (err) {
+    console.error('Error creating auto backup:', err);
+    return null;
   }
 }
 
@@ -312,16 +355,6 @@ export function createKitchenApiMiddleware() {
         };
         dbState.notifications = [notifItem, ...(dbState.notifications || [])].slice(0, 40);
         changed = true;
-
-        dispatchWebPushToAll({
-          id: notifItem.id,
-          title: '🔄 [Bếp Pro] Tự động làm mới Checklist 24h',
-          body: `Đã tự động reset ${resetTitles.length} đầu việc Daily: ${resetTitles.slice(0, 2).join(', ')}`,
-          tag: 'bep-pro-daily-reset',
-          urgent: false,
-          url: '/',
-          timestamp: nowMs,
-        });
       }
     }
 
@@ -361,6 +394,52 @@ export function createKitchenApiMiddleware() {
         },
         'manager_or_admin'
       );
+    }
+
+    // 3. Tự động nhắc việc chưa làm sau mỗi 1h (ví dụ 9h, 10h... nhắc: còn việc = số việc được giao - số việc đã làm)
+    const vnHour = vnTime.getHours();
+    const reminderKey = `${vnDateStr}-${vnHour}`;
+
+    const config = dbState.appConfig || {};
+    const reminderEnabled = config.hourlyReminderEnabled !== false;
+    const startHour = typeof config.hourlyReminderStartHour === 'number' ? config.hourlyReminderStartHour : 8;
+    const endHour = typeof config.hourlyReminderEndHour === 'number' ? config.hourlyReminderEndHour : 22;
+
+    if (
+      reminderEnabled &&
+      vnHour >= startHour &&
+      vnHour <= endHour &&
+      dbState.lastHourlyReminderKey !== reminderKey
+    ) {
+      dbState.lastHourlyReminderKey = reminderKey;
+      const taskArr = Array.isArray(dbState.tasks) ? dbState.tasks : [];
+      const totalCount = taskArr.length;
+      const completedCount = taskArr.filter((t) => t.completed).length;
+      const pendingCount = Math.max(totalCount - completedCount, 0);
+
+      if (totalCount > 0 && pendingCount > 0) {
+        const notifItem = {
+          id: `notif-${nowMs}-hourly-${vnHour}`,
+          actorName: `Nhắc Việc ${vnHour}:00`,
+          actorRole: 'manager',
+          actionText: `thông báo còn ${pendingCount} việc chưa làm`,
+          targetText: `Tiến độ: ${completedCount}/${totalCount} việc`,
+          createdAtMs: nowMs,
+          type: 'task_urgent',
+        };
+        dbState.notifications = [notifItem, ...(dbState.notifications || [])].slice(0, 40);
+        changed = true;
+
+        dispatchWebPushToAll({
+          id: notifItem.id,
+          title: `⏰ [${vnHour}:00] Nhắc Việc: Còn ${pendingCount} việc chưa làm!`,
+          body: `Còn ${pendingCount} việc chưa làm. Các bạn vào kiểm tra và xử lý nhé!`,
+          tag: `bep-pro-hourly-${vnHour}`,
+          urgent: true,
+          url: '/',
+          timestamp: nowMs,
+        });
+      }
     }
 
     if (changed) {
@@ -459,6 +538,59 @@ export function createKitchenApiMiddleware() {
     res.end(JSON.stringify({ ok: true, scheduledInMs: waitTime }));
   });
 
+  // POST /api/push/test-hourly - Cho phép bấm thử nghiệm tính năng nhắc việc sau mỗi 1h ngay lập tức
+  router.post('/api/push/test-hourly', (_req, res) => {
+    const nowMs = Date.now();
+    const now = new Date();
+    const vnTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+    const vnHour = vnTime.getHours();
+    const taskArr = Array.isArray(dbState.tasks) ? dbState.tasks : [];
+    const totalCount = taskArr.length;
+    const completedCount = taskArr.filter((t) => t.completed).length;
+    const pendingCount = Math.max(totalCount - completedCount, 0);
+
+    const notifItem = {
+      id: `notif-${nowMs}-hourly-test`,
+      actorName: `Nhắc Việc ${vnHour}:00`,
+      actorRole: 'manager',
+      actionText: `thông báo còn ${pendingCount} việc chưa làm`,
+      targetText: `Tiến độ: ${completedCount}/${totalCount} việc`,
+      createdAtMs: nowMs,
+      type: 'task_urgent',
+    };
+    dbState.notifications = [notifItem, ...(dbState.notifications || [])].slice(0, 40);
+    dbState.updatedAt = nowMs;
+    saveDb(dbState);
+
+    broadcastSse({
+      type: 'STATE_UPDATED',
+      senderId: 'server-test-hourly',
+      state: dbState,
+      timestamp: nowMs,
+    });
+
+    dispatchWebPushToAll({
+      id: notifItem.id,
+      title: `⏰ [${vnHour}:00] Nhắc Việc: Còn ${pendingCount} việc chưa làm!`,
+      body: `Còn ${pendingCount} việc chưa làm. Các bạn vào kiểm tra và hoàn tất checklist!`,
+      tag: `bep-pro-hourly-${nowMs}`,
+      urgent: true,
+      url: '/',
+      timestamp: nowMs,
+    });
+
+    res.setHeader('Content-Type', 'application/json');
+    res.end(
+      JSON.stringify({
+        ok: true,
+        vnHour,
+        totalCount,
+        completedCount,
+        pendingCount,
+      })
+    );
+  });
+
   // GET /api/state - Lấy dữ liệu đồng bộ mới nhất từ Server
   router.get('/api/state', (_req, res) => {
     res.setHeader('Content-Type', 'application/json');
@@ -482,16 +614,16 @@ export function createKitchenApiMiddleware() {
       notifications,
       recipes,
       inventory,
+      appConfig,
       notification,
       senderId,
+      senderRole,
+      senderName,
+      actionReason,
     } = req.body || {};
 
-    const prevTopNotifId =
-      Array.isArray(dbState.notifications) && dbState.notifications.length > 0
-        ? dbState.notifications[0]?.id
-        : undefined;
-
     dbState.initialized = true;
+    if (appConfig && typeof appConfig === 'object') dbState.appConfig = appConfig;
     if (Array.isArray(tasks)) dbState.tasks = tasks;
     if (Array.isArray(logs)) dbState.logs = logs;
     if (Array.isArray(staffList)) dbState.staffList = staffList;
@@ -504,6 +636,24 @@ export function createKitchenApiMiddleware() {
 
     saveDb(dbState);
 
+    // Tự động sao lưu dữ liệu mỗi khi Admin thao tác
+    const isAdminAction =
+      senderRole === 'admin' ||
+      Boolean(appConfig || toolbarItems || staffList || deleteRequests);
+    if (isAdminAction) {
+      createAutoBackup(
+        dbState,
+        actionReason ||
+          (appConfig
+            ? 'admin_config'
+            : toolbarItems
+            ? 'admin_menu'
+            : staffList
+            ? 'admin_staff'
+            : 'admin_action')
+      );
+    }
+
     broadcastSse({
       type: 'STATE_UPDATED',
       senderId: senderId || '',
@@ -515,7 +665,11 @@ export function createKitchenApiMiddleware() {
     // Bắn thông báo Web Push ngầm cho các thiết bị đã tắt / kill app
     if (notification && typeof notification === 'object') {
       const nowMs = Date.now();
-      if (notification.kind === 'TASK_ASSIGNED' && notification.taskTitle) {
+      if (
+        notification.kind === 'TASK_ASSIGNED' &&
+        notification.taskTitle &&
+        notification.assignedByRole === 'manager'
+      ) {
         const isUrgent = Boolean(
           notification.isUrgent ||
             notification.priority === 'Gấp' ||
@@ -534,29 +688,6 @@ export function createKitchenApiMiddleware() {
           url: '/',
           timestamp: nowMs,
         });
-      } else if (notification.kind === 'TASK_TOGGLED' && notification.isCompleted && notification.taskTitle) {
-        dispatchWebPushToAll({
-          id: `push-done-${nowMs}`,
-          title: '✅ [Bếp Pro] Đầu việc hoàn tất',
-          body: `${notification.staffName || 'Nhân sự'} vừa hoàn thành: "${notification.taskTitle}"`,
-          tag: `bep-pro-done-${nowMs}`,
-          urgent: false,
-          url: '/',
-          timestamp: nowMs,
-        });
-      } else if (notification.kind === 'DELETE_REQUEST' && notification.newRequestLabel) {
-        dispatchWebPushToAll(
-          {
-            id: `push-del-${nowMs}`,
-            title: '🛡️ [Admin] Yêu cầu duyệt xóa mới',
-            body: `${notification.requesterName || 'Trưởng ca'} yêu cầu xóa: "${notification.newRequestLabel}"`,
-            tag: `bep-pro-del-${nowMs}`,
-            urgent: true,
-            url: '/',
-            timestamp: nowMs,
-          },
-          'manager_or_admin'
-        );
       } else if (notification.kind === 'MANAGER_1430_CHECK') {
         dispatchWebPushToAll(
           {
@@ -571,27 +702,121 @@ export function createKitchenApiMiddleware() {
           'manager_or_admin'
         );
       }
-    } else if (
-      Array.isArray(notifications) &&
-      notifications.length > 0 &&
-      notifications[0]?.id &&
-      notifications[0].id !== prevTopNotifId
-    ) {
-      const top = notifications[0];
-      const nowMs = Date.now();
-      dispatchWebPushToAll({
-        id: String(top.id),
-        title: `🔔 [Bếp Pro] ${top.actorName || 'Hoạt động mới'}`,
-        body: `${top.actorName || ''} ${top.actionText || ''} ${top.targetText ? `"${top.targetText}"` : ''}`.trim(),
-        tag: `bep-pro-feed-${top.id}`,
-        urgent: top.type === 'task_urgent',
-        url: '/',
-        timestamp: nowMs,
-      });
     }
 
     res.setHeader('Content-Type', 'application/json');
     res.end(JSON.stringify({ ok: true, updatedAt: dbState.updatedAt }));
+  });
+
+  // GET /api/admin/backups - Trả về danh sách các bản sao lưu tự động trên server
+  router.get('/api/admin/backups', (_req, res) => {
+    try {
+      if (!fs.existsSync(BACKUPS_DIR)) {
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ ok: true, backups: [] }));
+        return;
+      }
+      const files = fs
+        .readdirSync(BACKUPS_DIR)
+        .filter((f) => f.startsWith('backup_') && f.endsWith('.json'))
+        .map((f) => {
+          const stat = fs.statSync(path.join(BACKUPS_DIR, f));
+          return {
+            filename: f,
+            size: stat.size,
+            mtimeMs: stat.mtimeMs,
+            isLatest: f === 'backup_latest.json',
+          };
+        })
+        .sort((a, b) => b.mtimeMs - a.mtimeMs);
+
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ ok: true, backups: files }));
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err?.message });
+    }
+  });
+
+  // POST /api/admin/create-backup - Tạo bản sao lưu thủ công ngay tức thì
+  router.post('/api/admin/create-backup', (req, res) => {
+    try {
+      const { reason } = req.body || {};
+      const filename = createAutoBackup(dbState, reason || 'manual_admin');
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ ok: true, filename, timestamp: Date.now() }));
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err?.message });
+    }
+  });
+
+  // POST /api/admin/restore-backup - Khôi phục dữ liệu từ 1 bản sao lưu tự động
+  router.post('/api/admin/restore-backup', (req, res) => {
+    try {
+      const { filename } = req.body || {};
+      if (
+        !filename ||
+        typeof filename !== 'string' ||
+        filename.includes('..') ||
+        filename.includes('/') ||
+        filename.includes('\\')
+      ) {
+        res.status(400).json({ ok: false, error: 'Tên file không hợp lệ' });
+        return;
+      }
+      const targetPath = path.join(BACKUPS_DIR, filename);
+      if (!fs.existsSync(targetPath)) {
+        res.status(404).json({ ok: false, error: 'Không tìm thấy file sao lưu' });
+        return;
+      }
+      const raw = fs.readFileSync(targetPath, 'utf-8').replace(/^\uFEFF/, '');
+      const restored = JSON.parse(raw);
+      if (!restored || typeof restored !== 'object') {
+        res.status(400).json({ ok: false, error: 'File sao lưu bị hỏng' });
+        return;
+      }
+
+      // Tạo sao lưu bản hiện tại trước khi khôi phục
+      createAutoBackup(dbState, 'pre_restore');
+
+      dbState = { ...restored, updatedAt: Date.now() };
+      saveDb(dbState);
+
+      broadcastSse({
+        type: 'STATE_UPDATED',
+        senderId: 'server-restore',
+        state: dbState,
+        timestamp: dbState.updatedAt,
+      });
+
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ ok: true, restoredAt: dbState.updatedAt }));
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err?.message });
+    }
+  });
+
+  // GET /api/admin/download-backup/:filename - Tải 1 file sao lưu về máy
+  router.get('/api/admin/download-backup/:filename', (req, res) => {
+    try {
+      const filename = req.params.filename;
+      if (
+        !filename ||
+        filename.includes('..') ||
+        filename.includes('/') ||
+        filename.includes('\\')
+      ) {
+        res.status(400).send('Tên file không hợp lệ');
+        return;
+      }
+      const targetPath = path.join(BACKUPS_DIR, filename);
+      if (!fs.existsSync(targetPath)) {
+        res.status(404).send('Không tìm thấy file');
+        return;
+      }
+      res.download(targetPath, filename);
+    } catch (err: any) {
+      res.status(500).send(err?.message);
+    }
   });
 
   // GET /api/events - Luồng Real-time SSE cho mọi thiết bị iOS / Android
@@ -691,10 +916,9 @@ async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
 
-  app.use(createKitchenApiMiddleware());
-
   const distPath = path.join(__dirname, 'dist');
   if (fs.existsSync(path.join(distPath, 'index.html'))) {
+    app.use(createKitchenApiMiddleware());
     app.use(express.static(distPath));
     app.use((_req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
@@ -713,7 +937,10 @@ async function startServer() {
   });
 }
 
+// Chỉ khởi động server khi chạy trực tiếp `tsx server.ts` (tránh chạy lặp khi vite.config.ts import file này)
 const isRunningUnderViteCli = process.argv.some((arg) => arg.includes('vite'));
-if (!isRunningUnderViteCli) {
+const isEntryFile = /server\.(ts|js|mjs)$/.test(process.argv[1] || '');
+if (!isRunningUnderViteCli && isEntryFile && !process.env.KITCHEN_SERVER_STARTED) {
+  process.env.KITCHEN_SERVER_STARTED = '1';
   startServer();
 }

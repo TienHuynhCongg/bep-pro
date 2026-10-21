@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AppConfig, NavItem, NavItemType } from '../types.ts';
 import { DynamicIcon, AVAILABLE_ICONS } from './DynamicIcon.tsx';
 import {
@@ -23,6 +23,14 @@ import {
   Copy,
   ExternalLink,
   Share,
+  Download,
+  Upload,
+  Database,
+  RefreshCw,
+  BellRing,
+  Clock,
+  History,
+  HardDrive,
 } from 'lucide-react';
 
 interface AdminConfigViewProps {
@@ -30,6 +38,7 @@ interface AdminConfigViewProps {
   onUpdateAppConfig: (config: AppConfig) => void;
   navItems: NavItem[];
   onUpdateNavItems: (items: NavItem[]) => void;
+  onRestoreFullDatabase?: (fullState: any) => void;
 }
 
 export const AdminConfigView: React.FC<AdminConfigViewProps> = ({
@@ -37,10 +46,25 @@ export const AdminConfigView: React.FC<AdminConfigViewProps> = ({
   onUpdateAppConfig,
   navItems,
   onUpdateNavItems,
+  onRestoreFullDatabase,
 }) => {
   // Branding state
   const [brandingForm, setBrandingForm] = useState<AppConfig>(appConfig);
   const [brandingSaved, setBrandingSaved] = useState(false);
+
+  // Backup & Restore state
+  const [isExporting, setIsExporting] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [backupMessage, setBackupMessage] = useState<string | null>(null);
+  const [autoBackups, setAutoBackups] = useState<
+    Array<{ filename: string; size: number; mtimeMs: number; isLatest?: boolean }>
+  >([]);
+  const [loadingBackups, setLoadingBackups] = useState(false);
+  const [restoringBackupName, setRestoringBackupName] = useState<string | null>(null);
+
+  // Hourly Reminder test state
+  const [testHourlyLoading, setTestHourlyLoading] = useState(false);
+  const [testHourlyMsg, setTestHourlyMsg] = useState<string | null>(null);
 
   // QR Install Panel state (Hiển thị ngay trong Cấu hình Menu Admin)
   const [showQrSection, setShowQrSection] = useState<boolean>(true);
@@ -92,6 +116,168 @@ export const AdminConfigView: React.FC<AdminConfigViewProps> = ({
     onUpdateAppConfig(brandingForm);
     setBrandingSaved(true);
     setTimeout(() => setBrandingSaved(false), 2500);
+  };
+
+  const handleTestHourlyReminder = async () => {
+    try {
+      setTestHourlyLoading(true);
+      setTestHourlyMsg('Đang gửi thông báo nhắc việc 1h...');
+      const res = await fetch('/api/push/test-hourly', { method: 'POST' });
+      const data = await res.json();
+      if (data.ok) {
+        setTestHourlyMsg(
+          `Đã gửi thành công: Còn ${data.pendingCount} việc chưa làm!`
+        );
+      } else {
+        setTestHourlyMsg('Không thể gửi nhắc nhở');
+      }
+      setTimeout(() => setTestHourlyMsg(null), 4500);
+    } catch (err: any) {
+      setTestHourlyMsg('Lỗi kết nối server: ' + (err?.message || ''));
+      setTimeout(() => setTestHourlyMsg(null), 4500);
+    } finally {
+      setTestHourlyLoading(false);
+    }
+  };
+
+  const fetchBackupsList = async () => {
+    try {
+      setLoadingBackups(true);
+      const res = await fetch('/api/admin/backups');
+      const data = await res.json();
+      if (data.ok && Array.isArray(data.backups)) {
+        setAutoBackups(data.backups);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setLoadingBackups(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchBackupsList();
+  }, []);
+
+  const handleCreateAutoBackupNow = async () => {
+    try {
+      setIsExporting(true);
+      const res = await fetch('/api/admin/create-backup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'admin_manual' }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setBackupMessage('Đã tạo bản sao lưu an toàn mới!');
+        fetchBackupsList();
+      }
+      setTimeout(() => setBackupMessage(null), 3000);
+    } catch (err: any) {
+      setBackupMessage('Lỗi tạo sao lưu: ' + (err?.message || ''));
+      setTimeout(() => setBackupMessage(null), 4000);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleRestoreServerBackup = async (filename: string) => {
+    try {
+      setRestoringBackupName(filename);
+      setBackupMessage(`Đang khôi phục từ bản: ${filename}...`);
+      const res = await fetch('/api/admin/restore-backup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setBackupMessage('Đã khôi phục dữ liệu thành công!');
+        setTimeout(() => {
+          window.location.reload();
+        }, 1200);
+      } else {
+        setBackupMessage('Lỗi khôi phục: ' + (data.error || 'Thất bại'));
+        setTimeout(() => setBackupMessage(null), 4000);
+      }
+    } catch (err: any) {
+      setBackupMessage('Lỗi kết nối server: ' + (err?.message || ''));
+      setTimeout(() => setBackupMessage(null), 4000);
+    } finally {
+      setRestoringBackupName(null);
+    }
+  };
+
+  const handleDownloadBackup = async () => {
+    try {
+      setIsExporting(true);
+      setBackupMessage('Đang lấy dữ liệu toàn hệ thống...');
+      const res = await fetch('/api/state');
+      const json = await res.json();
+      const stateToExport = json?.state || {
+        appConfig,
+        toolbarItems: navItems,
+        exportedAt: new Date().toISOString(),
+      };
+
+      const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(stateToExport, null, 2));
+      const downloadAnchor = document.createElement('a');
+      const todayStr = new Date().toISOString().slice(0, 10);
+      downloadAnchor.setAttribute('href', dataStr);
+      downloadAnchor.setAttribute('download', `kitchen-pro-backup-${todayStr}.json`);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+
+      setBackupMessage('Đã tải xuống file sao lưu an toàn!');
+      setTimeout(() => setBackupMessage(null), 3000);
+    } catch (err: any) {
+      setBackupMessage('Lỗi tải sao lưu: ' + (err?.message || 'Không thể kết nối'));
+      setTimeout(() => setBackupMessage(null), 4000);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleRestoreFromFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsImporting(true);
+    setBackupMessage('Đang đọc file sao lưu...');
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const text = event.target?.result as string;
+        const parsed = JSON.parse(text);
+        if (!parsed || typeof parsed !== 'object') {
+          throw new Error('Định dạng file sao lưu không hợp lệ');
+        }
+
+        if (onRestoreFullDatabase) {
+          onRestoreFullDatabase(parsed);
+        } else {
+          await fetch('/api/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(parsed),
+          });
+        }
+
+        setBackupMessage('Khôi phục dữ liệu toàn bộ thành công!');
+        setTimeout(() => {
+          setBackupMessage(null);
+          window.location.reload();
+        }, 1500);
+      } catch (err: any) {
+        setBackupMessage('Lỗi khôi phục: ' + (err?.message || 'File JSON hỏng'));
+        setTimeout(() => setBackupMessage(null), 4000);
+      } finally {
+        setIsImporting(false);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
   };
 
   const handleToggleNavVisibility = (id: string) => {
@@ -916,6 +1102,290 @@ export const AdminConfigView: React.FC<AdminConfigViewProps> = ({
             </button>
           </div>
         </form>
+      </div>
+
+      {/* Card: Cài Đặt Nhắc Nhở Công Việc Sau Mỗi 1 Giờ */}
+      <div className="bg-white rounded-2xl shadow-xs border border-zinc-200 p-4 sm:p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-zinc-100">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-indigo-50 border border-indigo-200 flex items-center justify-center text-indigo-700 shrink-0">
+              <Clock className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-zinc-900">
+                Nhắc Nhở Việc Chưa Làm Sau Mỗi 1 Giờ
+              </h3>
+              <p className="text-xs text-zinc-500">
+                Hệ thống tự động kiểm tra số việc còn lại và phát chuông báo đến điện thoại nhân viên mỗi 1h.
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleTestHourlyReminder}
+            disabled={testHourlyLoading}
+            className="h-9 px-3.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white transition flex items-center gap-1.5 shrink-0 shadow-xs"
+          >
+            <BellRing className="w-3.5 h-3.5" />
+            <span>{testHourlyLoading ? 'Đang gửi...' : 'Thử Gửi Chuông Nhắc 1h'}</span>
+          </button>
+        </div>
+
+        {testHourlyMsg && (
+          <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 font-bold flex items-center gap-2">
+            <Check className="w-4 h-4 text-emerald-600" />
+            <span>{testHourlyMsg}</span>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 bg-zinc-50/70 p-4 rounded-xl border border-zinc-200">
+          <div className="flex items-center gap-2.5">
+            <input
+              type="checkbox"
+              id="hourlyReminderEnabled"
+              checked={brandingForm.hourlyReminderEnabled !== false}
+              onChange={(e) =>
+                setBrandingForm({
+                  ...brandingForm,
+                  hourlyReminderEnabled: e.target.checked,
+                })
+              }
+              className="w-4 h-4 text-indigo-600 rounded border-zinc-300 focus:ring-indigo-500"
+            />
+            <label htmlFor="hourlyReminderEnabled" className="text-xs font-bold text-zinc-800 cursor-pointer">
+              Bật nhắc việc tự động mỗi 1h
+            </label>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-bold text-zinc-600 mb-1">
+              Khung giờ bắt đầu nhắc:
+            </label>
+            <select
+              value={brandingForm.hourlyReminderStartHour ?? 8}
+              onChange={(e) =>
+                setBrandingForm({
+                  ...brandingForm,
+                  hourlyReminderStartHour: Number(e.target.value),
+                })
+              }
+              className="w-full p-2 bg-white border border-zinc-300 rounded-lg text-xs font-semibold"
+            >
+              {[6, 7, 8, 9, 10, 11].map((h) => (
+                <option key={h} value={h}>
+                  {h}:00 sáng
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-bold text-zinc-600 mb-1">
+              Khung giờ kết thúc ca:
+            </label>
+            <select
+              value={brandingForm.hourlyReminderEndHour ?? 22}
+              onChange={(e) =>
+                setBrandingForm({
+                  ...brandingForm,
+                  hourlyReminderEndHour: Number(e.target.value),
+                })
+              }
+              className="w-full p-2 bg-white border border-zinc-300 rounded-lg text-xs font-semibold"
+            >
+              {[18, 19, 20, 21, 22, 23, 24].map((h) => (
+                <option key={h} value={h}>
+                  {h}:00 tối
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* Card: Sao Lưu & Khôi Phục Dữ Liệu Toàn Hệ Thống */}
+      <div className="bg-white rounded-2xl shadow-xs border border-zinc-200 p-4 sm:p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-zinc-100">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-700 shrink-0">
+              <Database className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-zinc-900">
+                Sao Lưu & Khôi Phục Dữ Liệu (Backup & Restore)
+              </h3>
+              <p className="text-xs text-zinc-500">
+                Tải file dữ liệu về máy trước khi cập nhật/deploy server để dữ liệu không bao giờ bị mất.
+              </p>
+            </div>
+          </div>
+
+          {backupMessage && (
+            <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-200 flex items-center gap-1.5">
+              <Check className="w-3.5 h-3.5" />
+              {backupMessage}
+            </span>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* Box 1: Tải file sao lưu */}
+          <div className="p-4 rounded-xl border border-zinc-200 bg-zinc-50/70 space-y-2.5">
+            <div className="flex items-center gap-2">
+              <Download className="w-4 h-4 text-zinc-700" />
+              <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-900">
+                Xuất File Sao Lưu (.json)
+              </h4>
+            </div>
+            <p className="text-xs text-zinc-600 leading-relaxed">
+              Tải toàn bộ công việc, nhật ký ca, tài khoản nhân viên, công thức và bảng kiểm tồn về điện thoại hoặc máy tính.
+            </p>
+            <button
+              type="button"
+              onClick={handleDownloadBackup}
+              disabled={isExporting}
+              className="w-full h-9 px-4 bg-zinc-950 hover:bg-zinc-800 disabled:bg-zinc-400 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition shadow-xs"
+            >
+              {isExporting ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Đang tải...</span>
+                </>
+              ) : (
+                <>
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Tải File Sao Lưu Về Máy</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          {/* Box 2: Khôi phục từ file */}
+          <div className="p-4 rounded-xl border border-zinc-200 bg-zinc-50/70 space-y-2.5">
+            <div className="flex items-center gap-2">
+              <Upload className="w-4 h-4 text-emerald-700" />
+              <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-900">
+                Khôi Phục Dữ Liệu Từ File
+              </h4>
+            </div>
+            <p className="text-xs text-zinc-600 leading-relaxed">
+              Chọn file sao lưu (.json) đã tải trước đó để phục hồi lại toàn bộ hệ thống ngay lập tức.
+            </p>
+            <label className="w-full h-9 px-4 bg-emerald-700 hover:bg-emerald-600 cursor-pointer text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition shadow-xs">
+              <Upload className="w-3.5 h-3.5" />
+              <span>{isImporting ? 'Đang đọc file...' : 'Chọn File JSON Để Khôi Phục'}</span>
+              <input
+                type="file"
+                accept=".json,application/json"
+                onChange={handleRestoreFromFile}
+                className="hidden"
+                disabled={isImporting}
+              />
+            </label>
+          </div>
+        </div>
+
+        {/* Khu vực Lịch sử Tự Động Sao Lưu trên Server */}
+        <div className="pt-3 border-t border-zinc-100 space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <History className="w-4 h-4 text-indigo-600" />
+              <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-900">
+                Lịch Sử Tự Động Sao Lưu (Mỗi Khi Admin Thao Tác)
+              </h4>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                Tự động lưu ngầm
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleCreateAutoBackupNow}
+                disabled={isExporting}
+                className="h-8 px-3 rounded-lg text-xs font-bold bg-zinc-900 hover:bg-zinc-800 text-white flex items-center gap-1.5 transition"
+              >
+                <HardDrive className="w-3.5 h-3.5" />
+                <span>Sao Lưu Ngay Bây Giờ</span>
+              </button>
+              <button
+                type="button"
+                onClick={fetchBackupsList}
+                disabled={loadingBackups}
+                className="h-8 px-2.5 rounded-lg text-xs font-semibold text-zinc-600 hover:bg-zinc-100 border border-zinc-200 transition"
+                title="Làm mới danh sách"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loadingBackups ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+            {autoBackups.length === 0 ? (
+              <div className="p-3 text-center text-xs text-zinc-400 bg-zinc-50 rounded-xl border border-zinc-200">
+                Chưa có bản sao lưu tự động nào. Hệ thống sẽ tự động tạo ngay khi Admin thực hiện thay đổi.
+              </div>
+            ) : (
+              autoBackups.slice(0, 8).map((b) => {
+                const dateText = new Date(b.mtimeMs).toLocaleString('vi-VN', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  second: '2-digit',
+                  day: '2-digit',
+                  month: '2-digit',
+                  year: 'numeric',
+                });
+                const sizeKb = Math.round(b.size / 1024) || 1;
+                const isRestoringThis = restoringBackupName === b.filename;
+
+                return (
+                  <div
+                    key={b.filename}
+                    className="p-2.5 bg-zinc-50 hover:bg-zinc-100/80 rounded-xl border border-zinc-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs transition"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                      <div>
+                        <div className="font-bold text-zinc-900 flex items-center gap-2">
+                          <span>{dateText}</span>
+                          {b.isLatest && (
+                            <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-100 text-amber-800">
+                              Mới nhất
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-zinc-500 font-mono">
+                          {b.filename} • {sizeKb} KB
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 self-end sm:self-center">
+                      <a
+                        href={`/api/admin/download-backup/${encodeURIComponent(b.filename)}`}
+                        download={b.filename}
+                        className="h-7 px-2.5 rounded-lg text-[11px] font-semibold bg-white hover:bg-zinc-200 text-zinc-700 border border-zinc-300 flex items-center gap-1 transition"
+                      >
+                        <Download className="w-3 h-3" />
+                        <span>Tải về</span>
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => handleRestoreServerBackup(b.filename)}
+                        disabled={isRestoringThis}
+                        className="h-7 px-3 rounded-lg text-[11px] font-bold bg-emerald-700 hover:bg-emerald-600 text-white flex items-center gap-1 transition shadow-2xs"
+                      >
+                        <RotateCcw className={`w-3 h-3 ${isRestoringThis ? 'animate-spin' : ''}`} />
+                        <span>{isRestoringThis ? 'Đang khôi phục...' : 'Khôi phục bản này'}</span>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

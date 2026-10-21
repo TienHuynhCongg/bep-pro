@@ -53,14 +53,25 @@ export interface KitchenRecipe {
 // 2. Chức năng Lưu Số Lượng Tồn Kiểm (Inventory Check)
 export interface InventoryCheckItem {
   id: string;
+  stt?: number;
   dateStr: string;       // Cột: Ngày
   itemName: string;      // Cột: Tên nguyên liệu / hàng hóa
+  prevStock?: string;    // Tồn hôm trước
+  importQty?: string;    // Nhập vào
   stockQty: string;      // Số lượng Tồn (chỉ ghi số)
   wasteQty: string;      // Số lượng Hủy (chỉ ghi số)
+  minThreshold?: number; // Ngưỡng đặt hàng (báo cần đặt khi tồn <= ngưỡng)
   unit: string;          // Đơn vị (kg, g, ml, phần, bịch...)
-  statusType: 'ton' | 'huy' | 'both'; // Tồn / Hủy / Cả hai
+  statusType?: 'ton' | 'huy' | 'both'; // Tồn / Hủy / Cả hai
   createdBy?: string;
   createdAt?: string;
+}
+
+export interface CustomOrderItem {
+  id: string;
+  name: string;
+  defaultQty: number;
+  unit: string;
 }
 
 export type DeleteTargetType = 'log_single' | 'log_all' | 'staff' | 'nav_item';
@@ -133,6 +144,9 @@ export interface AppConfig {
   appTitle: string;
   appSubtitle: string;
   brandIcon: string;
+  hourlyReminderEnabled?: boolean;
+  hourlyReminderStartHour?: number;
+  hourlyReminderEndHour?: number;
 }
 
 export type UserRole = 'admin' | 'manager' | 'staff';

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { StaffUser, UserRole } from '../types.ts';
+import { requestNotificationPermission } from '../utils/notificationSync.ts';
 import {
   Lock,
   User,
@@ -77,6 +78,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     onLogin(found);
     setUsername('');
     setPassword('');
+    // Tự động xin quyền thông báo ngầm ngay khi đăng nhập
+    requestNotificationPermission(found);
     onClose();
   };
 
@@ -123,8 +126,13 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     };
 
     // Thêm nhân sự mới và tự động đăng nhập nguyên khối (không bị ghi đè state)
+    // Nghiêm ngặt: chỉ admin mới được gán quyền admin/manager, người dùng đăng ký mới luôn là 'staff'
+    const safeRole: UserRole = currentUser?.role === 'admin' ? regRole : 'staff';
+    newStaffData.role = safeRole;
+
     onRegisterStaff(newStaffData, true);
     setRegSuccess('Đăng ký tài khoản thành công!');
+    requestNotificationPermission(newStaffData as any);
 
     setTimeout(() => {
       onClose();

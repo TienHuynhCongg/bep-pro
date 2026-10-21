@@ -12,6 +12,7 @@ import {
   Edit2,
   Check,
   X,
+  Clock,
 } from 'lucide-react';
 
 interface ChefTasksViewProps {
@@ -25,6 +26,7 @@ interface ChefTasksViewProps {
   staffList?: StaffUser[];
   currentUser?: StaffUser | null;
   onTriggerManager1430Check?: () => void;
+  onTriggerHourlyCheck?: () => void;
 }
 
 export const ChefTasksView: React.FC<ChefTasksViewProps> = ({
@@ -38,6 +40,7 @@ export const ChefTasksView: React.FC<ChefTasksViewProps> = ({
   staffList = [],
   currentUser = null,
   onTriggerManager1430Check,
+  onTriggerHourlyCheck,
 }) => {
   // Form states
   const [taskTitle, setTaskTitle] = useState('');
@@ -201,10 +204,10 @@ export const ChefTasksView: React.FC<ChefTasksViewProps> = ({
                 </span>
               </div>
               <h2 className="text-xl sm:text-3xl font-black text-amber-50 mt-1">
-                Giao Đầu Việc Bếp & Chỉ Định Nhân Viên
+                Giao Đầu Việc Bếp & Phân Công Nhân Viên
               </h2>
               <p className="text-xs sm:text-sm text-amber-200/80 mt-1 max-w-2xl">
-                Hỗ trợ phân loại việc <strong>Daily (Tự động reset sau 24h)</strong> và <strong>Trong ngày gấp</strong>. Tự động gửi thông báo lúc <strong>14:30 chiều</strong> cho <code className="font-mono text-amber-300">@manager</code> kiểm tra.
+                Phân loại việc <strong>Hàng ngày</strong> và <strong>Việc gấp</strong>. Tự động gửi thông báo lúc <strong>14:30 chiều</strong> cho <code className="font-mono text-amber-300">@manager</code> kiểm tra.
               </p>
             </div>
           </div>
@@ -218,17 +221,30 @@ export const ChefTasksView: React.FC<ChefTasksViewProps> = ({
                 </div>
               </div>
             </div>
-            {onTriggerManager1430Check && (
-              <button
-                type="button"
-                onClick={onTriggerManager1430Check}
-                className="px-3 py-1.5 rounded-xl text-[11px] font-bold bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-400/40 transition flex items-center gap-1.5"
-                title="Gửi ngay thông báo nhắc kiểm tra 14:30 chiều cho @manager"
-              >
-                <BellRing className="w-3.5 h-3.5 text-amber-300" />
-                <span>Báo @manager kiểm tra ngay (14:30)</span>
-              </button>
-            )}
+            <div className="flex flex-wrap items-center gap-1.5 justify-end">
+              {onTriggerHourlyCheck && (
+                <button
+                  type="button"
+                  onClick={onTriggerHourlyCheck}
+                  className="px-3 py-1.5 rounded-xl text-[11px] font-bold bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-200 border border-indigo-400/40 transition flex items-center gap-1.5"
+                  title="Gửi ngay thông báo chuông nhắc việc còn lại cho toàn ca bếp"
+                >
+                  <Clock className="w-3.5 h-3.5 text-indigo-300" />
+                  <span>Nhắc việc còn lại ({Math.max(tasks.length - completedCount, 0)})</span>
+                </button>
+              )}
+              {onTriggerManager1430Check && (
+                <button
+                  type="button"
+                  onClick={onTriggerManager1430Check}
+                  className="px-3 py-1.5 rounded-xl text-[11px] font-bold bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-400/40 transition flex items-center gap-1.5"
+                  title="Gửi ngay thông báo nhắc kiểm tra 14:30 chiều cho @manager"
+                >
+                  <BellRing className="w-3.5 h-3.5 text-amber-300" />
+                  <span>Báo @manager (14:30)</span>
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -260,10 +276,10 @@ export const ChefTasksView: React.FC<ChefTasksViewProps> = ({
                 />
               </div>
 
-              {/* Tuỳ chọn chế độ Checklist: Daily (Tự reset 24h) vs Trong ngày gấp */}
+              {/* Tuỳ chọn chế độ Checklist */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-stone-600 mb-1.5">
-                  Chế Độ Checklist Công Việc
+                  Phân Loại Công Việc
                 </label>
                 <div className="grid grid-cols-2 gap-2">
                   <button
@@ -276,14 +292,14 @@ export const ChefTasksView: React.FC<ChefTasksViewProps> = ({
                     }`}
                   >
                     <div className="text-xs font-extrabold">
-                      <span>Daily (Tự reset 24h)</span>
+                      <span>Hàng ngày</span>
                     </div>
                     <span
                       className={`text-[10px] ${
                         taskType === 'daily' ? 'text-indigo-100' : 'text-stone-400'
                       }`}
                     >
-                      Tự động reset lại sau 24h
+                      Lặp lại mỗi ca làm việc
                     </span>
                   </button>
 
@@ -297,7 +313,7 @@ export const ChefTasksView: React.FC<ChefTasksViewProps> = ({
                     }`}
                   >
                     <div className="text-xs font-extrabold">
-                      <span>Trong ngày gấp</span>
+                      <span>Việc gấp</span>
                     </div>
                     <span
                       className={`text-[10px] ${
@@ -566,8 +582,8 @@ export const ChefTasksView: React.FC<ChefTasksViewProps> = ({
                 onChange={(e) => setInlineNewType(e.target.value as TaskScheduleType)}
                 className="p-2 bg-white border border-amber-300 rounded-xl text-xs font-bold text-stone-800"
               >
-                <option value="urgent_today">Trong ngày gấp (Khung đỏ)</option>
-                <option value="daily">Daily (Tự reset 24h)</option>
+                <option value="urgent_today">Việc gấp</option>
+                <option value="daily">Hàng ngày</option>
               </select>
               <div className="flex items-center gap-1.5">
                 <button
@@ -592,8 +608,8 @@ export const ChefTasksView: React.FC<ChefTasksViewProps> = ({
             <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
               {[
                 { id: 'all', label: 'Tất cả' },
-                { id: 'daily', label: 'Daily (Tự reset 24h)' },
-                { id: 'urgent_today', label: 'Trong ngày gấp' },
+                { id: 'daily', label: 'Hàng ngày' },
+                { id: 'urgent_today', label: 'Việc gấp' },
                 { id: 'Sơ chế', label: 'Sơ chế' },
                 { id: 'Nấu nướng', label: 'Nấu nướng' },
                 { id: 'Vệ sinh', label: 'Vệ sinh' },
@@ -673,8 +689,8 @@ export const ChefTasksView: React.FC<ChefTasksViewProps> = ({
                             }}
                             className="p-1.5 bg-stone-50 border border-stone-300 rounded-lg text-xs font-bold text-stone-800"
                           >
-                            <option value="daily">Daily (Tự reset 24h)</option>
-                            <option value="urgent_today">Trong ngày gấp (Khung đỏ)</option>
+                            <option value="daily">Hàng ngày</option>
+                            <option value="urgent_today">Việc gấp</option>
                           </select>
 
                           <select
@@ -754,9 +770,9 @@ export const ChefTasksView: React.FC<ChefTasksViewProps> = ({
                                     ? 'bg-stone-100 hover:bg-stone-200 text-stone-700 border-stone-300'
                                     : 'bg-rose-600 hover:bg-rose-700 text-white border-rose-700'
                                 }`}
-                                title={isUrgent ? 'Chuyển về Daily 24h' : 'Đặt làm Việc Gấp (Khung đỏ + Đưa lên đầu)'}
+                                title={isUrgent ? 'Chuyển về việc hàng ngày' : 'Đặt làm việc gấp'}
                               >
-                                {isUrgent ? 'Chuyển Daily' : 'Đặt Gấp'}
+                                {isUrgent ? 'Hàng ngày' : 'Đặt gấp'}
                               </button>
 
                               <button

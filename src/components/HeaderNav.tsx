@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { AppConfig, NavItem, StaffUser, AppNotificationItem, canRoleAccessTab } from '../types.ts';
 import { DynamicIcon } from './DynamicIcon.tsx';
 import { NotificationFeedBox } from './NotificationFeedBox.tsx';
-import { Settings2, LogIn, Bell } from 'lucide-react';
+import { Settings2, LogIn, Bell, ShoppingCart } from 'lucide-react';
 
 interface HeaderNavProps {
   config: AppConfig;
@@ -18,6 +18,8 @@ interface HeaderNavProps {
   onDeleteNotification?: (id: string) => void;
   onClearAllNotifications?: () => void;
   serverConnected?: boolean;
+  onOpenOrderList?: () => void;
+  lowStockOrdersCount?: number;
 }
 
 export const HeaderNav: React.FC<HeaderNavProps> = ({
@@ -34,6 +36,8 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
   onDeleteNotification,
   onClearAllNotifications,
   serverConnected = false,
+  onOpenOrderList,
+  lowStockOrdersCount = 0,
 }) => {
   const [showNotifDropdown, setShowNotifDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -126,6 +130,24 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
                 );
               })}
             </nav>
+
+            {/* Nút Đặt Hàng dành cho tất cả các role */}
+            {onOpenOrderList && (
+              <button
+                type="button"
+                onClick={onOpenOrderList}
+                className="relative h-9 px-2.5 sm:px-3 rounded-xl border border-amber-600/40 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 font-semibold text-xs transition flex items-center gap-1.5 touch-manipulation active:scale-95 shrink-0"
+                title="Mở danh sách đặt hàng"
+              >
+                <ShoppingCart className="w-4 h-4 text-amber-400" />
+                <span className="hidden sm:inline">Đặt Hàng</span>
+                {lowStockOrdersCount > 0 && (
+                  <span className="min-w-[16px] h-4 px-1 rounded-full bg-rose-600 text-white text-[10px] font-extrabold flex items-center justify-center animate-pulse">
+                    {lowStockOrdersCount > 99 ? '99+' : lowStockOrdersCount}
+                  </span>
+                )}
+              </button>
+            )}
 
             {/* Facebook-style Notification Bell Button & Popover */}
             <div className="relative" ref={dropdownRef}>

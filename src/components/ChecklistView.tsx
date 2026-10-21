@@ -324,7 +324,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
               </span>
             </div>
             <p className="text-[11px] text-zinc-500 mt-0.5 truncate">
-              Tự reload: <span className="font-mono font-semibold text-zinc-700">{formatTime(secondsLeft)}</span> • 14:30 báo @manager
+              Tự reload: <span className="font-mono font-semibold text-zinc-700">{formatTime(secondsLeft)}</span>
             </p>
           </div>
 
@@ -336,18 +336,18 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
                 className="h-8 px-2.5 rounded-xl text-[11px] font-bold bg-amber-100 text-amber-900 border border-amber-300 hover:bg-amber-200 transition flex items-center gap-1 whitespace-nowrap active:scale-95"
               >
                 <Bell className="w-3.5 h-3.5 text-amber-700 animate-bounce" />
-                <span>Bật chạy ngầm</span>
+                <span>Bật thông báo</span>
               </button>
             ) : (
               <button
                 type="button"
                 onClick={handleTestBackgroundPush}
                 disabled={testingPush}
-                title="Bấm rồi tắt màn hình / thoát app ngay: Sau 3 giây hệ thống sẽ bắn thông báo ngầm tới máy bạn!"
+                title="Bấm rồi tắt màn hình hoặc thoát app ngay để thử chuông sau 3 giây"
                 className="h-8 px-2.5 rounded-xl text-[11px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100 transition flex items-center gap-1 whitespace-nowrap active:scale-95"
               >
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span>{testingPush ? 'Đang gửi ngầm (3s)...' : 'Chạy ngầm: BẬT (Thử 3s)'}</span>
+                <span>{testingPush ? 'Đang gửi...' : 'Chạy ngầm (Thử 3s)'}</span>
               </button>
             )}
 
@@ -357,7 +357,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
               className="h-9 px-3.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-xs transition whitespace-nowrap"
             >
               <Send className="w-3.5 h-3.5" />
-              <span>Nộp Báo Cáo Ca</span>
+              <span>Nộp Báo Cáo</span>
             </button>
           </div>
         </div>
@@ -460,7 +460,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-1.5 text-[11px] font-bold text-zinc-700">
                 <Users className="w-3.5 h-3.5 text-zinc-600 shrink-0" />
-                <span>Nhân sự ca bếp ({staffList.length})</span>
+                <span>Nhân sự ({staffList.length})</span>
               </div>
               <span className="text-[10px] text-zinc-400">
                 Đang trực: <strong className="text-zinc-700">{currentUser?.fullName || 'Chưa chọn'}</strong>
@@ -528,11 +528,11 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
             className="bg-zinc-50 p-3 rounded-xl border border-zinc-200 space-y-2.5"
           >
             <div className="text-xs font-bold text-zinc-900">
-              Thêm đầu việc mới vào danh sách
+              Thêm đầu việc
             </div>
             <input
               type="text"
-              placeholder="Nhập tên công việc cần thêm..."
+              placeholder="Tên công việc..."
               value={quickTitle}
               onChange={(e) => setQuickTitle(e.target.value)}
               className="w-full p-2.5 bg-white border border-zinc-300 rounded-xl text-sm text-zinc-900 focus:ring-2 focus:ring-zinc-900 outline-none"
@@ -549,8 +549,8 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
                 }}
                 className="h-8 px-2 bg-white border border-zinc-300 rounded-lg text-xs font-semibold text-zinc-800"
               >
-                <option value="urgent_today">Trong ngày gấp (Khung đỏ)</option>
-                <option value="daily">Daily (Tự reset 24h)</option>
+                <option value="urgent_today">Việc gấp</option>
+                <option value="daily">Hàng ngày</option>
               </select>
 
               <select
@@ -558,9 +558,9 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
                 onChange={(e) => setQuickPriority(e.target.value as KitchenTask['priority'])}
                 className="h-8 px-2 bg-white border border-zinc-300 rounded-lg text-xs font-semibold text-zinc-800"
               >
-                <option value="Thường">Ưu tiên: Thường</option>
-                <option value="Gấp">Ưu tiên: Gấp</option>
-                <option value="Tối khẩn">Ưu tiên: Tối khẩn</option>
+                <option value="Thường">Thường</option>
+                <option value="Gấp">Gấp</option>
+                <option value="Tối khẩn">Tối khẩn</option>
               </select>
 
               <select
@@ -580,7 +580,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
                 onChange={(e) => setQuickAssignedStaffId(e.target.value)}
                 className="h-8 px-2 bg-white border border-zinc-300 rounded-lg text-xs font-semibold text-zinc-800"
               >
-                <option value="all">Giao: Toàn bộ ca bếp</option>
+                <option value="all">Giao: Cả ca</option>
                 {staffList.map((st) => (
                   <option key={st.id} value={st.id}>
                     Giao: {st.fullName} (@{st.username})
