@@ -889,23 +889,24 @@ export default function App() {
 
             const notif = data.notification;
             if (notif) {
-              // Chỉ hiện thông báo khi @manager giao việc (không hiện của admin hay hoạt động khác)
+              // Hiển thị thông báo khi @admin hoặc @manager giao việc
               if (
                 notif.kind === 'TASK_ASSIGNED' &&
                 notif.taskTitle &&
-                notif.assignedByRole === 'manager'
+                (notif.assignedByRole === 'manager' || notif.assignedByRole === 'admin')
               ) {
                 const assignedName = notif.assignedStaffName || 'Toàn bộ ca';
+                const roleLabel = notif.assignedByRole === 'admin' ? 'Bếp Trưởng' : 'Trưởng Ca';
                 const isUrgentNotif =
                   notif.isUrgent || notif.priority === 'Gấp' || notif.priority === 'Tối khẩn';
                 if (isUrgentNotif) {
                   setUrgentManagerTaskAlert({
                     taskTitle: notif.taskTitle,
-                    assignedBy: notif.assignedBy || 'Trưởng Ca',
+                    assignedBy: notif.assignedBy || roleLabel,
                     assignedByRole: notif.assignedByRole || 'manager',
                     time: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
                   });
-                  showToast(`🚨 Việc gấp từ ${notif.assignedBy || 'Trưởng Ca'}: "${notif.taskTitle}"`);
+                  showToast(`🚨 Việc gấp từ ${notif.assignedBy || roleLabel}: "${notif.taskTitle}"`);
                 } else {
                   showToast(`👨‍🍳 Việc mới cho ${assignedName}: "${notif.taskTitle}"`);
                 }
@@ -913,7 +914,7 @@ export default function App() {
                   notif.taskTitle,
                   assignedName,
                   notif.priority || 'Thường',
-                  notif.assignedBy || 'Trưởng Ca',
+                  notif.assignedBy || roleLabel,
                   isUrgentNotif,
                   notif.assignedByRole
                 );
@@ -1000,18 +1001,19 @@ export default function App() {
           } else if (event.data?.type === 'TASK_ASSIGNED' && Array.isArray(event.data.tasks)) {
             tasksRef.current = event.data.tasks;
             setTasks(event.data.tasks);
-            if (event.data.assignedByRole === 'manager') {
+            if (event.data.assignedByRole === 'manager' || event.data.assignedByRole === 'admin') {
               const assignedName = event.data.assignedStaffName || 'Toàn bộ ca';
+              const roleLabel = event.data.assignedByRole === 'admin' ? 'Bếp Trưởng' : 'Trưởng Ca';
               const isUrgentNotif =
                 event.data.isUrgent || event.data.priority === 'Gấp' || event.data.priority === 'Tối khẩn';
               if (isUrgentNotif) {
                 setUrgentManagerTaskAlert({
                   taskTitle: event.data.taskTitle,
-                  assignedBy: event.data.assignedBy || 'Trưởng Ca',
+                  assignedBy: event.data.assignedBy || roleLabel,
                   assignedByRole: event.data.assignedByRole || 'manager',
                   time: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
                 });
-                showToast(`🚨 Việc gấp từ ${event.data.assignedBy || 'Trưởng Ca'}: "${event.data.taskTitle}"`);
+                showToast(`🚨 Việc gấp từ ${event.data.assignedBy || roleLabel}: "${event.data.taskTitle}"`);
               } else {
                 showToast(`👨‍🍳 Việc mới cho ${assignedName}: "${event.data.taskTitle}"`);
               }
@@ -1019,7 +1021,7 @@ export default function App() {
                 event.data.taskTitle,
                 assignedName,
                 event.data.priority || 'Thường',
-                event.data.assignedBy || 'Trưởng Ca',
+                event.data.assignedBy || roleLabel,
                 isUrgentNotif,
                 event.data.assignedByRole
               );

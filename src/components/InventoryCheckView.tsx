@@ -18,6 +18,7 @@ import {
   Star,
   Copy,
   ChevronDown,
+  Camera,
 } from 'lucide-react';
 
 interface InventoryCheckViewProps {
@@ -640,6 +641,234 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  };
+
+  // Xuất file ảnh PNG Danh Sách Đặt Hàng (Đẹp mắt, trực quan để gửi thẳng qua Zalo)
+  const exportOrderListToImage = () => {
+    const selectedItemsList: Array<{
+      stt: string;
+      name: string;
+      stock: string;
+      qty: number;
+      unit: string;
+      isCustom?: boolean;
+    }> = [];
+
+    // 1. Mặt hàng thiếu trong bảng tồn
+    rowsForSelectedDate.forEach((item) => {
+      const threshold = item.minThreshold ?? 3;
+      const currentStock = parseFloat(item.stockQty) || 0;
+      if (currentStock <= threshold) {
+        const keyId = `inv_${item.id}`;
+        if (orderSelection[keyId] !== false) {
+          const orderData = orderQuantities[keyId] || {
+            qty: Math.max(1, threshold * 2 - currentStock),
+            unit: item.unit || 'Kg',
+          };
+          selectedItemsList.push({
+            stt: String(item.stt || selectedItemsList.length + 1),
+            name: item.itemName,
+            stock: String(currentStock),
+            qty: orderData.qty,
+            unit: orderData.unit,
+          });
+        }
+      }
+    });
+
+    // 2. Mặt hàng đặt cố định
+    customOrders.forEach((customItem, idx) => {
+      const keyId = `custom_${customItem.id}`;
+      if (orderSelection[keyId] !== false) {
+        const orderData = orderQuantities[keyId] || {
+          qty: customItem.defaultQty,
+          unit: customItem.unit,
+        };
+        selectedItemsList.push({
+          stt: `CD-${idx + 1}`,
+          name: customItem.name,
+          stock: 'Cố định',
+          qty: orderData.qty,
+          unit: orderData.unit,
+          isCustom: true,
+        });
+      }
+    });
+
+    if (selectedItemsList.length === 0) {
+      alert('Vui lòng chọn ít nhất 1 mặt hàng để xuất ảnh đặt hàng!');
+      return;
+    }
+
+    const scale = 2;
+    const canvasWidth = 820;
+    const headerHeight = 150;
+    const tableHeaderHeight = 44;
+    const rowHeight = 44;
+    const footerHeight = 90;
+    const totalHeight = headerHeight + tableHeaderHeight + selectedItemsList.length * rowHeight + footerHeight;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = canvasWidth * scale;
+    canvas.height = totalHeight * scale;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.scale(scale, scale);
+
+    const safeRoundRect = (x: number, y: number, w: number, h: number, r: number) => {
+      if (typeof (ctx as any).roundRect === 'function') {
+        (ctx as any).roundRect(x, y, w, h, r);
+      } else {
+        ctx.rect(x, y, w, h);
+      }
+    };
+
+    // 1. Nền tổng thể
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvasWidth, totalHeight);
+
+    // 2. Header Banner màu tối phong cách Bếp Pro
+    ctx.fillStyle = '#09090b';
+    ctx.fillRect(0, 0, canvasWidth, headerHeight);
+
+    // Viền vàng hổ phách trang trí
+    ctx.fillStyle = '#f59e0b';
+    ctx.fillRect(0, headerHeight - 4, canvasWidth, 4);
+
+    // Tiêu đề thương hiệu
+    ctx.font = 'bold 12px "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+    ctx.fillStyle = '#a1a1aa';
+    ctx.textAlign = 'left';
+    ctx.fillText('KITCHEN LOG PRO • HỆ THỐNG VẬN HÀNH CA BẾP', 32, 40);
+
+    // Tiêu đề đơn hàng
+    ctx.font = 'bold 23px "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText('ĐƠN ĐẶT HÀNG NGUYÊN LIỆU BẾP', 32, 74);
+
+    // Thông tin ca / ngày / người lập
+    ctx.font = '500 13px "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+    ctx.fillStyle = '#e4e4e7';
+    const nowTimeStr = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+    const creatorName = currentUser?.fullName || 'Bộ phận Bếp';
+    ctx.fillText(`Ngày đặt: ${selectedDate}  •  Giờ xuất: ${nowTimeStr}  •  Người lập đơn: ${creatorName}`, 32, 110);
+
+    // Badge tổng số mặt hàng
+    ctx.fillStyle = '#d97706';
+    const badgeText = `${selectedItemsList.length} MẶT HÀNG`;
+    ctx.font = 'bold 11px "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+    const badgeWidth = ctx.measureText(badgeText).width + 16;
+    ctx.beginPath();
+    safeRoundRect(canvasWidth - badgeWidth - 32, 54, badgeWidth, 26, 6);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(badgeText, canvasWidth - badgeWidth - 24, 71);
+
+    // 3. Table Header
+    const tableTop = headerHeight + 16;
+    ctx.fillStyle = '#f4f4f5';
+    ctx.beginPath();
+    safeRoundRect(24, tableTop, canvasWidth - 48, tableHeaderHeight, 8);
+    ctx.fill();
+
+    ctx.font = 'bold 12px "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+    ctx.fillStyle = '#3f3f46';
+    ctx.textAlign = 'center';
+    ctx.fillText('STT', 60, tableTop + 27);
+    ctx.textAlign = 'left';
+    ctx.fillText('TÊN MẶT HÀNG', 110, tableTop + 27);
+    ctx.textAlign = 'center';
+    ctx.fillText('TỒN HIỆN TẠI', 440, tableTop + 27);
+    ctx.fillText('SỐ LƯỢNG ĐẶT', 580, tableTop + 27);
+    ctx.fillText('ĐƠN VỊ', 720, tableTop + 27);
+
+    // 4. Rows
+    let currentY = tableTop + tableHeaderHeight;
+    selectedItemsList.forEach((row, idx) => {
+      // Nền xen kẽ
+      ctx.fillStyle = idx % 2 === 0 ? '#ffffff' : '#fcfcfd';
+      ctx.fillRect(24, currentY, canvasWidth - 48, rowHeight);
+
+      // Đường kẻ mờ ngang
+      ctx.strokeStyle = '#f1f5f9';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(24, currentY + rowHeight);
+      ctx.lineTo(canvasWidth - 24, currentY + rowHeight);
+      ctx.stroke();
+
+      // STT
+      ctx.textAlign = 'center';
+      ctx.font = row.isCustom ? 'bold 11px monospace' : 'bold 12px "Segoe UI", Roboto';
+      ctx.fillStyle = row.isCustom ? '#4f46e5' : '#71717a';
+      ctx.fillText(row.stt, 60, currentY + 27);
+
+      // Tên hàng
+      ctx.textAlign = 'left';
+      ctx.font = 'bold 14px "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+      ctx.fillStyle = '#0f172a';
+      ctx.fillText(row.name, 110, currentY + 27);
+
+      // Tồn hiện tại
+      ctx.textAlign = 'center';
+      ctx.font = '600 13px "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+      ctx.fillStyle = row.isCustom ? '#94a3b8' : '#e11d48';
+      ctx.fillText(row.stock, 440, currentY + 27);
+
+      // Khung nổi bật Số lượng đặt
+      ctx.fillStyle = '#fef3c7';
+      ctx.beginPath();
+      safeRoundRect(545, currentY + 8, 70, 28, 6);
+      ctx.fill();
+
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 15px "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+      ctx.fillStyle = '#b45309';
+      ctx.fillText(String(row.qty), 580, currentY + 27);
+
+      // Đơn vị
+      ctx.textAlign = 'center';
+      ctx.font = '600 13px "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+      ctx.fillStyle = '#334155';
+      ctx.fillText(row.unit, 720, currentY + 27);
+
+      currentY += rowHeight;
+    });
+
+    // 5. Footer tóm tắt
+    const footerTop = currentY + 16;
+    ctx.fillStyle = '#f8fafc';
+    ctx.beginPath();
+    safeRoundRect(24, footerTop, canvasWidth - 48, 56, 10);
+    ctx.fill();
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.textAlign = 'left';
+    ctx.font = 'bold 13px "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+    ctx.fillStyle = '#166534';
+    ctx.fillText(`✓ Xác nhận: ${selectedItemsList.length} mặt hàng cần nhập • Giao ca tiếp theo`, 44, footerTop + 25);
+
+    ctx.font = '11px "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+    ctx.fillStyle = '#64748b';
+    ctx.fillText(`Tự động xuất từ Kitchen Log Pro • ${selectedDate} ${nowTimeStr}`, 44, footerTop + 43);
+
+    // Tải ảnh về
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const safeDate = selectedDate.replace(/\//g, '-');
+      a.download = `DanhSachDatHang_${safeDate}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 'image/png');
   };
 
   return (
@@ -1386,14 +1615,23 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                 Tổng cộng: {lowStockCount} mặt hàng cần đặt
               </span>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={exportOrderListToImage}
+                  className="px-4 py-2 text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl transition flex items-center gap-1.5 shadow-xs active:scale-95"
+                  title="Xuất ảnh danh sách đặt hàng đẹp mắt để gửi Zalo"
+                >
+                  <Camera className="w-3.5 h-3.5" />
+                  <span>Xuất Ảnh PNG (Gửi Zalo)</span>
+                </button>
                 <button
                   type="button"
                   onClick={exportOrderListToText}
-                  className="px-4 py-2 text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white rounded-xl transition flex items-center gap-1.5 shadow-xs"
+                  className="px-4 py-2 text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white rounded-xl transition flex items-center gap-1.5 shadow-xs active:scale-95"
                 >
                   <FileDown className="w-3.5 h-3.5" />
-                  <span>Xuất File Text (Đã Chọn)</span>
+                  <span>Xuất File Text</span>
                 </button>
                 <button
                   type="button"

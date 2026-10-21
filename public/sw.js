@@ -1,4 +1,4 @@
-const CACHE_NAME = 'kitchen-log-pro-v3';
+const CACHE_NAME = 'kitchen-log-pro-v4';
 const STATIC_ASSETS = ['/', '/index.html', '/manifest.json', '/icon.svg'];
 
 let lastShownNotifId = '';
@@ -88,7 +88,23 @@ async function buildAndShowNotification(payload) {
     }
   }
 
-  await self.registration.showNotification(title, options);
+  try {
+    await self.registration.showNotification(title, options);
+  } catch (showErr) {
+    // Fallback cho iOS Safari và trình duyệt không hỗ trợ actions / vibrate
+    try {
+      await self.registration.showNotification(title, {
+        body: payload.body || 'Có cập nhật công việc mới.',
+        icon: '/icon.svg',
+        badge: '/icon.svg',
+        tag: options.tag,
+        renotify: true,
+        data: options.data,
+      });
+    } catch {
+      // ignore
+    }
+  }
 }
 
 // 1. Sự kiện Web Push: Đánh thức Service Worker ngay cả khi tắt app / kill app / khóa màn hình

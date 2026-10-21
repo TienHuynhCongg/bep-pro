@@ -119,6 +119,32 @@ export const registerBackgroundPush = async (user?: {
     }
 
     let sub = await reg.pushManager.getSubscription();
+    if (sub) {
+      // Kiểm tra xem subscription có khớp với VAPID Key hiện tại của server không
+      try {
+        const existingKeyRaw = sub.options?.applicationServerKey;
+        if (existingKeyRaw) {
+          const currentKeyBytes = urlBase64ToUint8Array(keyData.publicKey);
+          const existingKeyBytes = new Uint8Array(existingKeyRaw);
+          let keyMismatch = existingKeyBytes.length !== currentKeyBytes.length;
+          if (!keyMismatch) {
+            for (let i = 0; i < existingKeyBytes.length; i++) {
+              if (existingKeyBytes[i] !== currentKeyBytes[i]) {
+                keyMismatch = true;
+                break;
+              }
+            }
+          }
+          if (keyMismatch) {
+            await sub.unsubscribe();
+            sub = null;
+          }
+        }
+      } catch {
+        // ignore check error
+      }
+    }
+
     if (!sub) {
       const appServerKey = urlBase64ToUint8Array(keyData.publicKey);
       sub = await reg.pushManager.subscribe({

@@ -274,7 +274,9 @@ export function createKitchenApiMiddleware() {
           const headers: Record<string, string> = {
             Authorization: authHeader,
             TTL: '86400',
-            Urgency: pushMsg.urgent ? 'high' : 'normal',
+            Urgency: 'high',
+            'apns-priority': '10',
+            'apns-push-type': 'alert',
           };
 
           let bodyBuf: Buffer | undefined;
@@ -293,7 +295,7 @@ export function createKitchenApiMiddleware() {
             body: bodyBuf ? new Uint8Array(bodyBuf) : undefined,
           });
 
-          if (res.status === 404 || res.status === 410) {
+          if (res.status === 401 || res.status === 403 || res.status === 404 || res.status === 410) {
             deadEndpoints.add(sub.endpoint);
           }
         } catch {
@@ -668,23 +670,24 @@ export function createKitchenApiMiddleware() {
       if (
         notification.kind === 'TASK_ASSIGNED' &&
         notification.taskTitle &&
-        notification.assignedByRole === 'manager'
+        (notification.assignedByRole === 'admin' || notification.assignedByRole === 'manager')
       ) {
         const isUrgent = Boolean(
           notification.isUrgent ||
             notification.priority === 'Gấp' ||
             notification.priority === 'Tối khẩn'
         );
-        const assignedBy = notification.assignedBy || 'Trưởng Ca';
+        const roleLabel = notification.assignedByRole === 'admin' ? 'Bếp Trưởng' : 'Trưởng Ca';
+        const assignedBy = notification.assignedBy || roleLabel;
         const assignedName = notification.assignedStaffName || 'Toàn bộ ca bếp';
         dispatchWebPushToAll({
           id: `push-assign-${nowMs}`,
           title: isUrgent
-            ? `🚨 VIỆC GẤP MỚI TỪ TRƯỞNG CA (${assignedBy})`
-            : `👨‍🍳 Giao việc mới: ${assignedName}`,
+            ? `🚨 VIỆC GẤP MỚI TỪ ${roleLabel.toUpperCase()} (${assignedBy})`
+            : `👨‍🍳 Giao việc mới từ ${roleLabel}: ${assignedName}`,
           body: `"${notification.taskTitle}" — Giao bởi ${assignedBy} cho ${assignedName}`,
           tag: `bep-pro-task-${nowMs}`,
-          urgent: isUrgent,
+          urgent: true,
           url: '/',
           timestamp: nowMs,
         });
