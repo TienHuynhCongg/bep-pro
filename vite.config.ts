@@ -12,7 +12,7 @@ export default defineConfig(() => {
       {
         name: 'kitchen-realtime-api-v2',
         configureServer(server) {
-          server.middlewares.use(createKitchenApiMiddleware());
+          server.middlewares.use(createKitchenApiMiddleware() as any);
         },
       },
     ],
@@ -26,7 +26,8 @@ export default defineConfig(() => {
       // Do not modify—file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
       // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
-      watch: process.env.DISABLE_HMR === 'true' ? null : {},
+      // Bỏ qua thư mục data/ (kitchen-db.json) để mỗi lần lưu dữ liệu không làm Vite reload cả trang về trang chính.
+      watch: process.env.DISABLE_HMR === 'true' ? null : { ignored: ['**/data/**', '**/dist/**'] },
     },
   };
 });

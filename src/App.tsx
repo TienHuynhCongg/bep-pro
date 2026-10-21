@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   AppConfig,
   DynamicField,
@@ -11,6 +11,7 @@ import {
   AppNotificationItem,
   KitchenRecipe,
   InventoryCheckItem,
+  UserRole,
   canRoleAccessTab,
 } from './types.ts';
 import {

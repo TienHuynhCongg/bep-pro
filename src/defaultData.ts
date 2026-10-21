@@ -6,6 +6,7 @@ import {
   ShiftLog,
   KitchenRecipe,
   InventoryCheckItem,
+  CustomOrderItem,
 } from './types.ts';
 
 export const DEFAULT_APP_CONFIG: AppConfig = {
