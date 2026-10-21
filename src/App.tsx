@@ -331,27 +331,22 @@ export default function App() {
 
   // Trạng thái tự động mở danh sách đặt hàng khi bấm từ HeaderNav
   const [autoOpenOrderList, setAutoOpenOrderList] = useState<boolean>(false);
+  const [realtimeLowStockCount, setRealtimeLowStockCount] = useState<number | null>(null);
 
-  // Tính số lượng mặt hàng cần đặt cho tất cả các role
+  // Tính số lượng mặt hàng cần đặt theo thời gian thực (đồng bộ trực tiếp từ bảng lưu kiểm hàng)
   const lowStockOrdersCount = useMemo(() => {
-    const lowStockInv = inventory.filter((item) => {
+    if (realtimeLowStockCount !== null) {
+      return realtimeLowStockCount;
+    }
+    const todayStr = new Date().toLocaleDateString('vi-VN');
+    const todayItems = inventory.filter((item) => (item.dateStr || todayStr) === todayStr);
+    const targetItems = todayItems.length > 0 ? todayItems : inventory;
+    return targetItems.filter((item) => {
       const stock = parseFloat(item.stockQty);
       const threshold = item.minThreshold ?? 3;
       return !isNaN(stock) && stock <= threshold;
     }).length;
-    let customCount = 0;
-    try {
-      const raw = localStorage.getItem('kitchen_custom_orders');
-      if (raw) {
-        customCount = JSON.parse(raw).length;
-      } else {
-        customCount = DEFAULT_CUSTOM_ORDERS.length;
-      }
-    } catch {
-      customCount = DEFAULT_CUSTOM_ORDERS.length;
-    }
-    return lowStockInv + customCount;
-  }, [inventory]);
+  }, [realtimeLowStockCount, inventory]);
 
   // Handler mở nhanh danh sách đặt hàng từ bất cứ trang nào
   const handleOpenOrderList = () => {
@@ -2218,6 +2213,7 @@ export default function App() {
                   recipes={recipes}
                   initialOpenOrderList={autoOpenOrderList}
                   onCloseOrderListModal={() => setAutoOpenOrderList(false)}
+                  onLowStockCountChange={setRealtimeLowStockCount}
                 />
               )}
 

@@ -31,6 +31,7 @@ interface InventoryCheckViewProps {
   recipes?: KitchenRecipe[];
   initialOpenOrderList?: boolean;
   onCloseOrderListModal?: () => void;
+  onLowStockCountChange?: (count: number) => void;
 }
 
 const COMMON_UNITS = [
@@ -120,6 +121,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
   recipes = [],
   initialOpenOrderList = false,
   onCloseOrderListModal,
+  onLowStockCountChange,
 }) => {
   const todayStr = new Date().toLocaleDateString('vi-VN');
   const isAdmin = currentUser?.role === 'admin';
@@ -361,7 +363,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     onSaveItem(updated, true);
   };
 
-  // Đếm số lượng mặt hàng cần đặt (Tồn <= Ngưỡng Đặt) + Hàng đặt cố định
+  // Đếm số lượng mặt hàng cần đặt (Tồn <= Ngưỡng Đặt) trên bảng lưu kiểm hàng
   const lowStockCount = useMemo(() => {
     let count = 0;
     rowsForSelectedDate.forEach((item) => {
@@ -371,8 +373,13 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
         count++;
       }
     });
-    return count + customOrders.length;
-  }, [rowsForSelectedDate, customOrders]);
+    return count;
+  }, [rowsForSelectedDate]);
+
+  // Đồng bộ số lượng hàng cần đặt theo thời gian thực ra App / HeaderNav
+  useEffect(() => {
+    onLowStockCountChange?.(lowStockCount);
+  }, [lowStockCount, onLowStockCountChange]);
 
   // Lọc bảng theo tìm kiếm
   const filteredRows = rowsForSelectedDate
@@ -1612,7 +1619,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
 
             <div className="flex flex-col sm:flex-row justify-between items-center gap-2 pt-3 border-t border-zinc-100">
               <span className="text-xs text-zinc-500 font-semibold">
-                Tổng cộng: {lowStockCount} mặt hàng cần đặt
+                Tổng cộng: {lowStockCount + customOrders.length} mặt hàng ({lowStockCount} hàng thiếu kho • {customOrders.length} hàng cố định)
               </span>
 
               <div className="flex flex-wrap items-center gap-2">
