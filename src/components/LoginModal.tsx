@@ -113,22 +113,20 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     ];
     const randomColor = colors[Math.floor(Math.random() * colors.length)];
 
+    // BẢO MẬT TUYỆT ĐỐI: Tài khoản tự đăng ký mới LUÔN LUÔN là 'staff' (Nhân viên).
+    // Không ai (kể cả admin đang đăng nhập) được tạo role admin ở form đăng ký công khai này.
+    // Nâng cấp Admin/Manager chỉ được thực hiện bên trong trang Quản Lý Nhân Sự của Admin.
     const newStaffData: Omit<StaffUser, 'id'> = {
       fullName: regFullName.trim(),
       username: regUsername.trim().toLowerCase(),
       password: regPassword,
-      role: currentUser?.role === 'admin' ? regRole : 'staff',
+      role: 'staff',
       station: regStation,
       phone: regPhone.trim(),
       status: 'active',
       avatarColor: randomColor,
       lastLogin: new Date().toLocaleString('vi-VN'),
     };
-
-    // Thêm nhân sự mới và tự động đăng nhập nguyên khối (không bị ghi đè state)
-    // Nghiêm ngặt: chỉ admin mới được gán quyền admin/manager, người dùng đăng ký mới luôn là 'staff'
-    const safeRole: UserRole = currentUser?.role === 'admin' ? regRole : 'staff';
-    newStaffData.role = safeRole;
 
     onRegisterStaff(newStaffData, true);
     setRegSuccess('Đăng ký tài khoản thành công!');
@@ -483,22 +481,12 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                 </div>
               </div>
 
-              {currentUser?.role === 'admin' && (
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-zinc-700 mb-1">
-                    Vai Trò (@code)
-                  </label>
-                  <select
-                    value={regRole}
-                    onChange={(e) => setRegRole(e.target.value as UserRole)}
-                    className="w-full p-2 text-xs font-mono font-bold text-zinc-900 bg-zinc-50 border border-zinc-300 rounded-xl focus:ring-2 focus:ring-zinc-900 outline-none"
-                  >
-                    <option value="staff">@staff</option>
-                    <option value="manager">@manager</option>
-                    <option value="admin">@admin</option>
-                  </select>
-                </div>
-              )}
+              <div className="p-2.5 bg-zinc-100 rounded-xl border border-zinc-200 text-xs text-zinc-600 flex items-center justify-between">
+                <span>Vai trò tài khoản mới:</span>
+                <span className="font-mono font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-md">
+                  @staff (Nhân viên)
+                </span>
+              </div>
 
               <button
                 type="submit"

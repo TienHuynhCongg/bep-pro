@@ -292,9 +292,8 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     handleAutoPopulateDate(date);
   };
 
-  // Cập nhật ô trong bảng:
-  // - Nếu đổi Nhập Vào: Tồn = Tồn Hôm Trước + Nhập Vào
-  // - Nếu đổi Tồn: Nhập Vào = max(Tồn - Tồn Hôm Trước, 0)
+  // Cập nhật ô trong bảng theo công thức:
+  // HÀNG TỒN = NHẬP VÀO + TỒN HÔM TRƯỚC - HỦY
   const handleCellChange = (
     id: string,
     field: 'itemName' | 'importQty' | 'stockQty' | 'wasteQty' | 'unit' | 'minThreshold' | 'stt',
@@ -310,24 +309,37 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
 
         if (field === 'importQty') {
           const importNum = parseFloat(sanitizeNumericInput(String(rawValue))) || 0;
-          const calculatedStock = prevStockNum + importNum;
+          const wasteNum = parseFloat(row.wasteQty || '0') || 0;
+          // Tồn = Nhập + Tồn Trước - Hủy
+          const calculatedStock = Math.max(importNum + prevStockNum - wasteNum, 0);
           nextRow = {
             ...nextRow,
             prevStock: String(prevStockNum),
             importQty: String(importNum),
             stockQty: String(calculatedStock),
           };
+        } else if (field === 'wasteQty') {
+          const wasteNum = parseFloat(sanitizeNumericInput(String(rawValue))) || 0;
+          const importNum = parseFloat(row.importQty || '0') || 0;
+          // Tồn = Nhập + Tồn Trước - Hủy
+          const calculatedStock = Math.max(importNum + prevStockNum - wasteNum, 0);
+          nextRow = {
+            ...nextRow,
+            prevStock: String(prevStockNum),
+            wasteQty: String(wasteNum),
+            stockQty: String(calculatedStock),
+          };
         } else if (field === 'stockQty') {
           const stockNum = parseFloat(sanitizeNumericInput(String(rawValue))) || 0;
-          const calculatedImport = Math.max(stockNum - prevStockNum, 0);
+          const wasteNum = parseFloat(row.wasteQty || '0') || 0;
+          // Tồn = Nhập + Tồn Trước - Hủy => Nhập = Tồn + Hủy - Tồn Trước
+          const calculatedImport = Math.max(stockNum + wasteNum - prevStockNum, 0);
           nextRow = {
             ...nextRow,
             prevStock: String(prevStockNum),
             stockQty: String(stockNum),
             importQty: String(calculatedImport),
           };
-        } else if (field === 'wasteQty') {
-          nextRow.wasteQty = sanitizeNumericInput(String(rawValue));
         } else if (field === 'minThreshold') {
           nextRow.minThreshold = parseInt(rawValue, 10) || 0;
         } else if (field === 'stt') {
@@ -536,26 +548,26 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     setTimeout(() => setJustSavedBanner(false), 2500);
   };
 
-  // Xuất file text Bảng Tồn Kho
+  // Xuất file text Bảng Tồn Kho (Hủy trước Tồn)
   const exportInventoryToText = () => {
-    let content = `BẢNG TỒN KHO NGÀY ${selectedDate}\n\n`;
-    content += `STT | Tên Mặt Hàng        | Tồn Trước | Nhập | Tồn | Hủy | Đơn Vị\n`;
+    let content = `BẢNG TỒN KHO NGÀY ${selectedDate} (Công thức: Tồn = Nhập + Tồn Trước - Hủy)\n\n`;
+    content += `STT | Tên Mặt Hàng        | Tồn Trước | Nhập | Hủy | Tồn | Đơn Vị\n`;
     content += `--------------------------------------------------------------------\n`;
 
     filteredRows.forEach((item) => {
       const prev = getPreviousDayStock(selectedDate, item.itemName);
       const imp = item.importQty || '0';
-      const stock = item.stockQty || String(prev);
       const waste = item.wasteQty || '0';
+      const stock = item.stockQty || String(prev);
       const sttStr = String(item.stt || 1).padEnd(3);
       const nameStr = item.itemName.padEnd(20);
       const prevStr = String(prev).padEnd(9);
       const impStr = String(imp).padEnd(4);
-      const stockStr = String(stock).padEnd(4);
       const wasteStr = String(waste).padEnd(4);
+      const stockStr = String(stock).padEnd(4);
       const unitStr = item.unit || 'kg';
 
-      content += `${sttStr} | ${nameStr} | ${prevStr} | ${impStr} | ${stockStr} | ${wasteStr} | ${unitStr}\n`;
+      content += `${sttStr} | ${nameStr} | ${prevStr} | ${impStr} | ${wasteStr} | ${stockStr} | ${unitStr}\n`;
     });
 
     const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
@@ -743,15 +755,20 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
 
       {/* Search & Actions Bar */}
       <div className="bg-white rounded-2xl shadow-xs border border-zinc-200 p-3.5 sm:p-4 flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3">
-        <div className="relative flex-1 max-w-md">
-          <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-2.5" />
-          <input
-            type="text"
-            placeholder="Tìm tên hàng hóa..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-3 py-1.5 bg-zinc-50 border border-zinc-200 rounded-xl text-xs outline-none focus:ring-2 focus:ring-emerald-500"
-          />
+        <div className="flex items-center gap-2.5 flex-1 flex-wrap">
+          <div className="relative flex-1 min-w-[200px] max-w-md">
+            <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-2.5" />
+            <input
+              type="text"
+              placeholder="Tìm tên hàng hóa..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-3 py-1.5 bg-zinc-50 border border-zinc-200 rounded-xl text-xs outline-none focus:ring-2 focus:ring-emerald-500"
+            />
+          </div>
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-zinc-100 text-zinc-600 text-[11px] font-mono font-semibold border border-zinc-200">
+            Công thức: <strong>Tồn = Nhập + Tồn Trước - Hủy</strong>
+          </span>
         </div>
 
         <div className="flex items-center gap-2 self-end sm:self-auto">
@@ -813,8 +830,8 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                 <th className="py-3 px-3 min-w-[180px]">Tên Hàng</th>
                 <th className="py-3 px-3 w-28 text-right">Tồn Trước</th>
                 <th className="py-3 px-3 w-28 text-right">Nhập Vào</th>
-                <th className="py-3 px-3 w-28 text-right">Tồn</th>
                 <th className="py-3 px-3 w-24 text-right">Hủy</th>
+                <th className="py-3 px-3 w-28 text-right">Tồn</th>
                 <th className="py-3 px-3 w-24 text-center">Đơn Vị</th>
                 <th className="py-3 px-3 w-20 text-center">Đặt Hàng</th>
                 {isAdmin && <th className="py-3 px-3 w-24 text-center">Ngưỡng Đặt</th>}
@@ -896,6 +913,18 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                         />
                       </td>
 
+                      {/* Hủy (Đưa lên trước Tồn: Tồn = Nhập + Tồn Trước - Hủy) */}
+                      <td className="py-2.5 px-3 text-right">
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={item.wasteQty || '0'}
+                          onChange={(e) => handleCellChange(item.id, 'wasteQty', e.target.value)}
+                          onBlur={() => handleCellBlur(item.id)}
+                          className="w-16 text-right bg-rose-50/60 focus:bg-white border border-rose-200 focus:border-rose-400 rounded-lg px-2 py-1 font-semibold text-rose-700 outline-none"
+                        />
+                      </td>
+
                       {/* Tồn Hiện Tại */}
                       <td className="py-2.5 px-3 text-right">
                         <input
@@ -905,18 +934,6 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                           onChange={(e) => handleCellChange(item.id, 'stockQty', e.target.value)}
                           onBlur={() => handleCellBlur(item.id)}
                           className="w-20 text-right bg-emerald-50 focus:bg-white border border-emerald-300 rounded-lg px-2 py-1 font-bold text-emerald-800 outline-none focus:ring-1 focus:ring-emerald-500"
-                        />
-                      </td>
-
-                      {/* Hủy */}
-                      <td className="py-2.5 px-3 text-right">
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={item.wasteQty || '0'}
-                          onChange={(e) => handleCellChange(item.id, 'wasteQty', e.target.value)}
-                          onBlur={() => handleCellBlur(item.id)}
-                          className="w-16 text-right bg-zinc-50 focus:bg-white border border-zinc-200 rounded-lg px-2 py-1 text-zinc-700 outline-none"
                         />
                       </td>
 

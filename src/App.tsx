@@ -1681,9 +1681,11 @@ export default function App() {
       return;
     }
 
-    // BẢO MẬT: Chỉ Admin (@admin) đang đăng nhập mới được tạo admin/manager. Người dùng mới đăng ký luôn là 'staff'.
+    // BẢO MẬT TUYỆT ĐỐI:
+    // - Khi tự đăng ký tài khoản mới (autoLogin === true): Luôn luôn gán role 'staff' (Nhân viên).
+    // - Chỉ Admin đang thao tác trong trang Quản Lý Nhân Sự (autoLogin !== true) mới được chỉ định admin/manager.
     const effectiveRole: UserRole =
-      currentUser?.role === 'admin' ? newStaff.role || 'staff' : 'staff';
+      autoLogin ? 'staff' : (currentUser?.role === 'admin' ? newStaff.role || 'staff' : 'staff');
 
     const staff: StaffUser = {
       ...newStaff,
