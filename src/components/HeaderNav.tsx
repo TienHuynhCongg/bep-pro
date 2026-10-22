@@ -18,6 +18,7 @@ interface HeaderNavProps {
   onDeleteNotification?: (id: string) => void;
   onClearAllNotifications?: () => void;
   serverConnected?: boolean;
+  syncStatus?: 'synced' | 'syncing' | 'offline' | 'error';
   onOpenOrderList?: () => void;
   lowStockOrdersCount?: number;
 }
@@ -36,6 +37,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
   onDeleteNotification,
   onClearAllNotifications,
   serverConnected = false,
+  syncStatus = 'synced',
   onOpenOrderList,
   lowStockOrdersCount = 0,
 }) => {
@@ -77,10 +79,27 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
                 </h1>
                 <span
                   className={`w-2 h-2 rounded-full shrink-0 ${
-                    serverConnected ? 'bg-emerald-500' : 'bg-amber-500'
+                    syncStatus === 'synced'
+                      ? 'bg-emerald-400 shadow-sm shadow-emerald-400/50'
+                      : syncStatus === 'syncing'
+                      ? 'bg-amber-400 animate-pulse'
+                      : 'bg-rose-500'
                   }`}
-                  title={serverConnected ? 'Đã kết nối đồng bộ trực tiếp' : 'Chế độ ngoại tuyến'}
+                  title={
+                    syncStatus === 'synced'
+                      ? 'Đã đồng bộ an toàn lên Server'
+                      : syncStatus === 'syncing'
+                      ? 'Đang lưu lên máy chủ...'
+                      : 'Chưa có mạng (Đã lưu tạm trên máy, sẽ tự động đẩy lên khi có mạng)'
+                  }
                 />
+                <span className="hidden sm:inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-zinc-900 border border-zinc-800 text-zinc-400">
+                  {syncStatus === 'synced' && <span className="text-emerald-400 font-semibold">Đã lưu Cloud</span>}
+                  {syncStatus === 'syncing' && <span className="text-amber-400 font-semibold">Đang lưu...</span>}
+                  {(syncStatus === 'offline' || syncStatus === 'error') && (
+                    <span className="text-rose-400 font-semibold">Lưu trên máy</span>
+                  )}
+                </span>
               </div>
               <p className="text-[11px] text-zinc-400 truncate hidden sm:block">
                 {config.appSubtitle || 'Hệ thống vận hành bếp'}

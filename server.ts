@@ -4,6 +4,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import type { IncomingMessage, ServerResponse } from 'http';
+import { MongoClient, Db } from 'mongodb';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -167,6 +168,40 @@ function encryptWebPushPayload(
   return Buffer.concat([salt, rsBuf, idLenBuf, localPub, encrypted, authTag]);
 }
 
+const MONGODB_URI = process.env.MONGODB_URI;
+let mongoDb: Db | null = null;
+let mongoClient: MongoClient | null = null;
+
+async function initMongoConnection(onCloudStateLoaded?: (cloudState: KitchenServerState) => void) {
+  if (!MONGODB_URI) {
+    console.log('ℹ️ [Storage] Server đang lưu trữ trên Ổ đĩa Local (Thêm MONGODB_URI vào Render Environment Variables để lưu trữ Cloud vĩnh viễn không mất dữ liệu).');
+    return;
+  }
+  try {
+    mongoClient = new MongoClient(MONGODB_URI, {
+      serverSelectionTimeoutMS: 6000,
+      connectTimeoutMS: 10000,
+    });
+    await mongoClient.connect();
+    mongoDb = mongoClient.db(process.env.MONGODB_DB_NAME || 'kitchen_db');
+    console.log('✅ [MongoDB Atlas] ĐÃ KẾT NỐI CLOUD DATABASE LƯU TRỮ VĨNH VIỄN!');
+
+    const col = mongoDb.collection('kitchen_state');
+    const doc = await col.findOne({ _id: 'global_state' as any });
+    if (doc && (Array.isArray(doc.tasks) || Array.isArray(doc.inventory))) {
+      const { _id, ...rest } = doc as any;
+      console.log(`✅ [MongoDB Atlas] Nạp thành công dữ liệu từ Cloud (updatedAt: ${rest.updatedAt})`);
+      if (onCloudStateLoaded) {
+        onCloudStateLoaded(rest as KitchenServerState);
+      }
+    } else {
+      console.log('ℹ️ [MongoDB Atlas] Cloud Database chưa có bản ghi, sẽ khởi tạo từ dữ liệu local.');
+    }
+  } catch (err) {
+    console.error('⚠️ [MongoDB Atlas] Kết nối thất bại, tự động dùng ổ đĩa local:', err);
+  }
+}
+
 function loadDb(): KitchenServerState {
   try {
     if (!fs.existsSync(DATA_DIR)) {
@@ -185,8 +220,6 @@ function loadDb(): KitchenServerState {
       const rawSeed = fs.readFileSync(SEED_FILE, 'utf-8').replace(/^\uFEFF/, '');
       const seedState = JSON.parse(rawSeed);
       seedState.initialized = true;
-      // QUAN TRỌNG: Giữ nguyên updatedAt của seed file (hoặc cắm cờ isSeedReset)
-      // để điện thoại client phát hiện server vừa nạp lại bản mẫu và kích hoạt cơ chế khôi phục từ máy khách
       if (!seedState.updatedAt) {
         seedState.updatedAt = Date.now();
       }
@@ -217,6 +250,18 @@ function saveDb(state: KitchenServerState) {
     }
   } catch (err) {
     console.error('Error saving kitchen-db.json:', err);
+  }
+
+  // Tự động đẩy vĩnh viễn lên MongoDB Atlas nếu có kết nối Cloud
+  if (mongoDb) {
+    mongoDb
+      .collection('kitchen_state')
+      .updateOne(
+        { _id: 'global_state' as any },
+        { $set: { ...state, _id: 'global_state' } },
+        { upsert: true }
+      )
+      .catch((err) => console.error('Error saving to MongoDB Atlas:', err));
   }
 }
 
@@ -269,6 +314,18 @@ export function createKitchenApiMiddleware() {
   saveDb(dbState);
 
   const sseClients = new Set<ServerResponse>();
+
+  // Nạp từ Cloud Database (MongoDB Atlas) nếu có cấu hình
+  initMongoConnection((cloudState) => {
+    dbState = cloudState;
+    ensureVapidKeys(dbState);
+    broadcastSse({
+      type: 'STATE_UPDATED',
+      senderId: 'server-mongo-init',
+      state: dbState,
+      timestamp: Date.now(),
+    });
+  });
 
   const broadcastSse = (payload: unknown) => {
     const data = `data: ${JSON.stringify(payload)}\n\n`;
@@ -628,6 +685,22 @@ export function createKitchenApiMiddleware() {
         ok: true,
         state: dbState,
         onlineConnections: sseClients.size,
+      })
+    );
+  });
+
+  // GET /api/db-status - Kiểm tra trạng thái lưu trữ (Cloud Database vĩnh viễn hay Local Disk)
+  router.get('/api/db-status', (_req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.end(
+      JSON.stringify({
+        ok: true,
+        isCloudConnected: Boolean(mongoDb),
+        storageMode: mongoDb ? 'MongoDB Atlas (Lưu trữ Cloud vĩnh viễn)' : 'Local Disk (Ổ đĩa máy chủ Render)',
+        hasMongoUriConfigured: Boolean(MONGODB_URI),
+        updatedAt: dbState.updatedAt,
+        tasksCount: Array.isArray(dbState.tasks) ? dbState.tasks.length : 0,
+        inventoryCount: Array.isArray(dbState.inventory) ? dbState.inventory.length : 0,
       })
     );
   });

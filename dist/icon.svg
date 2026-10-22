@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- Background Gradient: Deep Obsidian with Warm Amber Underglow -->
+    <radialGradient id="bgGlow" cx="50%" cy="30%" r="75%">
+      <stop offset="0%" stop-color="#27272a" />
+      <stop offset="60%" stop-color="#141416" />
+      <stop offset="100%" stop-color="#09090b" />
+    </radialGradient>
+
+    <!-- Luxury Gold Gradient -->
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fde047" />
+      <stop offset="35%" stop-color="#f59e0b" />
+      <stop offset="70%" stop-color="#d97706" />
+      <stop offset="100%" stop-color="#b45309" />
+    </linearGradient>
+
+    <!-- Flame / Accent Gradient -->
+    <linearGradient id="flameGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#ea580c" />
+      <stop offset="50%" stop-color="#f97316" />
+      <stop offset="100%" stop-color="#fbbf24" />
+    </linearGradient>
+
+    <!-- Chef Hat Base Gradient -->
+    <linearGradient id="hatWhite" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="70%" stop-color="#f4f4f5" />
+      <stop offset="100%" stop-color="#e4e4e7" />
+    </linearGradient>
+
+    <!-- Subtle Drop Shadow -->
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#000000" flood-opacity="0.55" />
+    </filter>
+  </defs>
+
+  <!-- Squircle Base for iOS & Android -->
+  <rect width="512" height="512" rx="118" fill="url(#bgGlow)" />
+  <rect x="14" y="14" width="484" height="484" rx="106" fill="none" stroke="url(#goldGrad)" stroke-width="5" stroke-opacity="0.45" />
+
+  <!-- Center Decorative Glow -->
+  <circle cx="256" cy="245" r="150" fill="url(#flameGrad)" opacity="0.12" />
+
+  <!-- Crossed Kitchen Tools in Background: Chef Knife & Whisk/Spatula -->
+  <g filter="url(#shadow)" opacity="0.95">
+    <!-- Crossed Santoku Knife (Left to Right) -->
+    <path d="M125 355 L350 130 C365 115 390 120 395 138 C398 152 388 170 372 186 L155 400 C145 410 132 405 125 395 Z" fill="#71717a" opacity="0.3" />
+    <line x1="130" y1="365" x2="365" y2="130" stroke="url(#goldGrad)" stroke-width="8" stroke-linecap="round" opacity="0.5" />
+    
+    <!-- Crossed Whisk / Spatula (Right to Left) -->
+    <line x1="382" y1="365" x2="147" y2="130" stroke="url(#goldGrad)" stroke-width="8" stroke-linecap="round" opacity="0.5" />
+  </g>
+
+  <!-- Modern Chef Hat (Toque Blanche) -->
+  <g filter="url(#shadow)">
+    <!-- Hat Pleats & Puffs -->
+    <path d="M150 248 C120 248 100 216 112 184 C122 154 156 142 182 152 C196 114 235 90 276 96 C310 102 338 128 344 160 C368 150 398 162 406 190 C416 220 394 248 362 248 Z" fill="url(#hatWhite)" />
+    
+    <!-- Vertical pleats in hat -->
+    <path d="M210 155 Q215 210 210 248" stroke="#d4d4d8" stroke-width="6" stroke-linecap="round" fill="none" />
+    <path d="M256 135 Q256 200 256 248" stroke="#d4d4d8" stroke-width="7" stroke-linecap="round" fill="none" />
+    <path d="M302 155 Q297 210 302 248" stroke="#d4d4d8" stroke-width="6" stroke-linecap="round" fill="none" />
+
+    <!-- Hat Band (Crown Band) with Gold Trim -->
+    <rect x="156" y="248" width="200" height="48" rx="8" fill="#18181b" stroke="url(#goldGrad)" stroke-width="5" />
+    <!-- Three stars on hat band representing Michelin Quality -->
+    <circle cx="216" cy="272" r="5" fill="url(#goldGrad)" />
+    <circle cx="256" cy="272" r="7" fill="url(#goldGrad)" />
+    <circle cx="296" cy="272" r="5" fill="url(#goldGrad)" />
+  </g>
+
+  <!-- Golden Quality & Checklist Shield Badge at Bottom Right -->
+  <g filter="url(#shadow)">
+    <circle cx="360" cy="360" r="64" fill="url(#goldGrad)" />
+    <circle cx="360" cy="360" r="54" fill="#09090b" />
+    <!-- Checkmark representing verified kitchen checklists -->
+    <path d="M332 360 L352 380 L392 338" fill="none" stroke="url(#goldGrad)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" />
+  </g>
+</svg>

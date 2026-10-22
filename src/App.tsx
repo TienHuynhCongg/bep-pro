@@ -54,6 +54,10 @@ import {
   getClientSenderId,
   getLastSeenServerTs,
   rememberServerTs,
+  getLocalLastEditTs,
+  markLocalEdit,
+  subscribeSyncStatus,
+  SyncStateStatus,
   ServerSyncPayload,
 } from './utils/serverSync.ts';
 import { CheckCircle2, AlertCircle, ShieldAlert, Check, X, BellRing } from 'lucide-react';
@@ -315,6 +319,18 @@ export default function App() {
   const [showLoginModal, setShowLoginModal] = useState<boolean>(false);
 
   const [serverConnected, setServerConnected] = useState<boolean>(false);
+  const [syncStatus, setSyncStatus] = useState<SyncStateStatus>('synced');
+
+  useEffect(() => {
+    return subscribeSyncStatus((st) => {
+      setSyncStatus(st);
+      if (st === 'synced' || st === 'syncing') {
+        setServerConnected(true);
+      } else if (st === 'offline') {
+        setServerConnected(false);
+      }
+    });
+  }, []);
 
   // Active Tab (ghi nhớ trang đang mở: nếu có reload thì chỉ tải lại đúng trang đó, không quay về trang chính)
   const [activeTabId, setActiveTabIdState] = useState<string>(() => {
@@ -507,6 +523,8 @@ export default function App() {
     const role = currentUserRef.current?.role || 'staff';
     const name = currentUserRef.current?.fullName || 'User';
 
+    markLocalEdit();
+
     if (role === 'admin') {
       try {
         const clientBackup = {
@@ -516,7 +534,7 @@ export default function App() {
           staffList: payload.staffList || staffListRef.current,
           appConfig: payload.appConfig || appConfigRef.current,
           toolbarItems: payload.toolbarItems || navItems,
-          inventory: payload.inventory || inventory,
+          inventory: payload.inventory || inventoryRef.current,
           recipes: payload.recipes || recipes,
         };
         localStorage.setItem('kitchen_admin_auto_backup_latest', JSON.stringify(clientBackup));
@@ -799,85 +817,87 @@ export default function App() {
   useEffect(() => {
     let eventSource: EventSource | null = null;
 
+    const applyServerState = (s: any) => {
+      const serverTs = s.updatedAt || 0;
+      rememberServerTs(serverTs);
+
+      if (s.appConfig && typeof s.appConfig === 'object') setAppConfig(s.appConfig);
+
+      // 1. Đồng bộ Tasks an toàn: Giữ các việc riêng và đồng bộ trạng thái
+      if (Array.isArray(s.tasks)) {
+        const localTasks = tasksRef.current || [];
+        const serverTaskIds = new Set(s.tasks.map((t: any) => t.id));
+        const missingLocalTasks = localTasks.filter((lt) => !serverTaskIds.has(lt.id));
+
+        if (missingLocalTasks.length > 0 && currentUserRef.current?.role === 'admin') {
+          const mergedTasks = [...s.tasks, ...missingLocalTasks];
+          tasksRef.current = mergedTasks;
+          setTasks(mergedTasks);
+          pushStateToServer({ tasks: mergedTasks });
+        } else {
+          tasksRef.current = s.tasks;
+          setTasks(s.tasks);
+        }
+      }
+
+      if (Array.isArray(s.logs)) setLogs(s.logs);
+      if (Array.isArray(s.staffList) && s.staffList.length > 0) {
+        staffListRef.current = s.staffList;
+        setStaffList(s.staffList);
+      }
+      if (Array.isArray(s.toolbarItems) && s.toolbarItems.length > 0) {
+        setNavItems(ensureLatestNavItems(s.toolbarItems));
+      }
+      if (Array.isArray(s.deleteRequests)) setDeleteRequests(s.deleteRequests);
+      if (Array.isArray(s.notifications)) {
+        notificationsRef.current = s.notifications;
+        setNotifications(s.notifications);
+      }
+      if (Array.isArray(s.recipes)) setRecipes(s.recipes);
+
+      // 2. Đồng bộ Inventory THÔNG MINH - BẢO TOÀN 100% CÁC TỦ & MẶT HÀNG ĐÃ TẠO
+      if (Array.isArray(s.inventory)) {
+        const currentLocal = inventoryRef.current || [];
+        const serverKeys = new Set(
+          s.inventory.map(
+            (i: any) => `${i.dateStr || ''}_${i.tableName || 'Tủ Mát Chính'}_${(i.itemName || '').trim().toLowerCase()}`
+          )
+        );
+
+        // Tìm các mặt hàng/tủ mà local có (ví dụ Tủ Dimsum vừa tạo ở quán) nhưng server chưa có
+        const localOnlyItems = currentLocal.filter((locItem) => {
+          const key = `${locItem.dateStr || ''}_${locItem.tableName || 'Tủ Mát Chính'}_${(locItem.itemName || '').trim().toLowerCase()}`;
+          return !serverKeys.has(key);
+        });
+
+        if (localOnlyItems.length > 0) {
+          const merged = [...s.inventory, ...localOnlyItems];
+          inventoryRef.current = merged;
+          setInventory(merged);
+          saveEmergencyInventorySnapshot(merged);
+          // Đẩy ngay phần còn thiếu lên server để server lưu trữ vĩnh viễn!
+          pushStateToServer({ inventory: merged });
+        } else {
+          inventoryRef.current = s.inventory;
+          setInventory(s.inventory);
+          saveEmergencyInventorySnapshot(s.inventory);
+        }
+      }
+    };
+
     fetchStateFromServer().then((res) => {
       if (res.ok && res.state) {
         setServerConnected(true);
         const s = res.state;
-        const isServerInitialized = Boolean(
-          s.initialized ||
-            (Array.isArray(s.tasks) && s.tasks.length > 0) ||
-            (Array.isArray(s.logs) && s.logs.length > 0) ||
-            (Array.isArray(s.staffList) && s.staffList.length > 0)
-        );
         const serverTs = s.updatedAt || 0;
-        const lastSeenTs = getLastSeenServerTs();
-        // Server bị reset về bản cũ (VD: sau khi deploy bản mới) -> máy này đẩy dữ liệu mới nhất của mình lên khôi phục
-        const serverRolledBack = (isServerInitialized && lastSeenTs > 0 && serverTs + 1000 < lastSeenTs) || Boolean(s.isSeedReset);
+        const localLastEditTs = getLocalLastEditTs();
+        const isAdmin = currentUserRef.current?.role === 'admin';
 
-        if (isServerInitialized && !serverRolledBack) {
-          rememberServerTs(serverTs);
-          if (Array.isArray(s.tasks)) {
-            // Khiên chống ghi đè: Nếu server trả về 6 việc mẫu mặc định nhưng máy này có danh sách việc riêng phong phú hơn
-            const localHasCustom =
-              tasksRef.current.length > 0 &&
-              !tasksRef.current.every((t) => DEFAULT_TASKS.some((d) => d.title === t.title));
-            const serverIsDefaultSeed =
-              s.tasks.length === DEFAULT_TASKS.length &&
-              s.tasks.every((t) => DEFAULT_TASKS.some((d) => d.title === t.title));
+        // CHỈ khi máy này THỰC SỰ vừa sửa đổi gần đây (mốc sửa trên máy > mốc server), máy này mới đẩy lên để phục hồi server
+        const thisDeviceHasUnpushedEdits =
+          isAdmin && localLastEditTs > 0 && localLastEditTs > serverTs + 1500;
 
-            if (localHasCustom && (serverIsDefaultSeed || s.isSeedReset) && currentUserRef.current?.role === 'admin') {
-              // Máy Admin giữ việc riêng -> Tự động khôi phục ngược lại lên server thay vì bị server ghi đè!
-              pushStateToServer({ tasks: tasksRef.current }, undefined, 'auto_protect_custom_tasks');
-            } else {
-              tasksRef.current = s.tasks;
-              setTasks(s.tasks);
-            }
-          }
-          if (Array.isArray(s.logs)) setLogs(s.logs);
-          if (Array.isArray(s.staffList) && s.staffList.length > 0) {
-            staffListRef.current = s.staffList;
-            setStaffList(s.staffList);
-          }
-          if (Array.isArray(s.toolbarItems) && s.toolbarItems.length > 0) {
-            setNavItems(ensureLatestNavItems(s.toolbarItems));
-          }
-          if (Array.isArray(s.deleteRequests)) setDeleteRequests(s.deleteRequests);
-          if (Array.isArray(s.notifications) && s.notifications.length > 0) {
-            notificationsRef.current = s.notifications;
-            setNotifications(s.notifications);
-          }
-          if (Array.isArray(s.recipes)) setRecipes(s.recipes);
-          if (Array.isArray(s.inventory)) {
-            const localHasCustomInv =
-              inventoryRef.current.length > 0 &&
-              (inventoryRef.current.length > s.inventory.length ||
-                inventoryRef.current.some(
-                  (i) => i.tableName && i.tableName !== 'Tủ Mát Chính'
-                ));
-            const serverIsDefaultSeed =
-              s.inventory.length <= 5 &&
-              s.inventory.every(
-                (i) => !i.tableName || i.tableName === 'Tủ Mát Chính'
-              );
-
-            if (
-              localHasCustomInv &&
-              (serverIsDefaultSeed || s.isSeedReset) &&
-              currentUserRef.current?.role === 'admin'
-            ) {
-              pushStateToServer(
-                { inventory: inventoryRef.current },
-                undefined,
-                'auto_protect_custom_inventory'
-              );
-            } else {
-              inventoryRef.current = s.inventory;
-              setInventory(s.inventory);
-            }
-          }
-          if (s.appConfig && typeof s.appConfig === 'object') setAppConfig(s.appConfig);
-        } else if (currentUserRef.current?.role === 'admin') {
-          // CHỈ tài khoản Admin mới được phép chủ động đẩy dữ liệu cục bộ lên khôi phục server
+        if (thisDeviceHasUnpushedEdits) {
           pushStateToServer({
             tasks: tasksRef.current,
             logs,
@@ -886,9 +906,11 @@ export default function App() {
             deleteRequests,
             notifications: notificationsRef.current,
             recipes,
-            inventory,
+            inventory: inventoryRef.current,
             appConfig,
           });
+        } else {
+          applyServerState(s);
         }
       }
     });
@@ -989,67 +1011,7 @@ export default function App() {
         }
         fetchStateFromServer().then((res) => {
           if (res.ok && res.state) {
-            const s = res.state;
-            const lastSeenTs = getLastSeenServerTs();
-            if (lastSeenTs > 0 && (s.updatedAt || 0) + 1000 < lastSeenTs) {
-              // Server vừa bị reset về bản cũ: tải lại trang hiện tại để khôi phục toàn bộ dữ liệu từ máy này lên server
-              window.location.reload();
-              return;
-            }
-            rememberServerTs(s.updatedAt);
-            if (s.appConfig && typeof s.appConfig === 'object') setAppConfig(s.appConfig);
-            if (Array.isArray(s.tasks)) {
-              const localHasCustom =
-                tasksRef.current.length > 0 &&
-                !tasksRef.current.every((t) => DEFAULT_TASKS.some((d) => d.title === t.title));
-              const serverIsDefaultSeed =
-                s.tasks.length === DEFAULT_TASKS.length &&
-                s.tasks.every((t) => DEFAULT_TASKS.some((d) => d.title === t.title));
-              if (localHasCustom && (serverIsDefaultSeed || s.isSeedReset) && currentUserRef.current?.role === 'admin') {
-                pushStateToServer({ tasks: tasksRef.current }, undefined, 'auto_protect_custom_tasks');
-              } else {
-                tasksRef.current = s.tasks;
-                setTasks(s.tasks);
-              }
-            }
-            if (Array.isArray(s.logs)) setLogs(s.logs);
-            if (Array.isArray(s.staffList) && s.staffList.length > 0) {
-              staffListRef.current = s.staffList;
-              setStaffList(s.staffList);
-            }
-            if (Array.isArray(s.notifications)) {
-              notificationsRef.current = s.notifications;
-              setNotifications(s.notifications);
-            }
-            if (Array.isArray(s.recipes)) setRecipes(s.recipes);
-            if (Array.isArray(s.inventory)) {
-              const localHasCustomInv =
-                inventoryRef.current.length > 0 &&
-                (inventoryRef.current.length > s.inventory.length ||
-                  inventoryRef.current.some(
-                    (i) => i.tableName && i.tableName !== 'Tủ Mát Chính'
-                  ));
-              const serverIsDefaultSeed =
-                s.inventory.length <= 5 &&
-                s.inventory.every(
-                  (i) => !i.tableName || i.tableName === 'Tủ Mát Chính'
-                );
-
-              if (
-                localHasCustomInv &&
-                (serverIsDefaultSeed || s.isSeedReset) &&
-                currentUserRef.current?.role === 'admin'
-              ) {
-                pushStateToServer(
-                  { inventory: inventoryRef.current },
-                  undefined,
-                  'auto_protect_custom_inventory'
-                );
-              } else {
-                inventoryRef.current = s.inventory;
-                setInventory(s.inventory);
-              }
-            }
+            applyServerState(res.state);
           }
         });
       }
@@ -2329,6 +2291,7 @@ export default function App() {
         onDeleteNotification={handleDeleteNotification}
         onClearAllNotifications={handleClearAllNotifications}
         serverConnected={serverConnected}
+        syncStatus={syncStatus}
         onOpenOrderList={handleOpenOrderList}
         lowStockOrdersCount={lowStockOrdersCount}
       />
