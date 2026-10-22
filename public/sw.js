@@ -31,23 +31,29 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
-  // Do not cache API or SSE requests
+  // Không can thiệp API hoặc SSE để luôn đảm bảo dữ liệu real-time
   if (url.pathname.startsWith('/api/')) {
     return;
   }
 
+  // Stale-While-Revalidate: Mở app tức thì trong 0.05s từ Cache trên điện thoại, đồng thời cập nhật ngầm
   event.respondWith(
-    fetch(event.request)
-      .then((response) => {
-        if (event.request.method === 'GET' && response.status === 200) {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-        }
-        return response;
-      })
-      .catch(() =>
-        caches.match(event.request).then((res) => res || caches.match('/index.html'))
-      )
+    caches.match(event.request).then((cachedResponse) => {
+      const fetchPromise = fetch(event.request)
+        .then((networkResponse) => {
+          if (event.request.method === 'GET' && networkResponse && networkResponse.status === 200) {
+            const clone = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          }
+          return networkResponse;
+        })
+        .catch(() => null);
+
+      return (
+        cachedResponse ||
+        fetchPromise.then((res) => res || caches.match('/index.html'))
+      );
+    })
   );
 });
 

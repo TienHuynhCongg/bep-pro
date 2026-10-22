@@ -185,7 +185,12 @@ function loadDb(): KitchenServerState {
       const rawSeed = fs.readFileSync(SEED_FILE, 'utf-8').replace(/^\uFEFF/, '');
       const seedState = JSON.parse(rawSeed);
       seedState.initialized = true;
-      seedState.updatedAt = Date.now();
+      // QUAN TRỌNG: Giữ nguyên updatedAt của seed file (hoặc cắm cờ isSeedReset)
+      // để điện thoại client phát hiện server vừa nạp lại bản mẫu và kích hoạt cơ chế khôi phục từ máy khách
+      if (!seedState.updatedAt) {
+        seedState.updatedAt = Date.now();
+      }
+      seedState.isSeedReset = true;
       saveDb(seedState);
       console.log('Successfully initialized database from initial-data.json on server start.');
       return seedState;
@@ -193,7 +198,7 @@ function loadDb(): KitchenServerState {
   } catch (err) {
     console.error('Error loading kitchen-db.json:', err);
   }
-  return { updatedAt: Date.now(), initialized: true };
+  return { updatedAt: Date.now(), initialized: true, isSeedReset: true };
 }
 
 function saveDb(state: KitchenServerState) {
@@ -202,6 +207,14 @@ function saveDb(state: KitchenServerState) {
       fs.mkdirSync(DATA_DIR, { recursive: true });
     }
     fs.writeFileSync(DB_FILE, JSON.stringify(state, null, 2), 'utf-8');
+
+    // Tự động đồng bộ ngay sang initial-data.json để khi commit Git & Deploy lại Render không bao giờ bị mất checklist/nhân sự
+    try {
+      const SEED_FILE = path.join(process.cwd(), 'initial-data.json');
+      fs.writeFileSync(SEED_FILE, JSON.stringify(state, null, 2), 'utf-8');
+    } catch {
+      // ignore
+    }
   } catch (err) {
     console.error('Error saving kitchen-db.json:', err);
   }
@@ -874,6 +887,25 @@ export function createKitchenApiMiddleware() {
     } catch (err: any) {
       res.status(500).send(err?.message);
     }
+  });
+
+  // GET /api/health - Endpoint Keep-Alive chống ngủ đông Render & kiểm tra trạng thái
+  router.get('/api/health', (_req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.end(
+      JSON.stringify({
+        ok: true,
+        status: 'online',
+        timestamp: Date.now(),
+        uptime: Math.floor(process.uptime()),
+        tasksCount: dbState.tasks?.length || 0,
+        inventoryCount: dbState.inventory?.length || 0,
+      })
+    );
+  });
+
+  router.get('/api/ping', (_req, res) => {
+    res.status(200).send('pong');
   });
 
   // POST /api/admin/save-seed - Lưu toàn bộ dữ liệu hiện tại làm initial-data.json để đưa lên Git
