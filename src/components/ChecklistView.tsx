@@ -18,6 +18,9 @@ import {
   Check,
   X,
   Users,
+  GripVertical,
+  ChevronUp,
+  ChevronDown,
 } from 'lucide-react';
 
 interface ChecklistViewProps {
@@ -32,6 +35,7 @@ interface ChecklistViewProps {
   currentUser?: StaffUser | null;
   staffList?: StaffUser[];
   onSwitchUser?: (user: StaffUser) => void;
+  onReorderTasks?: (tasks: KitchenTask[]) => void;
 }
 
 export const ChecklistView: React.FC<ChecklistViewProps> = ({
@@ -46,6 +50,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
   currentUser = null,
   staffList = [],
   onSwitchUser,
+  onReorderTasks,
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -66,6 +71,32 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
 
   // Inline confirmation state cho nút Reset Checklist (tránh lỗi window.confirm trên iOS/Android)
   const [confirmReset, setConfirmReset] = useState<boolean>(false);
+
+  // Kéo thả và đổi vị trí đầu việc (Ví dụ kéo việc thứ 6 lên đầu)
+  const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
+  const [dragOverTaskId, setDragOverTaskId] = useState<string | null>(null);
+
+  const moveTask = (fromId: string, toId: string) => {
+    if (fromId === toId) return;
+    const fromIndex = tasks.findIndex((t) => t.id === fromId);
+    const toIndex = tasks.findIndex((t) => t.id === toId);
+    if (fromIndex === -1 || toIndex === -1) return;
+    const next = [...tasks];
+    const [moved] = next.splice(fromIndex, 1);
+    next.splice(toIndex, 0, moved);
+    onReorderTasks?.(next);
+  };
+
+  const moveTaskDelta = (taskId: string, direction: -1 | 1) => {
+    const curIndex = tasks.findIndex((t) => t.id === taskId);
+    if (curIndex === -1) return;
+    const targetIndex = curIndex + direction;
+    if (targetIndex < 0 || targetIndex >= tasks.length) return;
+    const next = [...tasks];
+    const [moved] = next.splice(curIndex, 1);
+    next.splice(targetIndex, 0, moved);
+    onReorderTasks?.(next);
+  };
 
   const isManagerOrAdmin = currentUser?.role === 'admin' || currentUser?.role === 'manager';
   const isAdmin = currentUser?.role === 'admin';
@@ -658,10 +689,35 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
               return (
                 <div
                   key={task.id}
+                  draggable={true}
+                  onDragStart={(e) => {
+                    setDraggedTaskId(task.id);
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', task.id);
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    if (draggedTaskId && draggedTaskId !== task.id) {
+                      setDragOverTaskId(task.id);
+                    }
+                  }}
+                  onDragLeave={() => {
+                    if (dragOverTaskId === task.id) setDragOverTaskId(null);
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    if (draggedTaskId && draggedTaskId !== task.id) {
+                      moveTask(draggedTaskId, task.id);
+                    }
+                    setDraggedTaskId(null);
+                    setDragOverTaskId(null);
+                  }}
                   onClick={() => {
                     if (!isEditingThis) onToggleTask(task.id);
                   }}
                   className={`group flex flex-col sm:flex-row items-start sm:items-center justify-between p-3 rounded-xl transition-all gap-2.5 touch-manipulation select-none ${
+                    dragOverTaskId === task.id ? 'ring-2 ring-amber-500 bg-amber-50/50 scale-[1.01]' : ''
+                  } ${
                     task.completed
                       ? isLockedForCurrentUser
                         ? isUrgent
@@ -675,8 +731,41 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
                       : 'bg-white hover:bg-zinc-50 border border-zinc-200/90 cursor-pointer active:scale-[0.99]'
                   }`}
                 >
-                  {/* Left: Checkbox + Title + Completion Time & Date only */}
-                  <div className="flex items-start gap-2.5 flex-1 w-full min-w-0">
+                  {/* Left: Drag Handle + Checkbox + Title + Completion Time & Date only */}
+                  <div className="flex items-start gap-2 flex-1 w-full min-w-0">
+                    {/* Drag Handle & Up/Down Arrows */}
+                    <div
+                      onClick={(e) => e.stopPropagation()}
+                      className="flex items-center gap-0.5 shrink-0 text-zinc-400 hover:text-zinc-800 cursor-grab active:cursor-grabbing p-1 -ml-1 rounded"
+                      title="Kéo thả hoặc bấm mũi tên để đổi thứ tự công việc"
+                    >
+                      <GripVertical className="w-4 h-4" />
+                      <div className="flex flex-col -space-y-1">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            moveTaskDelta(task.id, -1);
+                          }}
+                          title="Đưa việc này lên trên"
+                          className="p-0.5 hover:bg-zinc-200 rounded text-zinc-400 hover:text-zinc-900 transition"
+                        >
+                          <ChevronUp className="w-3 h-3" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            moveTaskDelta(task.id, 1);
+                          }}
+                          title="Đưa việc này xuống dưới"
+                          className="p-0.5 hover:bg-zinc-200 rounded text-zinc-400 hover:text-zinc-900 transition"
+                        >
+                          <ChevronDown className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+
                     <div className="mt-0.5 shrink-0">
                       <input
                         type="checkbox"

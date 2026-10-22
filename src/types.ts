@@ -63,6 +63,7 @@ export interface InventoryCheckItem {
   minThreshold?: number; // Ngưỡng đặt hàng (báo cần đặt khi tồn <= ngưỡng)
   unit: string;          // Đơn vị (kg, g, ml, phần, bịch...)
   statusType?: 'ton' | 'huy' | 'both'; // Tồn / Hủy / Cả hai
+  isManualStock?: boolean;             // Người dùng đã nhập tay tồn kho (ưu tiên hơn công thức)
   createdBy?: string;
   createdAt?: string;
 }

@@ -1509,6 +1509,12 @@ export default function App() {
     }
   };
 
+  const handleReorderTasks = (nextTasks: KitchenTask[]) => {
+    setTasks(nextTasks);
+    tasksRef.current = nextTasks;
+    pushStateToServer({ tasks: nextTasks });
+  };
+
   // Cập nhật / chỉnh sửa đầu việc (dành cho Trưởng Ca @manager & Admin @admin)
   const handleUpdateTask = (updatedTask: KitchenTask) => {
     const trimmedTitle = (updatedTask.title || '').trim();
@@ -2190,6 +2196,7 @@ export default function App() {
                   currentUser={currentUser}
                   staffList={staffList}
                   onSwitchUser={handleSwitchUser}
+                  onReorderTasks={handleReorderTasks}
                 />
               )}
 

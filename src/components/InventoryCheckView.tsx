@@ -18,6 +18,10 @@ import {
   Star,
   Copy,
   ChevronDown,
+  ChevronUp,
+  GripVertical,
+  Eye,
+  Edit2,
   Camera,
 } from 'lucide-react';
 
@@ -145,6 +149,13 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
   // Tìm kiếm
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [justSavedBanner, setJustSavedBanner] = useState<boolean>(false);
+
+  // 2 Chế độ hiển thị: 'view' (Chỉ xem gọn gàng cho điện thoại) vs 'edit' (Chỉnh sửa số liệu)
+  const [tableMode, setTableMode] = useState<'view' | 'edit'>('edit');
+
+  // Kéo thả đổi vị trí mặt hàng
+  const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
+  const [dragOverItemId, setDragOverItemId] = useState<string | null>(null);
 
   // Custom Order Items (Hàng đặt cố định như nước rửa chén, khăn giấy, màng bọc...)
   const [customOrders, setCustomOrders] = useState<CustomOrderItem[]>(() => {
@@ -313,35 +324,39 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
         if (field === 'importQty') {
           const importNum = parseFloat(sanitizeNumericInput(String(rawValue))) || 0;
           const wasteNum = parseFloat(row.wasteQty || '0') || 0;
-          // Tồn = Nhập + Tồn Trước - Hủy
-          const calculatedStock = Math.max(importNum + prevStockNum - wasteNum, 0);
           nextRow = {
             ...nextRow,
             prevStock: String(prevStockNum),
             importQty: String(importNum),
-            stockQty: String(calculatedStock),
           };
+          // Độ ưu tiên của công thức xếp SAU việc nhập thủ công của users:
+          // Chỉ tự động tính tồn nếu user CHƯA từng nhập tay số tồn cho dòng này
+          if (!row.isManualStock) {
+            const calculatedStock = Math.max(importNum + prevStockNum - wasteNum, 0);
+            nextRow.stockQty = String(calculatedStock);
+          }
         } else if (field === 'wasteQty') {
           const wasteNum = parseFloat(sanitizeNumericInput(String(rawValue))) || 0;
           const importNum = parseFloat(row.importQty || '0') || 0;
-          // Tồn = Nhập + Tồn Trước - Hủy
-          const calculatedStock = Math.max(importNum + prevStockNum - wasteNum, 0);
           nextRow = {
             ...nextRow,
             prevStock: String(prevStockNum),
             wasteQty: String(wasteNum),
-            stockQty: String(calculatedStock),
           };
+          // Độ ưu tiên của công thức xếp SAU việc nhập thủ công của users:
+          if (!row.isManualStock) {
+            const calculatedStock = Math.max(importNum + prevStockNum - wasteNum, 0);
+            nextRow.stockQty = String(calculatedStock);
+          }
         } else if (field === 'stockQty') {
-          const stockNum = parseFloat(sanitizeNumericInput(String(rawValue))) || 0;
-          const wasteNum = parseFloat(row.wasteQty || '0') || 0;
-          // Tồn = Nhập + Tồn Trước - Hủy => Nhập = Tồn + Hủy - Tồn Trước
-          const calculatedImport = Math.max(stockNum + wasteNum - prevStockNum, 0);
+          const sanitized = sanitizeNumericInput(String(rawValue));
+          // Khi user nhập thủ công vào cột Tồn: Ưu tiên tuyệt đối giá trị user nhập!
+          // KHÔNG ép đổi ngược lại cột Nhập
           nextRow = {
             ...nextRow,
             prevStock: String(prevStockNum),
-            stockQty: String(stockNum),
-            importQty: String(calculatedImport),
+            stockQty: sanitized,
+            isManualStock: true, // Đánh dấu đã nhập thủ công
           };
         } else if (field === 'minThreshold') {
           nextRow.minThreshold = parseInt(rawValue, 10) || 0;
@@ -354,6 +369,75 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
         return nextRow;
       })
     );
+  };
+
+  // Tính lại tồn kho theo công thức khi người dùng muốn bỏ chế độ nhập tay
+  const handleRecalculateRowStock = (id: string) => {
+    setLocalItems((prev) =>
+      prev.map((row) => {
+        if (row.id !== id) return row;
+        const prevStockNum = parseFloat(row.prevStock || '0') || getPreviousDayStock(row.dateStr, row.itemName);
+        const importNum = parseFloat(row.importQty || '0') || 0;
+        const wasteNum = parseFloat(row.wasteQty || '0') || 0;
+        const calculatedStock = Math.max(importNum + prevStockNum - wasteNum, 0);
+        const updatedRow = {
+          ...row,
+          stockQty: String(calculatedStock),
+          isManualStock: false,
+        };
+        onSaveItem(updatedRow, true);
+        return updatedRow;
+      })
+    );
+  };
+
+  // Đổi thứ tự mặt hàng (Kéo thả hoặc bấm mũi tên)
+  const moveInventoryItemDelta = (itemId: string, direction: -1 | 1) => {
+    const sorted = [...rowsForSelectedDate].sort((a, b) => (a.stt || 0) - (b.stt || 0));
+    const curIndex = sorted.findIndex((i) => i.id === itemId);
+    if (curIndex === -1) return;
+    const targetIndex = curIndex + direction;
+    if (targetIndex < 0 || targetIndex >= sorted.length) return;
+
+    const [moved] = sorted.splice(curIndex, 1);
+    sorted.splice(targetIndex, 0, moved);
+    const updatedWithStt = sorted.map((item, idx) => ({
+      ...item,
+      stt: idx + 1,
+    }));
+
+    const otherDateItems = localItems.filter((i) => i.dateStr !== selectedDate);
+    const nextAll = [...otherDateItems, ...updatedWithStt];
+    setLocalItems(nextAll);
+    if (onSaveDailyTable) {
+      onSaveDailyTable(selectedDate, nextAll);
+    } else {
+      updatedWithStt.forEach((r) => onSaveItem(r, true));
+    }
+  };
+
+  const moveInventoryItem = (fromId: string, toId: string) => {
+    if (fromId === toId) return;
+    const sorted = [...rowsForSelectedDate].sort((a, b) => (a.stt || 0) - (b.stt || 0));
+    const curIndex = sorted.findIndex((i) => i.id === fromId);
+    const targetIndex = sorted.findIndex((i) => i.id === toId);
+    if (curIndex === -1 || targetIndex === -1) return;
+
+    const [moved] = sorted.splice(curIndex, 1);
+    sorted.splice(targetIndex, 0, moved);
+    const updatedWithStt = sorted.map((item, idx) => ({
+      ...item,
+      stt: idx + 1,
+    }));
+
+    const otherDateItems = localItems.filter((i) => i.dateStr !== selectedDate);
+    const nextAll = [...otherDateItems, ...updatedWithStt];
+    setLocalItems(nextAll);
+    if (onSaveDailyTable) {
+      onSaveDailyTable(selectedDate, nextAll);
+    } else {
+      updatedWithStt.forEach((r) => onSaveItem(r, true));
+    }
   };
 
   // Khi rời ô (onBlur), lưu ngầm để đồng bộ không làm hiện thông báo
@@ -708,11 +792,11 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     }
 
     const scale = 2;
-    const canvasWidth = 820;
-    const headerHeight = 150;
-    const tableHeaderHeight = 44;
-    const rowHeight = 44;
-    const footerHeight = 90;
+    const canvasWidth = 540;
+    const headerHeight = 84;
+    const tableHeaderHeight = 34;
+    const rowHeight = 36;
+    const footerHeight = 44;
     const totalHeight = headerHeight + tableHeaderHeight + selectedItemsList.length * rowHeight + footerHeight;
 
     const canvas = document.createElement('canvas');
@@ -737,131 +821,135 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     ctx.fillRect(0, 0, canvasWidth, totalHeight);
 
     // 2. Header Banner màu tối phong cách Bếp Pro
-    ctx.fillStyle = '#09090b';
+    ctx.fillStyle = '#0f172a';
     ctx.fillRect(0, 0, canvasWidth, headerHeight);
 
     // Viền vàng hổ phách trang trí
     ctx.fillStyle = '#f59e0b';
-    ctx.fillRect(0, headerHeight - 4, canvasWidth, 4);
+    ctx.fillRect(0, headerHeight - 3, canvasWidth, 3);
 
     // Tiêu đề thương hiệu
-    ctx.font = 'bold 12px "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
-    ctx.fillStyle = '#a1a1aa';
+    ctx.font = 'bold 10px "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+    ctx.fillStyle = '#f59e0b';
     ctx.textAlign = 'left';
-    ctx.fillText('KITCHEN LOG PRO • HỆ THỐNG VẬN HÀNH CA BẾP', 32, 40);
+    ctx.fillText('KITCHEN LOG PRO • ĐƠN ĐẶT HÀNG BẾP', 16, 24);
 
     // Tiêu đề đơn hàng
-    ctx.font = 'bold 23px "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+    ctx.font = 'bold 17px "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
     ctx.fillStyle = '#ffffff';
-    ctx.fillText('ĐƠN ĐẶT HÀNG NGUYÊN LIỆU BẾP', 32, 74);
+    ctx.fillText('DANH SÁCH CẦN ĐẶT HÀNG', 16, 48);
 
     // Thông tin ca / ngày / người lập
-    ctx.font = '500 13px "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
-    ctx.fillStyle = '#e4e4e7';
+    ctx.font = '500 11px "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+    ctx.fillStyle = '#cbd5e1';
     const nowTimeStr = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-    const creatorName = currentUser?.fullName || 'Bộ phận Bếp';
-    ctx.fillText(`Ngày đặt: ${selectedDate}  •  Giờ xuất: ${nowTimeStr}  •  Người lập đơn: ${creatorName}`, 32, 110);
+    const creatorName = currentUser?.fullName || 'Bếp';
+    ctx.fillText(`Ngày: ${selectedDate}  •  ${creatorName}  •  ${nowTimeStr}`, 16, 68);
 
     // Badge tổng số mặt hàng
     ctx.fillStyle = '#d97706';
     const badgeText = `${selectedItemsList.length} MẶT HÀNG`;
     ctx.font = 'bold 11px "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
-    const badgeWidth = ctx.measureText(badgeText).width + 16;
+    const badgeWidth = ctx.measureText(badgeText).width + 14;
     ctx.beginPath();
-    safeRoundRect(canvasWidth - badgeWidth - 32, 54, badgeWidth, 26, 6);
+    safeRoundRect(canvasWidth - badgeWidth - 16, 26, badgeWidth, 24, 6);
     ctx.fill();
     ctx.fillStyle = '#ffffff';
-    ctx.fillText(badgeText, canvasWidth - badgeWidth - 24, 71);
+    ctx.textAlign = 'center';
+    ctx.fillText(badgeText, canvasWidth - 16 - badgeWidth / 2, 42);
 
     // 3. Table Header
-    const tableTop = headerHeight + 16;
-    ctx.fillStyle = '#f4f4f5';
+    const tableTop = headerHeight + 8;
+    ctx.fillStyle = '#f1f5f9';
     ctx.beginPath();
-    safeRoundRect(24, tableTop, canvasWidth - 48, tableHeaderHeight, 8);
+    safeRoundRect(12, tableTop, canvasWidth - 24, tableHeaderHeight, 6);
     ctx.fill();
 
-    ctx.font = 'bold 12px "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
-    ctx.fillStyle = '#3f3f46';
+    ctx.font = 'bold 11px "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+    ctx.fillStyle = '#475569';
     ctx.textAlign = 'center';
-    ctx.fillText('STT', 60, tableTop + 27);
+    ctx.fillText('STT', 32, tableTop + 21);
     ctx.textAlign = 'left';
-    ctx.fillText('TÊN MẶT HÀNG', 110, tableTop + 27);
+    ctx.fillText('TÊN MẶT HÀNG', 62, tableTop + 21);
     ctx.textAlign = 'center';
-    ctx.fillText('TỒN HIỆN TẠI', 440, tableTop + 27);
-    ctx.fillText('SỐ LƯỢNG ĐẶT', 580, tableTop + 27);
-    ctx.fillText('ĐƠN VỊ', 720, tableTop + 27);
+    ctx.fillText('TỒN', 345, tableTop + 21);
+    ctx.fillText('SỐ ĐẶT', 425, tableTop + 21);
+    ctx.fillText('ĐƠN VỊ', 498, tableTop + 21);
 
     // 4. Rows
     let currentY = tableTop + tableHeaderHeight;
     selectedItemsList.forEach((row, idx) => {
       // Nền xen kẽ
-      ctx.fillStyle = idx % 2 === 0 ? '#ffffff' : '#fcfcfd';
-      ctx.fillRect(24, currentY, canvasWidth - 48, rowHeight);
+      ctx.fillStyle = idx % 2 === 0 ? '#ffffff' : '#f8fafc';
+      ctx.fillRect(12, currentY, canvasWidth - 24, rowHeight);
 
       // Đường kẻ mờ ngang
-      ctx.strokeStyle = '#f1f5f9';
+      ctx.strokeStyle = '#e2e8f0';
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(24, currentY + rowHeight);
-      ctx.lineTo(canvasWidth - 24, currentY + rowHeight);
+      ctx.moveTo(12, currentY + rowHeight);
+      ctx.lineTo(canvasWidth - 12, currentY + rowHeight);
       ctx.stroke();
 
       // STT
       ctx.textAlign = 'center';
-      ctx.font = row.isCustom ? 'bold 11px monospace' : 'bold 12px "Segoe UI", Roboto';
-      ctx.fillStyle = row.isCustom ? '#4f46e5' : '#71717a';
-      ctx.fillText(row.stt, 60, currentY + 27);
+      ctx.font = row.isCustom ? 'bold 10px monospace' : 'bold 11px "Segoe UI", Roboto';
+      ctx.fillStyle = row.isCustom ? '#4f46e5' : '#64748b';
+      ctx.fillText(row.stt, 32, currentY + 22);
 
-      // Tên hàng
+      // Tên hàng (ngắn gọn, cắt nếu dài quá)
       ctx.textAlign = 'left';
-      ctx.font = 'bold 14px "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+      ctx.font = 'bold 12px "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
       ctx.fillStyle = '#0f172a';
-      ctx.fillText(row.name, 110, currentY + 27);
+      let displayName = row.name;
+      if (ctx.measureText(displayName).width > 260) {
+        while (ctx.measureText(displayName + '...').width > 260 && displayName.length > 0) {
+          displayName = displayName.slice(0, -1);
+        }
+        displayName += '...';
+      }
+      ctx.fillText(displayName, 62, currentY + 22);
 
       // Tồn hiện tại
       ctx.textAlign = 'center';
-      ctx.font = '600 13px "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+      ctx.font = '600 12px "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
       ctx.fillStyle = row.isCustom ? '#94a3b8' : '#e11d48';
-      ctx.fillText(row.stock, 440, currentY + 27);
+      ctx.fillText(row.stock, 345, currentY + 22);
 
       // Khung nổi bật Số lượng đặt
       ctx.fillStyle = '#fef3c7';
       ctx.beginPath();
-      safeRoundRect(545, currentY + 8, 70, 28, 6);
+      safeRoundRect(398, currentY + 6, 54, 24, 6);
       ctx.fill();
 
       ctx.textAlign = 'center';
-      ctx.font = 'bold 15px "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+      ctx.font = 'bold 13px "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
       ctx.fillStyle = '#b45309';
-      ctx.fillText(String(row.qty), 580, currentY + 27);
+      ctx.fillText(String(row.qty), 425, currentY + 22);
 
       // Đơn vị
       ctx.textAlign = 'center';
-      ctx.font = '600 13px "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+      ctx.font = '600 11px "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
       ctx.fillStyle = '#334155';
-      ctx.fillText(row.unit, 720, currentY + 27);
+      ctx.fillText(row.unit, 498, currentY + 22);
 
       currentY += rowHeight;
     });
 
     // 5. Footer tóm tắt
-    const footerTop = currentY + 16;
+    const footerTop = currentY + 6;
     ctx.fillStyle = '#f8fafc';
     ctx.beginPath();
-    safeRoundRect(24, footerTop, canvasWidth - 48, 56, 10);
+    safeRoundRect(12, footerTop, canvasWidth - 24, 32, 6);
     ctx.fill();
     ctx.strokeStyle = '#e2e8f0';
     ctx.lineWidth = 1;
     ctx.stroke();
 
     ctx.textAlign = 'left';
-    ctx.font = 'bold 13px "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+    ctx.font = 'bold 11px "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
     ctx.fillStyle = '#166534';
-    ctx.fillText(`✓ Xác nhận: ${selectedItemsList.length} mặt hàng cần nhập • Giao ca tiếp theo`, 44, footerTop + 25);
-
-    ctx.font = '11px "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
-    ctx.fillStyle = '#64748b';
-    ctx.fillText(`Tự động xuất từ Kitchen Log Pro • ${selectedDate} ${nowTimeStr}`, 44, footerTop + 43);
+    ctx.fillText(`✓ Xác nhận: ${selectedItemsList.length} mặt hàng cần nhập • Kitchen Log Pro`, 24, footerTop + 20);
 
     // Tải ảnh về
     canvas.toBlob((blob) => {
@@ -990,9 +1078,9 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
       )}
 
       {/* Search & Actions Bar */}
-      <div className="bg-white rounded-2xl shadow-xs border border-zinc-200 p-3.5 sm:p-4 flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3">
-        <div className="flex items-center gap-2.5 flex-1 flex-wrap">
-          <div className="relative flex-1 min-w-[200px] max-w-md">
+      <div className="bg-white rounded-2xl shadow-xs border border-zinc-200 p-3 sm:p-4 flex flex-col md:flex-row justify-between items-stretch md:items-center gap-3">
+        <div className="flex items-center gap-2 flex-1 flex-wrap">
+          <div className="relative flex-1 min-w-[170px] max-w-xs">
             <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-2.5" />
             <input
               type="text"
@@ -1002,12 +1090,43 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
               className="w-full pl-9 pr-3 py-1.5 bg-zinc-50 border border-zinc-200 rounded-xl text-xs outline-none focus:ring-2 focus:ring-emerald-500"
             />
           </div>
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-zinc-100 text-zinc-600 text-[11px] font-mono font-semibold border border-zinc-200">
-            Công thức: <strong>Tồn = Nhập + Tồn Trước - Hủy</strong>
+
+          {/* 2 Chế độ bảng: Chỉ Xem vs Chỉnh Sửa */}
+          <div className="inline-flex p-0.5 bg-zinc-100 rounded-xl border border-zinc-200 text-xs font-bold shrink-0">
+            <button
+              type="button"
+              onClick={() => setTableMode('view')}
+              className={`px-3 py-1 rounded-lg flex items-center gap-1.5 transition ${
+                tableMode === 'view'
+                  ? 'bg-white text-zinc-900 shadow-xs'
+                  : 'text-zinc-500 hover:text-zinc-900'
+              }`}
+              title="Chế độ chỉ xem gọn nhẹ, hiển thị vừa vặn màn hình điện thoại"
+            >
+              <Eye className="w-3.5 h-3.5 text-zinc-700" />
+              <span>Chỉ Xem</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setTableMode('edit')}
+              className={`px-3 py-1 rounded-lg flex items-center gap-1.5 transition ${
+                tableMode === 'edit'
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'text-zinc-500 hover:text-zinc-900'
+              }`}
+              title="Chế độ chỉnh sửa số liệu trực tiếp"
+            >
+              <Edit2 className="w-3.5 h-3.5" />
+              <span>Chỉnh Sửa</span>
+            </button>
+          </div>
+
+          <span className="hidden xl:inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-zinc-50 text-zinc-600 text-[11px] font-mono border border-zinc-200">
+            Công thức: <strong>Tồn = Nhập + Tồn Trước - Hủy</strong> (Ưu tiên nhập tay)
           </span>
         </div>
 
-        <div className="flex items-center gap-2 self-end sm:self-auto">
+        <div className="flex items-center gap-2 self-end md:self-auto flex-wrap">
           {isAdmin && (
             <button
               type="button"
@@ -1016,10 +1135,10 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                 setNewItemStt(maxStt);
                 setIsAddItemModalOpen(true);
               }}
-              className="h-8 px-3.5 bg-zinc-950 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition shadow-xs"
+              className="h-8 px-3 bg-zinc-950 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition shadow-xs"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>Thêm Hàng Mới</span>
+              <span>Thêm Hàng</span>
             </button>
           )}
 
@@ -1062,16 +1181,18 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-zinc-50 border-b border-zinc-200 text-zinc-600 font-bold uppercase tracking-wider text-[11px]">
-                <th className="py-3 px-3 w-14 text-center">STT</th>
-                <th className="py-3 px-3 min-w-[180px]">Tên Hàng</th>
-                <th className="py-3 px-3 w-28 text-right">Tồn Trước</th>
-                <th className="py-3 px-3 w-28 text-right">Nhập Vào</th>
-                <th className="py-3 px-3 w-24 text-right">Hủy</th>
-                <th className="py-3 px-3 w-28 text-right">Tồn</th>
-                <th className="py-3 px-3 w-24 text-center">Đơn Vị</th>
-                <th className="py-3 px-3 w-20 text-center">Đặt Hàng</th>
-                {isAdmin && <th className="py-3 px-3 w-24 text-center">Ngưỡng Đặt</th>}
-                {isAdmin && <th className="py-3 px-3 w-16 text-center">Xóa</th>}
+                <th className="py-2.5 px-1.5 w-14 text-center" title="Kéo thả hoặc bấm mũi tên để đổi thứ tự hàng">
+                  Kéo / STT
+                </th>
+                <th className="py-2.5 px-2 min-w-[120px] sm:min-w-[170px]">Tên Hàng</th>
+                <th className="py-2.5 px-1.5 w-14 sm:w-16 text-right">Trước</th>
+                <th className="py-2.5 px-1.5 w-14 sm:w-16 text-right">Nhập</th>
+                <th className="py-2.5 px-1.5 w-12 sm:w-14 text-right">Hủy</th>
+                <th className="py-2.5 px-1.5 w-16 sm:w-20 text-right">Tồn</th>
+                <th className="py-2.5 px-1 w-11 sm:w-12 text-center">ĐVT</th>
+                <th className="py-2.5 px-1 w-12 text-center">Đặt</th>
+                {isAdmin && <th className="py-2.5 px-1 w-14 text-center">Ngưỡng</th>}
+                {isAdmin && <th className="py-2.5 px-1 w-10 text-center">Xóa</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100">
@@ -1091,134 +1212,233 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                   return (
                     <tr
                       key={item.id}
-                      className="hover:bg-zinc-50/80 transition border-b border-zinc-100"
+                      draggable={true}
+                      onDragStart={(e) => {
+                        setDraggedItemId(item.id);
+                        e.dataTransfer.effectAllowed = 'move';
+                        e.dataTransfer.setData('text/plain', item.id);
+                      }}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        if (draggedItemId && draggedItemId !== item.id) {
+                          setDragOverItemId(item.id);
+                        }
+                      }}
+                      onDragLeave={() => {
+                        if (dragOverItemId === item.id) setDragOverItemId(null);
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        if (draggedItemId && draggedItemId !== item.id) {
+                          moveInventoryItem(draggedItemId, item.id);
+                        }
+                        setDraggedItemId(null);
+                        setDragOverItemId(null);
+                      }}
+                      className={`hover:bg-zinc-50/80 transition border-b border-zinc-100 ${
+                        dragOverItemId === item.id ? 'ring-2 ring-emerald-500 bg-emerald-50/60' : ''
+                      }`}
                     >
-                      {/* STT */}
-                      <td className="py-2.5 px-3 text-center font-semibold text-zinc-500">
-                        {isAdmin ? (
-                          <input
-                            type="number"
-                            value={item.stt || idx + 1}
-                            onChange={(e) => handleCellChange(item.id, 'stt', e.target.value)}
-                            onBlur={() => handleCellBlur(item.id)}
-                            className="w-12 text-center bg-zinc-100 border border-zinc-200 rounded-lg py-1 font-bold outline-none"
-                          />
-                        ) : (
-                          item.stt || idx + 1
-                        )}
+                      {/* Kéo / STT */}
+                      <td className="py-2 px-1 text-center font-semibold text-zinc-500">
+                        <div className="flex items-center justify-center gap-0.5">
+                          <div
+                            className="flex items-center text-zinc-400 hover:text-zinc-800 cursor-grab active:cursor-grabbing"
+                            title="Kéo thả hoặc bấm mũi tên để đổi vị trí"
+                          >
+                            <GripVertical className="w-3.5 h-3.5" />
+                            <div className="flex flex-col -space-y-1">
+                              <button
+                                type="button"
+                                onClick={() => moveInventoryItemDelta(item.id, -1)}
+                                title="Đưa lên trên"
+                                className="p-0.5 hover:bg-zinc-200 rounded text-zinc-400 hover:text-zinc-900 transition"
+                              >
+                                <ChevronUp className="w-2.5 h-2.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => moveInventoryItemDelta(item.id, 1)}
+                                title="Đưa xuống dưới"
+                                className="p-0.5 hover:bg-zinc-200 rounded text-zinc-400 hover:text-zinc-900 transition"
+                              >
+                                <ChevronDown className="w-2.5 h-2.5" />
+                              </button>
+                            </div>
+                          </div>
+                          {isAdmin && tableMode === 'edit' ? (
+                            <input
+                              type="number"
+                              value={item.stt || idx + 1}
+                              onChange={(e) => handleCellChange(item.id, 'stt', e.target.value)}
+                              onBlur={() => handleCellBlur(item.id)}
+                              className="w-8 text-center bg-zinc-100 border border-zinc-200 rounded py-0.5 font-bold outline-none text-xs"
+                            />
+                          ) : (
+                            <span className="text-xs font-bold text-zinc-600">{item.stt || idx + 1}</span>
+                          )}
+                        </div>
                       </td>
 
                       {/* Tên Hàng */}
-                      <td className="py-2.5 px-3 font-medium text-zinc-900">
+                      <td className="py-2 px-2 font-medium text-zinc-900">
                         <div className="flex items-center gap-1.5 flex-wrap">
-                          {isAdmin ? (
+                          {isAdmin && tableMode === 'edit' ? (
                             <input
                               type="text"
                               value={item.itemName}
                               onChange={(e) => handleCellChange(item.id, 'itemName', e.target.value)}
                               onBlur={() => handleCellBlur(item.id)}
-                              className="font-bold text-zinc-900 bg-transparent border-b border-dashed border-zinc-300 focus:border-emerald-600 outline-none w-full py-0.5"
+                              className="font-bold text-zinc-900 bg-transparent border-b border-dashed border-zinc-300 focus:border-emerald-600 outline-none w-full py-0.5 text-xs"
                             />
                           ) : (
-                            <span className="font-semibold text-zinc-900">{item.itemName}</span>
+                            <span className="font-semibold text-zinc-900 text-xs">{item.itemName}</span>
                           )}
 
                           {isLowStock && (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200 animate-pulse">
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200 animate-pulse">
                               <Star className="w-2.5 h-2.5 fill-rose-600 text-rose-600" />
-                              <span>Cần Đặt</span>
+                              <span className="hidden sm:inline">Cần Đặt</span>
                             </span>
                           )}
                         </div>
                       </td>
 
                       {/* Tồn Hôm Trước */}
-                      <td className="py-2.5 px-3 text-right font-semibold text-zinc-600 bg-zinc-50/50">
+                      <td className="py-2 px-1.5 text-right font-semibold text-zinc-600 bg-zinc-50/50 text-xs">
                         {prevStock}
                       </td>
 
                       {/* Nhập Vào */}
-                      <td className="py-2.5 px-3 text-right">
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={item.importQty || '0'}
-                          onChange={(e) => handleCellChange(item.id, 'importQty', e.target.value)}
-                          onBlur={() => handleCellBlur(item.id)}
-                          className="w-20 text-right bg-zinc-50 focus:bg-white border border-zinc-200 rounded-lg px-2 py-1 font-bold text-indigo-700 outline-none focus:ring-1 focus:ring-indigo-500"
-                        />
+                      <td className="py-2 px-1.5 text-right">
+                        {tableMode === 'view' ? (
+                          <span className="font-bold text-indigo-700 text-xs">{item.importQty || '0'}</span>
+                        ) : (
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={item.importQty || '0'}
+                            onChange={(e) => handleCellChange(item.id, 'importQty', e.target.value)}
+                            onBlur={() => handleCellBlur(item.id)}
+                            className="w-12 sm:w-14 text-center sm:text-right bg-zinc-50 focus:bg-white border border-zinc-200 rounded px-1 py-0.5 font-bold text-indigo-700 outline-none focus:ring-1 focus:ring-indigo-500 text-xs"
+                          />
+                        )}
                       </td>
 
-                      {/* Hủy (Đưa lên trước Tồn: Tồn = Nhập + Tồn Trước - Hủy) */}
-                      <td className="py-2.5 px-3 text-right">
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={item.wasteQty || '0'}
-                          onChange={(e) => handleCellChange(item.id, 'wasteQty', e.target.value)}
-                          onBlur={() => handleCellBlur(item.id)}
-                          className="w-16 text-right bg-rose-50/60 focus:bg-white border border-rose-200 focus:border-rose-400 rounded-lg px-2 py-1 font-semibold text-rose-700 outline-none"
-                        />
+                      {/* Hủy (Đưa lên trước Tồn) */}
+                      <td className="py-2 px-1.5 text-right">
+                        {tableMode === 'view' ? (
+                          <span className="font-semibold text-rose-600 text-xs">{item.wasteQty || '0'}</span>
+                        ) : (
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={item.wasteQty || '0'}
+                            onChange={(e) => handleCellChange(item.id, 'wasteQty', e.target.value)}
+                            onBlur={() => handleCellBlur(item.id)}
+                            className="w-11 sm:w-13 text-center sm:text-right bg-rose-50/60 focus:bg-white border border-rose-200 focus:border-rose-400 rounded px-1 py-0.5 font-semibold text-rose-700 outline-none text-xs"
+                          />
+                        )}
                       </td>
 
-                      {/* Tồn Hiện Tại */}
-                      <td className="py-2.5 px-3 text-right">
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={item.stockQty}
-                          onChange={(e) => handleCellChange(item.id, 'stockQty', e.target.value)}
-                          onBlur={() => handleCellBlur(item.id)}
-                          className="w-20 text-right bg-emerald-50 focus:bg-white border border-emerald-300 rounded-lg px-2 py-1 font-bold text-emerald-800 outline-none focus:ring-1 focus:ring-emerald-500"
-                        />
+                      {/* Tồn Hiện Tại (Có nút fx khi nhập tay) */}
+                      <td className="py-2 px-1.5 text-right">
+                        {tableMode === 'view' ? (
+                          <div className="flex items-center justify-end gap-1">
+                            <span className={`px-1.5 py-0.5 rounded font-extrabold text-xs ${
+                              isLowStock ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                            }`}>
+                              {item.stockQty}
+                            </span>
+                            {item.isManualStock && (
+                              <button
+                                type="button"
+                                onClick={() => handleRecalculateRowStock(item.id)}
+                                className="text-[9px] font-mono px-1 py-0.2 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 rounded border border-zinc-300"
+                                title="Đã nhập tay. Bấm để tính lại theo công thức"
+                              >
+                                fx
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-end gap-0.5">
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={item.stockQty}
+                              onChange={(e) => handleCellChange(item.id, 'stockQty', e.target.value)}
+                              onBlur={() => handleCellBlur(item.id)}
+                              className="w-12 sm:w-14 text-center sm:text-right bg-emerald-50 focus:bg-white border border-emerald-300 rounded px-1 py-0.5 font-bold text-emerald-800 outline-none focus:ring-1 focus:ring-emerald-500 text-xs"
+                            />
+                            {item.isManualStock && (
+                              <button
+                                type="button"
+                                onClick={() => handleRecalculateRowStock(item.id)}
+                                className="text-[9px] font-mono px-1 py-0.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 rounded border border-zinc-300 shrink-0"
+                                title="Đang ưu tiên số nhập tay. Bấm để tính lại theo công thức"
+                              >
+                                fx
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </td>
 
                       {/* Đơn Vị */}
-                      <td className="py-2.5 px-3 text-center">
-                        <select
-                          value={item.unit || 'kg'}
-                          onChange={(e) => handleCellChange(item.id, 'unit', e.target.value)}
-                          onBlur={() => handleCellBlur(item.id)}
-                          className="bg-zinc-50 border border-zinc-200 rounded-lg px-1.5 py-1 text-xs outline-none"
-                        >
-                          {COMMON_UNITS.map((u) => (
-                            <option key={u} value={u}>
-                              {u}
-                            </option>
-                          ))}
-                        </select>
+                      <td className="py-2 px-1 text-center">
+                        {tableMode === 'view' ? (
+                          <span className="text-zinc-600 font-medium text-[11px]">{item.unit || 'kg'}</span>
+                        ) : (
+                          <select
+                            value={item.unit || 'kg'}
+                            onChange={(e) => handleCellChange(item.id, 'unit', e.target.value)}
+                            onBlur={() => handleCellBlur(item.id)}
+                            className="bg-zinc-50 border border-zinc-200 rounded px-1 py-0.5 text-xs outline-none"
+                          >
+                            {COMMON_UNITS.map((u) => (
+                              <option key={u} value={u}>
+                                {u}
+                              </option>
+                            ))}
+                          </select>
+                        )}
                       </td>
 
-                      {/* Đặt Hàng theo dòng (Cho tất cả các role) */}
-                      <td className="py-2.5 px-3 text-center">
+                      {/* Đặt Hàng theo dòng */}
+                      <td className="py-2 px-1 text-center">
                         <button
                           type="button"
                           onClick={() => handleQuickOrderItem(item)}
-                          className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 border border-amber-500/30 transition shadow-2xs active:scale-95"
+                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-lg text-xs font-semibold bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 border border-amber-500/30 transition shadow-2xs active:scale-95"
                           title={`Đặt hàng cho ${item.itemName}`}
                         >
-                          <ShoppingCart className="w-3.5 h-3.5 text-amber-600" />
-                          <span>Đặt</span>
+                          <ShoppingCart className="w-3 h-3 text-amber-600" />
+                          <span className="hidden sm:inline">Đặt</span>
                         </button>
                       </td>
 
                       {/* Ngưỡng Đặt (Admin) */}
                       {isAdmin && (
-                        <td className="py-2.5 px-3 text-center">
-                          <input
-                            type="number"
-                            min="0"
-                            value={threshold}
-                            onChange={(e) => handleCellChange(item.id, 'minThreshold', e.target.value)}
-                            onBlur={() => handleCellBlur(item.id)}
-                            className="w-14 text-center bg-amber-50 border border-amber-200 rounded-lg py-1 font-bold text-amber-900 outline-none"
-                          />
+                        <td className="py-2 px-1 text-center">
+                          {tableMode === 'view' ? (
+                            <span className="text-xs font-bold text-amber-800">{threshold}</span>
+                          ) : (
+                            <input
+                              type="number"
+                              min="0"
+                              value={threshold}
+                              onChange={(e) => handleCellChange(item.id, 'minThreshold', e.target.value)}
+                              onBlur={() => handleCellBlur(item.id)}
+                              className="w-11 sm:w-12 text-center bg-amber-50 border border-amber-200 rounded py-0.5 font-bold text-amber-900 outline-none text-xs"
+                            />
+                          )}
                         </td>
                       )}
 
                       {/* Thao Tác (Admin) */}
                       {isAdmin && (
-                        <td className="py-2.5 px-3 text-center">
+                        <td className="py-2 px-1 text-center">
                           <button
                             type="button"
                             onClick={() => handleDeleteRow(item.id, item.itemName)}
