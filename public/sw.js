@@ -1,5 +1,5 @@
-const CACHE_NAME = 'kitchen-log-pro-v4';
-const STATIC_ASSETS = ['/', '/index.html', '/manifest.json', '/icon.svg'];
+const CACHE_NAME = 'kitchen-log-pro-v5';
+const STATIC_ASSETS = ['/manifest.json', '/icon.svg'];
 
 let lastShownNotifId = '';
 
@@ -31,29 +31,66 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
-  // Không can thiệp API hoặc SSE để luôn đảm bảo dữ liệu real-time
+
+  // 1. Tuyệt đối không can thiệp API hoặc SSE để luôn đồng bộ dữ liệu thời gian thực
   if (url.pathname.startsWith('/api/')) {
     return;
   }
 
-  // Stale-While-Revalidate: Mở app tức thì trong 0.05s từ Cache trên điện thoại, đồng thời cập nhật ngầm
-  event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      const fetchPromise = fetch(event.request)
+  // 2. Với trang HTML chính (Navigation): LUÔN DÙNG NETWORK-FIRST
+  // Giúp trình duyệt luôn nhận được file index.html mới nhất với đúng mã hash JS/CSS sau mỗi lần deploy
+  const isHtmlNavigation =
+    event.request.mode === 'navigate' ||
+    url.pathname === '/' ||
+    url.pathname === '/index.html' ||
+    event.request.destination === 'document';
+
+  if (isHtmlNavigation) {
+    event.respondWith(
+      fetch(event.request)
         .then((networkResponse) => {
-          if (event.request.method === 'GET' && networkResponse && networkResponse.status === 200) {
+          if (networkResponse && networkResponse.status === 200) {
             const clone = networkResponse.clone();
             caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
           }
           return networkResponse;
         })
-        .catch(() => null);
+        .catch(() => {
+          // Chỉ khi mất mạng hoàn toàn mới dùng cache fallback
+          return caches.match('/index.html').then((cached) => cached || caches.match('/'));
+        })
+    );
+    return;
+  }
 
-      return (
-        cachedResponse ||
-        fetchPromise.then((res) => res || caches.match('/index.html'))
-      );
-    })
+  // 3. Với các file tĩnh có hash (JS, CSS trong /assets/): Dùng Cache-First để nạp siêu nhanh
+  if (url.pathname.startsWith('/assets/')) {
+    event.respondWith(
+      caches.match(event.request).then((cached) => {
+        if (cached) return cached;
+        return fetch(event.request).then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const clone = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          }
+          return networkResponse;
+        });
+      })
+    );
+    return;
+  }
+
+  // 4. Các tài nguyên khác: Network-First với cache fallback
+  event.respondWith(
+    fetch(event.request)
+      .then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200) {
+          const clone = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+        }
+        return networkResponse;
+      })
+      .catch(() => caches.match(event.request))
   );
 });
 
