@@ -23,6 +23,7 @@ import {
   Eye,
   Edit2,
   Camera,
+  RotateCcw,
 } from 'lucide-react';
 
 interface InventoryCheckViewProps {
