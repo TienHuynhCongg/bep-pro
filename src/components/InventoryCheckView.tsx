@@ -347,14 +347,27 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
         (i) => i.dateStr === targetDate && (i.tableName || DEFAULT_TABLE_NAME) === tableName
       );
 
-      // Nếu tủ này trong ngày targetDate chưa có bất kỳ mặt hàng nào
-      if (currentRows.length === 0) {
-        const baseItems = getLatestItemsForTable(tableName, targetDate);
+      const isOnlyDummy =
+        currentRows.length === 1 && currentRows[0].itemName.includes('Mặt hàng 1');
+
+      // Nếu tủ này chưa có mặt hàng nào hoặc chỉ có mỗi 1 dòng mẫu "Mặt hàng 1"
+      if (currentRows.length === 0 || isOnlyDummy) {
+        const baseItems = getLatestItemsForTable(tableName, targetDate).filter(
+          (i) => !i.itemName.includes('Mặt hàng 1')
+        );
+
         if (baseItems.length > 0) {
+          // Xóa dòng mẫu nếu có
+          if (isOnlyDummy) {
+            nextAll = nextAll.filter(
+              (i) => !(i.dateStr === targetDate && (i.tableName || DEFAULT_TABLE_NAME) === tableName)
+            );
+          }
+
           const clonedRows: InventoryCheckItem[] = baseItems.map((item, idx) => {
             const prevEndingStock = parseFloat(item.stockQty) || 0;
             return {
-              id: `inv-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
+              id: `inv-${Date.now()}-${tableName}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
               stt: item.stt || idx + 1,
               dateStr: targetDate,
               tableName: tableName || DEFAULT_TABLE_NAME,
@@ -385,6 +398,50 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
       }
     }
   };
+
+  // TỰ ĐỘNG NẠP MẶT HÀNG TỦ NGAY KHI CHỌN TỦ (100% Tự động, không cần bấm sao chép)
+  useEffect(() => {
+    const isOnlyDummy =
+      rowsForSelectedDateAndTable.length === 1 &&
+      rowsForSelectedDateAndTable[0].itemName.includes('Mặt hàng 1');
+
+    if (rowsForSelectedDateAndTable.length === 0 || isOnlyDummy) {
+      const prevItems = getLatestItemsForTable(selectedTable, selectedDate).filter(
+        (i) => !i.itemName.includes('Mặt hàng 1')
+      );
+      if (prevItems.length > 0) {
+        const otherItems = localItems.filter(
+          (i) => !(i.dateStr === selectedDate && (i.tableName || DEFAULT_TABLE_NAME) === selectedTable)
+        );
+        const cloned = prevItems.map((item, idx) => {
+          const prevEnding = parseFloat(item.stockQty) || 0;
+          return {
+            id: `inv-${Date.now()}-${selectedTable}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
+            stt: item.stt || idx + 1,
+            dateStr: selectedDate,
+            tableName: selectedTable,
+            itemName: item.itemName,
+            prevStock: String(prevEnding),
+            importQty: '0',
+            stockQty: String(prevEnding),
+            wasteQty: '0',
+            minThreshold: item.minThreshold ?? 3,
+            unit: item.unit || 'kg',
+            statusType: 'ton',
+            isManualStock: false,
+            createdBy: currentUser?.fullName || 'Hệ thống tự động',
+            createdAt: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+          };
+        });
+
+        const nextAll = [...otherItems, ...cloned];
+        setLocalItems(nextAll);
+        if (onSaveDailyTable) {
+          onSaveDailyTable(selectedDate, nextAll);
+        }
+      }
+    }
+  }, [selectedDate, selectedTable, rowsForSelectedDateAndTable.length, localItems.length]);
 
   // Tự động kiểm tra và khởi tạo danh mục cố định cho mọi tủ ngay khi mở app hoặc đổi ngày
   useEffect(() => {
@@ -1518,16 +1575,16 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                   <td colSpan={isAdmin ? 10 : 8} className="py-10 px-4 text-center">
                     <div className="max-w-md mx-auto space-y-2.5">
                       <p className="text-zinc-400 text-xs">
-                        Bảng / Tủ <strong>&ldquo;{selectedTable}&rdquo;</strong> chưa có mặt hàng nào cho ngày <strong>{selectedDate}</strong>.
+                        Tủ <strong>&ldquo;{selectedTable}&rdquo;</strong> chưa có mặt hàng nào.
                       </p>
-                      {getPreviousDayItemsForTable(selectedTable).length > 0 && (
+                      {isAdmin && (
                         <button
                           type="button"
-                          onClick={() => handleCopyTableFromPreviousDay(selectedTable)}
+                          onClick={() => setIsAddItemModalOpen(true)}
                           className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 mx-auto shadow-xs"
                         >
                           <Plus className="w-3.5 h-3.5" />
-                          <span>Sao chép {getPreviousDayItemsForTable(selectedTable).length} mặt hàng & tồn hôm trước vào tủ này</span>
+                          <span>Thêm mặt hàng mới vào tủ này</span>
                         </button>
                       )}
                     </div>
@@ -1627,9 +1684,11 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                           )}
 
                           {isLowStock && (
-                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200 animate-pulse">
-                              <Star className="w-2.5 h-2.5 fill-rose-600 text-rose-600" />
-                              <span className="hidden sm:inline">Cần Đặt</span>
+                            <span
+                              title="Tồn dưới ngưỡng - Cần đặt hàng"
+                              className="inline-flex items-center justify-center p-0.5 rounded-full bg-rose-100 text-rose-700 border border-rose-200"
+                            >
+                              <Star className="w-3 h-3 fill-rose-600 text-rose-600" />
                             </span>
                           )}
                         </div>
@@ -1672,28 +1731,18 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                         )}
                       </td>
 
-                      {/* Tồn Hiện Tại (Có nút fx khi nhập tay) */}
+                      {/* Tồn Hiện Tại */}
                       <td className="py-2 px-1.5 text-right">
                         {tableMode === 'view' ? (
-                          <div className="flex items-center justify-end gap-1">
+                          <div className="flex items-center justify-end">
                             <span className={`px-1.5 py-0.5 rounded font-extrabold text-xs ${
                               isLowStock ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
                             }`}>
                               {item.stockQty}
                             </span>
-                            {item.isManualStock && (
-                              <button
-                                type="button"
-                                onClick={() => handleRecalculateRowStock(item.id)}
-                                className="text-[9px] font-mono px-1 py-0.2 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 rounded border border-zinc-300"
-                                title="Đã nhập tay. Bấm để tính lại theo công thức"
-                              >
-                                fx
-                              </button>
-                            )}
                           </div>
                         ) : (
-                          <div className="flex items-center justify-end gap-0.5">
+                          <div className="flex items-center justify-end">
                             <input
                               type="text"
                               inputMode="decimal"
@@ -1702,16 +1751,6 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                               onBlur={() => handleCellBlur(item.id)}
                               className="w-12 sm:w-14 text-center sm:text-right bg-emerald-50 focus:bg-white border border-emerald-300 rounded px-1 py-0.5 font-bold text-emerald-800 outline-none focus:ring-1 focus:ring-emerald-500 text-xs"
                             />
-                            {item.isManualStock && (
-                              <button
-                                type="button"
-                                onClick={() => handleRecalculateRowStock(item.id)}
-                                className="text-[9px] font-mono px-1 py-0.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 rounded border border-zinc-300 shrink-0"
-                                title="Đang ưu tiên số nhập tay. Bấm để tính lại theo công thức"
-                              >
-                                fx
-                              </button>
-                            )}
                           </div>
                         )}
                       </td>
