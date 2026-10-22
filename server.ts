@@ -736,8 +736,13 @@ export function createKitchenApiMiddleware() {
       }
     }
     if (Array.isArray(staffList)) {
-      // Chỉ Admin được phép thay đổi danh sách nhân sự
-      if (senderRole === 'admin' || !dbState.staffList || dbState.staffList.length === 0) {
+      // Admin hoặc người mới đăng ký / thêm nhân sự mới vào danh sách
+      if (
+        senderRole === 'admin' ||
+        !dbState.staffList ||
+        dbState.staffList.length === 0 ||
+        staffList.length > (dbState.staffList?.length || 0)
+      ) {
         dbState.staffList = staffList;
       } else {
         console.warn(`[Sync Security] Blocked non-admin (${senderRole || 'anonymous'}) from modifying staffList`);

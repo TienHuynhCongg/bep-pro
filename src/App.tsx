@@ -842,8 +842,19 @@ export default function App() {
 
       if (Array.isArray(s.logs)) setLogs(s.logs);
       if (Array.isArray(s.staffList) && s.staffList.length > 0) {
-        staffListRef.current = s.staffList;
-        setStaffList(s.staffList);
+        const isDefaultSeedStaff =
+          s.staffList.some((st: any) => st.fullName?.includes('Chef Hoàng Nam') || st.username === 'nv_bep');
+        const localHasRealStaff =
+          staffListRef.current.length > 0 &&
+          !staffListRef.current.some((st: any) => st.fullName?.includes('Chef Hoàng Nam'));
+
+        if (isDefaultSeedStaff && localHasRealStaff && currentUserRef.current?.role === 'admin') {
+          // Bảo vệ nhân sự thật: Server trả về nhân sự mẫu cũ -> tự động đẩy danh sách nhân sự thật lên khôi phục!
+          pushStateToServer({ staffList: staffListRef.current });
+        } else {
+          staffListRef.current = s.staffList;
+          setStaffList(s.staffList);
+        }
       }
       if (Array.isArray(s.toolbarItems) && s.toolbarItems.length > 0) {
         setNavItems(ensureLatestNavItems(s.toolbarItems));
