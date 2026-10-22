@@ -236,7 +236,8 @@
       "statusType": "ton",
       "createdBy": "Trần Văn Hưng (Trưởng Ca)",
       "createdAt": "08:15",
-      "stt": 2
+      "stt": 2,
+      "tableName": "Tủ Mát Chính"
     },
     {
       "id": "inv-2",
@@ -248,7 +249,8 @@
       "statusType": "both",
       "createdBy": "Lê Minh Tuấn (Phụ Bếp)",
       "createdAt": "14:10",
-      "stt": 2
+      "stt": 2,
+      "tableName": "Tủ Mát Chính"
     },
     {
       "id": "inv-3",
@@ -260,7 +262,8 @@
       "statusType": "huy",
       "createdBy": "Trần Văn Hưng (Trưởng Ca)",
       "createdAt": "21:30",
-      "stt": 1
+      "stt": 1,
+      "tableName": "Tủ Mát Chính"
     },
     {
       "id": "inv-1792604997001-7or",
@@ -272,7 +275,8 @@
       "statusType": "ton",
       "createdBy": "Chef Hoàng Nam (Bếp Trưởng)",
       "createdAt": "00:49",
-      "stt": 2
+      "stt": 2,
+      "tableName": "Tủ Mát Chính"
     },
     {
       "id": "inv-1792605051267-jnb",
@@ -284,7 +288,8 @@
       "statusType": "ton",
       "createdBy": "Chef Hoàng Nam (Bếp Trưởng)",
       "createdAt": "00:50",
-      "stt": 2
+      "stt": 2,
+      "tableName": "Tủ Mát Chính"
     }
   ],
   "pushSubscriptions": [

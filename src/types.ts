@@ -56,6 +56,7 @@ export interface InventoryCheckItem {
   stt?: number;
   dateStr: string;       // Cột: Ngày
   itemName: string;      // Cột: Tên nguyên liệu / hàng hóa
+  tableName?: string;    // Tên Bảng / Tủ lưu trữ (VD: "Tủ Mát Chính", "Tủ Đông", "Tủ Rau"...)
   prevStock?: string;    // Tồn hôm trước
   importQty?: string;    // Nhập vào
   stockQty: string;      // Số lượng Tồn (chỉ ghi số)

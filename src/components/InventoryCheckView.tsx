@@ -240,12 +240,70 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
   const [newCustomQty, setNewCustomQty] = useState<number>(2);
   const [newCustomUnit, setNewCustomUnit] = useState<string>('Can');
 
-  // Các dòng của ngày đang chọn
-  const rowsForSelectedDate = localItems.filter((i) => i.dateStr === selectedDate);
+  const DEFAULT_TABLE_NAME = 'Tủ Mát Chính';
+  const CABINET_PRESETS = [
+    'Tủ Mát Chính',
+    'Tủ Đông 1 (Thịt Cá)',
+    'Tủ Đông 2 (Kem & Hải Sản)',
+    'Tủ Trữ Rau Củ',
+    'Tủ Mát Quầy Ra Món',
+    'Kho Khô & Gia Vị',
+  ];
+
+  // Danh sách các bảng / tủ trong ngày đang chọn
+  const existingTablesForDate = useMemo(() => {
+    const dateItems = localItems.filter((i) => i.dateStr === selectedDate);
+    const set = new Set<string>();
+    dateItems.forEach((i) => {
+      const name = (i.tableName || DEFAULT_TABLE_NAME).trim();
+      if (name) set.add(name);
+    });
+    if (set.size === 0) set.add(DEFAULT_TABLE_NAME);
+    return Array.from(set);
+  }, [localItems, selectedDate]);
+
+  // Bảng / Tủ đang chọn trong ngày
+  const [selectedTable, setSelectedTable] = useState<string>(DEFAULT_TABLE_NAME);
+
+  // Đảm bảo selectedTable luôn hợp lệ khi đổi ngày
+  useEffect(() => {
+    if (!existingTablesForDate.includes(selectedTable)) {
+      setSelectedTable(existingTablesForDate[0] || DEFAULT_TABLE_NAME);
+    }
+  }, [existingTablesForDate, selectedTable]);
+
+  // Modal thêm bảng / tủ mới
+  const [isAddTableModalOpen, setIsAddTableModalOpen] = useState<boolean>(false);
+  const [newTableNameInput, setNewTableNameInput] = useState<string>('');
+  const [cloneFromCurrentTable, setCloneFromCurrentTable] = useState<boolean>(false);
+
+  // Các dòng của ngày VÀ tủ đang chọn
+  const rowsForSelectedDateAndTable = useMemo(() => {
+    return localItems.filter(
+      (i) => i.dateStr === selectedDate && (i.tableName || DEFAULT_TABLE_NAME) === selectedTable
+    );
+  }, [localItems, selectedDate, selectedTable]);
+
+  // Tất cả các dòng của ngày đang chọn (trên mọi tủ)
+  const allRowsForSelectedDate = useMemo(() => {
+    return localItems.filter((i) => i.dateStr === selectedDate);
+  }, [localItems, selectedDate]);
 
   // Hàm tính toán tồn hôm trước tự động từ ngày trước đó
-  const getPreviousDayStock = (dateStr: string, itemName: string): number => {
+  const getPreviousDayStock = (dateStr: string, itemName: string, tableName?: string): number => {
+    const curTable = tableName || selectedTable || DEFAULT_TABLE_NAME;
     const otherDates = existingDates.filter((d) => d !== dateStr);
+    for (const pastDate of otherDates) {
+      const found = localItems.find(
+        (i) =>
+          i.dateStr === pastDate &&
+          (i.tableName || DEFAULT_TABLE_NAME) === curTable &&
+          i.itemName.toLowerCase() === itemName.toLowerCase()
+      );
+      if (found && found.stockQty !== undefined) {
+        return parseFloat(found.stockQty) || 0;
+      }
+    }
     for (const pastDate of otherDates) {
       const found = localItems.find(
         (i) => i.dateStr === pastDate && i.itemName.toLowerCase() === itemName.toLowerCase()
@@ -255,7 +313,10 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
       }
     }
     const currentItem = localItems.find(
-      (i) => i.dateStr === dateStr && i.itemName.toLowerCase() === itemName.toLowerCase()
+      (i) =>
+        i.dateStr === dateStr &&
+        (i.tableName || DEFAULT_TABLE_NAME) === curTable &&
+        i.itemName.toLowerCase() === itemName.toLowerCase()
     );
     if (currentItem?.prevStock !== undefined) {
       return parseFloat(currentItem.prevStock) || 0;
@@ -391,9 +452,9 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     );
   };
 
-  // Đổi thứ tự mặt hàng (Kéo thả hoặc bấm mũi tên)
+  // Đổi thứ tự mặt hàng (Kéo thả hoặc bấm mũi tên) trong bảng/tủ đang chọn
   const moveInventoryItemDelta = (itemId: string, direction: -1 | 1) => {
-    const sorted = [...rowsForSelectedDate].sort((a, b) => (a.stt || 0) - (b.stt || 0));
+    const sorted = [...rowsForSelectedDateAndTable].sort((a, b) => (a.stt || 0) - (b.stt || 0));
     const curIndex = sorted.findIndex((i) => i.id === itemId);
     if (curIndex === -1) return;
     const targetIndex = curIndex + direction;
@@ -406,8 +467,10 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
       stt: idx + 1,
     }));
 
-    const otherDateItems = localItems.filter((i) => i.dateStr !== selectedDate);
-    const nextAll = [...otherDateItems, ...updatedWithStt];
+    const otherItems = localItems.filter(
+      (i) => !(i.dateStr === selectedDate && (i.tableName || DEFAULT_TABLE_NAME) === selectedTable)
+    );
+    const nextAll = [...otherItems, ...updatedWithStt];
     setLocalItems(nextAll);
     if (onSaveDailyTable) {
       onSaveDailyTable(selectedDate, nextAll);
@@ -418,7 +481,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
 
   const moveInventoryItem = (fromId: string, toId: string) => {
     if (fromId === toId) return;
-    const sorted = [...rowsForSelectedDate].sort((a, b) => (a.stt || 0) - (b.stt || 0));
+    const sorted = [...rowsForSelectedDateAndTable].sort((a, b) => (a.stt || 0) - (b.stt || 0));
     const curIndex = sorted.findIndex((i) => i.id === fromId);
     const targetIndex = sorted.findIndex((i) => i.id === toId);
     if (curIndex === -1 || targetIndex === -1) return;
@@ -430,14 +493,104 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
       stt: idx + 1,
     }));
 
-    const otherDateItems = localItems.filter((i) => i.dateStr !== selectedDate);
-    const nextAll = [...otherDateItems, ...updatedWithStt];
+    const otherItems = localItems.filter(
+      (i) => !(i.dateStr === selectedDate && (i.tableName || DEFAULT_TABLE_NAME) === selectedTable)
+    );
+    const nextAll = [...otherItems, ...updatedWithStt];
     setLocalItems(nextAll);
     if (onSaveDailyTable) {
       onSaveDailyTable(selectedDate, nextAll);
     } else {
       updatedWithStt.forEach((r) => onSaveItem(r, true));
     }
+  };
+
+  // Tạo thêm bảng lưu kiểm tồn mới (Ví dụ tủ đông, tủ rau, tủ quầy...)
+  const handleCreateNewTable = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const trimmed = newTableNameInput.trim();
+    if (!trimmed) {
+      alert('Vui lòng nhập tên cho bảng / tủ mới!');
+      return;
+    }
+    if (existingTablesForDate.includes(trimmed)) {
+      alert(`Bảng / Tủ "${trimmed}" đã tồn tại trong ngày ${selectedDate}!`);
+      return;
+    }
+
+    let newItemsToAppend: InventoryCheckItem[] = [];
+    if (cloneFromCurrentTable && rowsForSelectedDateAndTable.length > 0) {
+      // Sao chép danh mục mặt hàng từ tủ hiện tại sang tủ mới với số tồn đặt về 0
+      newItemsToAppend = rowsForSelectedDateAndTable.map((item, idx) => ({
+        id: `inv-${Date.now()}-${Math.random().toString(36).slice(2, 6)}-${idx}`,
+        stt: idx + 1,
+        dateStr: selectedDate,
+        tableName: trimmed,
+        itemName: item.itemName,
+        prevStock: '0',
+        importQty: '0',
+        stockQty: '0',
+        wasteQty: '0',
+        minThreshold: item.minThreshold ?? 3,
+        unit: item.unit || 'kg',
+        statusType: 'ton',
+        createdBy: currentUser?.fullName || 'Người tạo',
+        createdAt: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+      }));
+    } else {
+      // Tạo một mặt hàng mẫu để bắt đầu nhập
+      newItemsToAppend = [
+        {
+          id: `inv-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          stt: 1,
+          dateStr: selectedDate,
+          tableName: trimmed,
+          itemName: 'Mặt hàng 1 (Bấm đổi tên)',
+          prevStock: '0',
+          importQty: '0',
+          stockQty: '0',
+          wasteQty: '0',
+          minThreshold: 3,
+          unit: 'kg',
+          statusType: 'ton',
+          createdBy: currentUser?.fullName || 'Người tạo',
+          createdAt: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+        },
+      ];
+    }
+
+    const nextAll = [...localItems, ...newItemsToAppend];
+    setLocalItems(nextAll);
+    setSelectedTable(trimmed);
+    if (onSaveDailyTable) {
+      onSaveDailyTable(selectedDate, nextAll);
+    } else {
+      newItemsToAppend.forEach((item) => onSaveItem(item, false));
+    }
+
+    setNewTableNameInput('');
+    setCloneFromCurrentTable(false);
+    setIsAddTableModalOpen(false);
+    setJustSavedBanner(true);
+    setTimeout(() => setJustSavedBanner(false), 2500);
+  };
+
+  // Xóa toàn bộ dữ liệu của 1 bảng / tủ trong ngày
+  const handleDeleteCurrentTable = (tableToDelete: string) => {
+    if (!window.confirm(`Bạn có chắc chắn muốn xóa toàn bộ dữ liệu của bảng/tủ "${tableToDelete}" ngày ${selectedDate} không?`)) {
+      return;
+    }
+    const nextAll = localItems.filter(
+      (i) => !(i.dateStr === selectedDate && (i.tableName || DEFAULT_TABLE_NAME) === tableToDelete)
+    );
+    setLocalItems(nextAll);
+    const remainingTables = existingTablesForDate.filter((t) => t !== tableToDelete);
+    setSelectedTable(remainingTables[0] || DEFAULT_TABLE_NAME);
+    if (onSaveDailyTable) {
+      onSaveDailyTable(selectedDate, nextAll);
+    }
+    setJustSavedBanner(true);
+    setTimeout(() => setJustSavedBanner(false), 2500);
   };
 
   // Khi rời ô (onBlur), lưu ngầm để đồng bộ không làm hiện thông báo
@@ -447,10 +600,10 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     onSaveItem(updated, true);
   };
 
-  // Đếm số lượng mặt hàng cần đặt (Tồn <= Ngưỡng Đặt) trên bảng lưu kiểm hàng
+  // Đếm số lượng mặt hàng cần đặt (Tồn <= Ngưỡng Đặt) trên toàn bộ các tủ hôm nay
   const lowStockCount = useMemo(() => {
     let count = 0;
-    rowsForSelectedDate.forEach((item) => {
+    allRowsForSelectedDate.forEach((item) => {
       const threshold = item.minThreshold ?? 3;
       const currentStock = parseFloat(item.stockQty) || 0;
       if (currentStock <= threshold) {
@@ -458,15 +611,15 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
       }
     });
     return count;
-  }, [rowsForSelectedDate]);
+  }, [allRowsForSelectedDate]);
 
   // Đồng bộ số lượng hàng cần đặt theo thời gian thực ra App / HeaderNav
   useEffect(() => {
     onLowStockCountChange?.(lowStockCount);
   }, [lowStockCount, onLowStockCountChange]);
 
-  // Lọc bảng theo tìm kiếm
-  const filteredRows = rowsForSelectedDate
+  // Lọc bảng theo tìm kiếm (trên bảng/tủ đang chọn)
+  const filteredRows = rowsForSelectedDateAndTable
     .filter((row) => {
       const q = searchQuery.trim().toLowerCase();
       if (!q) return true;
@@ -482,22 +635,22 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     if (onSaveDailyTable) {
       onSaveDailyTable(selectedDate, localItems);
     } else {
-      rowsForSelectedDate.forEach((row) => onSaveItem(row, true));
+      rowsForSelectedDateAndTable.forEach((row) => onSaveItem(row, true));
     }
     setJustSavedBanner(true);
     setTimeout(() => setJustSavedBanner(false), 2500);
   };
 
-  // Thêm mặt hàng mới (Admin)
+  // Thêm mặt hàng mới (Admin) vào bảng/tủ đang chọn
   const handleAddNewItemSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!isAdmin || !newItemName.trim()) return;
 
-    const exists = rowsForSelectedDate.some(
+    const exists = rowsForSelectedDateAndTable.some(
       (i) => i.itemName.toLowerCase() === newItemName.trim().toLowerCase()
     );
     if (exists) {
-      alert('Mặt hàng này đã có trong bảng ngày hôm nay!');
+      alert(`Mặt hàng này đã có trong bảng "${selectedTable}" ngày hôm nay!`);
       return;
     }
 
@@ -506,6 +659,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
       id: `inv-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
       stt: newItemStt,
       dateStr: selectedDate,
+      tableName: selectedTable,
       itemName: newItemName.trim(),
       prevStock: String(initStockNum),
       importQty: '0',
@@ -642,12 +796,13 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
 
   // Xuất file text Bảng Tồn Kho (Hủy trước Tồn)
   const exportInventoryToText = () => {
-    let content = `BẢNG TỒN KHO NGÀY ${selectedDate} (Công thức: Tồn = Nhập + Tồn Trước - Hủy)\n\n`;
+    let content = `BẢNG TỒN KHO NGÀY ${selectedDate} - ${selectedTable}\n`;
+    content += `(Công thức: Tồn = Nhập + Tồn Trước - Hủy • Ưu tiên nhập tay)\n\n`;
     content += `STT | Tên Mặt Hàng        | Tồn Trước | Nhập | Hủy | Tồn | Đơn Vị\n`;
-    content += `--------------------------------------------------------------------\n`;
+    content += `----+---------------------+-----------+------+-----+-----+-------\n`;
 
     filteredRows.forEach((item) => {
-      const prev = getPreviousDayStock(selectedDate, item.itemName);
+      const prev = getPreviousDayStock(selectedDate, item.itemName, selectedTable);
       const imp = item.importQty || '0';
       const waste = item.wasteQty || '0';
       const stock = item.stockQty || String(prev);
@@ -655,7 +810,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
       const nameStr = item.itemName.padEnd(20);
       const prevStr = String(prev).padEnd(9);
       const impStr = String(imp).padEnd(4);
-      const wasteStr = String(waste).padEnd(4);
+      const wasteStr = String(waste).padEnd(3);
       const stockStr = String(stock).padEnd(4);
       const unitStr = item.unit || 'kg';
 
@@ -667,22 +822,23 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     const a = document.createElement('a');
     a.href = url;
     const safeDate = selectedDate.replace(/\//g, '-');
-    a.download = `TonKho_${safeDate}.txt`;
+    const safeTable = selectedTable.replace(/[^a-zA-Z0-9_\u00C0-\u024F\u1EA0-\u1EF9]/g, '_');
+    a.download = `TonKho_${safeDate}_${safeTable}.txt`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
 
-  // Xuất file text Danh Sách Đặt Hàng
+  // Xuất file text Danh Sách Đặt Hàng (Gom từ toàn bộ tủ trong ngày)
   const exportOrderListToText = () => {
     let content = `DANH SÁCH ĐẶT HÀNG NGÀY ${selectedDate}\n\n`;
-    content += `STT  | Tên Mặt Hàng         | Số Lượng Đặt | Đơn Vị\n`;
-    content += `------------------------------------------------------\n`;
+    content += `STT  | Tên Mặt Hàng                  | Số Lượng Đặt | Đơn Vị\n`;
+    content += `-----+-------------------------------+--------------+-------\n`;
 
     let count = 0;
-    // 1. Mặt hàng thiếu trong bảng tồn
-    rowsForSelectedDate.forEach((item) => {
+    // 1. Mặt hàng thiếu trong bảng tồn (tất cả các tủ)
+    allRowsForSelectedDate.forEach((item) => {
       const threshold = item.minThreshold ?? 3;
       const currentStock = parseFloat(item.stockQty) || 0;
       if (currentStock <= threshold) {
@@ -693,8 +849,9 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
             qty: Math.max(1, threshold * 2 - currentStock),
             unit: item.unit || 'Kg',
           };
+          const cabinetTag = item.tableName && item.tableName !== DEFAULT_TABLE_NAME ? ` [${item.tableName}]` : '';
           const sttStr = String(item.stt || count).padEnd(4);
-          const nameStr = item.itemName.padEnd(20);
+          const nameStr = `${item.itemName}${cabinetTag}`.slice(0, 29).padEnd(29);
           const qtyStr = String(orderData.qty).padEnd(12);
           content += `${sttStr} | ${nameStr} | ${qtyStr} | ${orderData.unit}\n`;
         }
@@ -745,8 +902,8 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
       isCustom?: boolean;
     }> = [];
 
-    // 1. Mặt hàng thiếu trong bảng tồn
-    rowsForSelectedDate.forEach((item) => {
+    // 1. Mặt hàng thiếu trong bảng tồn (trên toàn bộ các tủ trong ngày)
+    allRowsForSelectedDate.forEach((item) => {
       const threshold = item.minThreshold ?? 3;
       const currentStock = parseFloat(item.stockQty) || 0;
       if (currentStock <= threshold) {
@@ -756,9 +913,10 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
             qty: Math.max(1, threshold * 2 - currentStock),
             unit: item.unit || 'Kg',
           };
+          const cabinetTag = item.tableName && item.tableName !== DEFAULT_TABLE_NAME ? ` [${item.tableName}]` : '';
           selectedItemsList.push({
             stt: String(item.stt || selectedItemsList.length + 1),
-            name: item.itemName,
+            name: `${item.itemName}${cabinetTag}`,
             stock: String(currentStock),
             qty: orderData.qty,
             unit: orderData.unit,
@@ -1077,6 +1235,80 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
         </div>
       )}
 
+      {/* Thanh chọn Bảng / Tủ Lưu Kiểm Tồn trong ngày */}
+      <div className="bg-white rounded-2xl shadow-xs border border-zinc-200 p-2.5 sm:p-3 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none flex-1">
+          <span className="text-[11px] font-extrabold uppercase tracking-wider text-zinc-500 shrink-0 mr-1 flex items-center gap-1">
+            <PackageCheck className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Khu Vực Tủ:</span>
+          </span>
+
+          {existingTablesForDate.map((tableName) => {
+            const isActive = tableName === selectedTable;
+            const count = localItems.filter(
+              (i) => i.dateStr === selectedDate && (i.tableName || DEFAULT_TABLE_NAME) === tableName
+            ).length;
+            const lowStockCountInTable = localItems.filter((i) => {
+              if (i.dateStr !== selectedDate || (i.tableName || DEFAULT_TABLE_NAME) !== tableName) return false;
+              const s = parseFloat(i.stockQty);
+              return !isNaN(s) && s <= (i.minThreshold ?? 3);
+            }).length;
+
+            return (
+              <button
+                key={tableName}
+                type="button"
+                onClick={() => setSelectedTable(tableName)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shrink-0 shadow-xs ${
+                  isActive
+                    ? 'bg-zinc-950 text-white ring-2 ring-amber-400 shadow-sm'
+                    : 'bg-zinc-100 hover:bg-zinc-200 text-zinc-700 border border-zinc-200'
+                }`}
+              >
+                <span>{tableName}</span>
+                <span
+                  className={`text-[10px] px-1.5 py-0.2 rounded-full font-extrabold ${
+                    isActive ? 'bg-zinc-800 text-zinc-200' : 'bg-white text-zinc-600'
+                  }`}
+                >
+                  {count}
+                </span>
+                {lowStockCountInTable > 0 && (
+                  <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" title="Có mặt hàng cần đặt" />
+                )}
+              </button>
+            );
+          })}
+
+          {/* Nút + Thêm Bảng Tủ Mới */}
+          <button
+            type="button"
+            onClick={() => {
+              setNewTableNameInput('');
+              setIsAddTableModalOpen(true);
+            }}
+            className="px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white flex items-center gap-1 shrink-0 shadow-xs active:scale-95 transition"
+            title="Thêm bảng kiểm tồn cho tủ khác trong ngày hôm nay"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>+ Bảng Tủ Mới</span>
+          </button>
+        </div>
+
+        {/* Nút Xóa Tủ hiện tại (Nếu có từ 2 tủ trở lên trong ngày) */}
+        {existingTablesForDate.length > 1 && (
+          <button
+            type="button"
+            onClick={() => handleDeleteCurrentTable(selectedTable)}
+            className="self-end sm:self-auto text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 px-2.5 py-1 rounded-xl border border-rose-200 shrink-0 flex items-center gap-1 font-semibold transition"
+            title={`Xóa riêng bảng ${selectedTable}`}
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>Xóa Bảng Tủ Này</span>
+          </button>
+        )}
+      </div>
+
       {/* Search & Actions Bar */}
       <div className="bg-white rounded-2xl shadow-xs border border-zinc-200 p-3 sm:p-4 flex flex-col md:flex-row justify-between items-stretch md:items-center gap-3">
         <div className="flex items-center gap-2 flex-1 flex-wrap">
@@ -1131,7 +1363,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
             <button
               type="button"
               onClick={() => {
-                const maxStt = rowsForSelectedDate.length > 0 ? Math.max(...rowsForSelectedDate.map((i) => i.stt || 1)) + 1 : 1;
+                const maxStt = rowsForSelectedDateAndTable.length > 0 ? Math.max(...rowsForSelectedDateAndTable.map((i) => i.stt || 1)) + 1 : 1;
                 setNewItemStt(maxStt);
                 setIsAddItemModalOpen(true);
               }}
@@ -1142,7 +1374,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
             </button>
           )}
 
-          {isAdmin && rowsForSelectedDate.length > 0 && (
+          {isAdmin && rowsForSelectedDateAndTable.length > 0 && (
             confirmDeleteDate ? (
               <div className="flex items-center gap-1 bg-rose-50 border border-rose-200 rounded-xl p-0.5">
                 <button
@@ -1646,7 +1878,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                         onChange={(e) => {
                           const val = e.target.checked;
                           const next: Record<string, boolean> = {};
-                          rowsForSelectedDate.forEach((i) => {
+                          allRowsForSelectedDate.forEach((i) => {
                             next[`inv_${i.id}`] = val;
                           });
                           customOrders.forEach((c) => {
@@ -1666,8 +1898,8 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-100">
-                  {/* 1. Mặt hàng thiếu trong bảng tồn */}
-                  {rowsForSelectedDate
+                  {/* 1. Mặt hàng thiếu trong bảng tồn (trên toàn bộ các tủ) */}
+                  {allRowsForSelectedDate
                     .filter((item) => (parseFloat(item.stockQty) || 0) <= (item.minThreshold ?? 3))
                     .map((item) => {
                       const keyId = `inv_${item.id}`;
@@ -1704,7 +1936,14 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                             {item.stt}
                           </td>
                           <td className="py-2 px-3 font-medium text-zinc-900">
-                            {item.itemName}
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span>{item.itemName}</span>
+                              {item.tableName && (
+                                <span className="text-[10px] px-1.5 py-0.2 rounded font-bold bg-zinc-100 text-zinc-600 border border-zinc-200">
+                                  {item.tableName}
+                                </span>
+                              )}
+                            </div>
                           </td>
                           <td className="py-2 px-3 text-right font-bold text-rose-600">
                             {item.stockQty}
@@ -1873,6 +2112,94 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
         </div>
       )}
 
+      {/* Modal: Thêm Bảng Lưu Kiểm Tồn / Tủ Mới */}
+      {isAddTableModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-zinc-200 space-y-4">
+            <div className="flex justify-between items-center pb-3 border-b border-zinc-100">
+              <h3 className="text-base font-bold text-zinc-950 flex items-center gap-2">
+                <PackageCheck className="w-5 h-5 text-amber-600" />
+                <span>Thêm Bảng Kiểm Tồn / Tủ Mới</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsAddTableModalOpen(false)}
+                className="text-zinc-400 hover:text-zinc-700 p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateNewTable} className="space-y-3.5 text-xs">
+              <div>
+                <label className="block text-zinc-700 font-bold mb-1">
+                  Tên Tủ / Bảng Kiểm Mới: <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={newTableNameInput}
+                  onChange={(e) => setNewTableNameInput(e.target.value)}
+                  placeholder="Ví dụ: Tủ Đông Thịt Cá, Tủ Rau Củ, Tủ Mát 2..."
+                  className="w-full p-2.5 bg-zinc-50 border border-zinc-300 rounded-xl font-semibold text-zinc-900 focus:ring-2 focus:ring-amber-500 outline-none text-xs"
+                  autoFocus
+                />
+              </div>
+
+              {/* Gợi ý tủ phổ biến */}
+              <div>
+                <span className="block text-[11px] font-bold text-zinc-500 mb-1.5">
+                  Gợi ý tên tủ phổ biến:
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {CABINET_PRESETS.map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setNewTableNameInput(preset)}
+                      className="px-2.5 py-1 text-[11px] font-semibold bg-zinc-100 hover:bg-amber-100 hover:text-amber-900 text-zinc-700 rounded-lg transition"
+                    >
+                      {preset}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Tùy chọn sao chép danh mục hàng */}
+              {rowsForSelectedDateAndTable.length > 0 && (
+                <label className="flex items-start gap-2.5 p-3 bg-amber-50/70 rounded-xl border border-amber-200 text-xs font-medium text-amber-950 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={cloneFromCurrentTable}
+                    onChange={(e) => setCloneFromCurrentTable(e.target.checked)}
+                    className="mt-0.5 rounded text-amber-600 focus:ring-amber-500"
+                  />
+                  <span>
+                    Sao chép danh mục mặt hàng từ <strong>{selectedTable}</strong> sang tủ mới (số lượng tồn đặt về 0 để kiểm mới).
+                  </span>
+                </label>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-zinc-100">
+                <button
+                  type="button"
+                  onClick={() => setIsAddTableModalOpen(false)}
+                  className="px-4 py-2 text-xs font-semibold text-zinc-600 hover:bg-zinc-100 rounded-xl transition"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white rounded-xl transition shadow-xs active:scale-95"
+                >
+                  Tạo Bảng Tủ Mới
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Modal: Thêm Mặt Hàng Mới (Admin) */}
       {isAddItemModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
@@ -1892,6 +2219,12 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
             </div>
 
             <form onSubmit={handleAddNewItemSubmit} className="space-y-3 text-xs">
+              <div className="p-2 bg-zinc-50 rounded-xl border border-zinc-200 flex items-center justify-between">
+                <span className="text-zinc-500 font-semibold">Tủ / Bảng Lưu Trữ:</span>
+                <span className="font-bold text-zinc-900 bg-white px-2 py-0.5 rounded border border-zinc-200">
+                  {selectedTable}
+                </span>
+              </div>
               <div>
                 <label className="block text-zinc-600 font-bold mb-1">
                   Tên Mặt Hàng <span className="text-rose-500">*</span>
