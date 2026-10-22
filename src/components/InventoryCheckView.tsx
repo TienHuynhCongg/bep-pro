@@ -304,49 +304,96 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     return localItems.filter((i) => i.dateStr === selectedDate);
   }, [localItems, selectedDate]);
 
-  // Lấy các mặt hàng của tủ này từ các ngày trước đó nếu ngày hiện tại chưa có
-  const getPreviousDayItemsForTable = (tableName: string): InventoryCheckItem[] => {
+  // Sắp xếp ngày từ gần nhất đến xa nhất theo chuẩn DD/MM/YYYY
+  const sortDatesDesc = (dates: string[]): string[] => {
+    return [...dates].sort((a, b) => {
+      const parse = (s: string) => {
+        const parts = s.split('/');
+        if (parts.length === 3) {
+          return new Date(parseInt(parts[2], 10), parseInt(parts[1], 10) - 1, parseInt(parts[0], 10)).getTime();
+        }
+        return 0;
+      };
+      return parse(b) - parse(a);
+    });
+  };
+
+  // Lấy các mặt hàng chuẩn của tủ này từ ngày gần nhất có dữ liệu
+  const getLatestItemsForTable = (tableName: string, excludeDate?: string): InventoryCheckItem[] => {
     const curTable = tableName || DEFAULT_TABLE_NAME;
-    const pastDates = existingDates.filter((d) => d !== selectedDate);
+    const pastDates = sortDatesDesc(existingDates.filter((d) => d !== excludeDate));
     for (const d of pastDates) {
-      const itemsInTable = localItems.filter(
+      const items = localItems.filter(
         (i) => i.dateStr === d && (i.tableName || DEFAULT_TABLE_NAME) === curTable
       );
-      if (itemsInTable.length > 0) return itemsInTable;
+      if (items.length > 0) return items;
     }
     return [];
   };
 
+  // Lấy các mặt hàng của tủ này từ các ngày trước đó nếu ngày hiện tại chưa có
+  const getPreviousDayItemsForTable = (tableName: string): InventoryCheckItem[] => {
+    return getLatestItemsForTable(tableName, selectedDate);
+  };
+
+  // TỰ ĐỘNG BẢO TOÀN DANH MỤC CỐ ĐỊNH CHO TẤT CẢ CÁC TỦ KHI SANG NGÀY MỚI
+  // Mọi tủ đã từng tồn tại đều sẽ tự động có mặt ở ngày mới với toàn bộ mặt hàng và Tồn hôm trước = Tồn cuối hôm qua
+  const ensureAllTablesPopulatedForDate = (targetDate: string) => {
+    let nextAll = [...localItems];
+    let hasChanges = false;
+
+    for (const tableName of allKnownTables) {
+      const currentRows = nextAll.filter(
+        (i) => i.dateStr === targetDate && (i.tableName || DEFAULT_TABLE_NAME) === tableName
+      );
+
+      // Nếu tủ này trong ngày targetDate chưa có bất kỳ mặt hàng nào
+      if (currentRows.length === 0) {
+        const baseItems = getLatestItemsForTable(tableName, targetDate);
+        if (baseItems.length > 0) {
+          const clonedRows: InventoryCheckItem[] = baseItems.map((item, idx) => {
+            const prevEndingStock = parseFloat(item.stockQty) || 0;
+            return {
+              id: `inv-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
+              stt: item.stt || idx + 1,
+              dateStr: targetDate,
+              tableName: tableName || DEFAULT_TABLE_NAME,
+              itemName: item.itemName,
+              prevStock: String(prevEndingStock), // Tồn hôm trước tự động lấy từ Tồn cuối ngày trước
+              importQty: '0',                     // Nhập mới = 0
+              wasteQty: '0',                      // Hủy = 0
+              stockQty: String(prevEndingStock),  // Tồn hiện tại bắt đầu bằng Tồn hôm trước
+              minThreshold: item.minThreshold ?? 3,
+              unit: item.unit || 'kg',
+              statusType: 'ton',
+              isManualStock: false,
+              createdBy: currentUser?.fullName || 'Hệ thống tự động',
+              createdAt: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+            };
+          });
+
+          nextAll = [...nextAll, ...clonedRows];
+          hasChanges = true;
+        }
+      }
+    }
+
+    if (hasChanges) {
+      setLocalItems(nextAll);
+      if (onSaveDailyTable) {
+        onSaveDailyTable(targetDate, nextAll);
+      }
+    }
+  };
+
+  // Tự động kiểm tra và khởi tạo danh mục cố định cho mọi tủ ngay khi mở app hoặc đổi ngày
+  useEffect(() => {
+    ensureAllTablesPopulatedForDate(selectedDate);
+  }, [selectedDate, allKnownTables.length]);
+
   // Nạp nhanh các mặt hàng của tủ này từ ngày hôm trước
   const handleCopyTableFromPreviousDay = (tableName: string) => {
-    const prevItems = getPreviousDayItemsForTable(tableName);
-    if (prevItems.length === 0) return;
-
-    const cloned = prevItems.map((item, idx) => {
-      const prevEnding = parseFloat(item.stockQty) || 0;
-      return {
-        id: `inv-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 5)}`,
-        stt: item.stt || idx + 1,
-        dateStr: selectedDate,
-        tableName: tableName || DEFAULT_TABLE_NAME,
-        itemName: item.itemName,
-        prevStock: String(prevEnding),
-        importQty: '0',
-        stockQty: String(prevEnding),
-        wasteQty: '0',
-        minThreshold: item.minThreshold ?? 3,
-        unit: item.unit || 'kg',
-        statusType: 'ton',
-        createdBy: currentUser?.fullName || 'Nhân viên ca',
-        createdAt: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
-      };
-    });
-
-    const nextAll = [...localItems, ...cloned];
-    setLocalItems(nextAll);
-    if (onSaveDailyTable) {
-      onSaveDailyTable(selectedDate, nextAll);
-    }
+    ensureAllTablesPopulatedForDate(selectedDate);
     setJustSavedBanner(true);
     setTimeout(() => setJustSavedBanner(false), 2500);
   };
@@ -354,8 +401,8 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
   // Hàm tính toán tồn hôm trước tự động từ ngày trước đó
   const getPreviousDayStock = (dateStr: string, itemName: string, tableName?: string): number => {
     const curTable = tableName || selectedTable || DEFAULT_TABLE_NAME;
-    const otherDates = existingDates.filter((d) => d !== dateStr);
-    for (const pastDate of otherDates) {
+    const sortedPastDates = sortDatesDesc(existingDates.filter((d) => d !== dateStr));
+    for (const pastDate of sortedPastDates) {
       const found = localItems.find(
         (i) =>
           i.dateStr === pastDate &&
@@ -366,7 +413,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
         return parseFloat(found.stockQty) || 0;
       }
     }
-    for (const pastDate of otherDates) {
+    for (const pastDate of sortedPastDates) {
       const found = localItems.find(
         (i) => i.dateStr === pastDate && i.itemName.toLowerCase() === itemName.toLowerCase()
       );
@@ -386,48 +433,10 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     return 0;
   };
 
-  // Tự động khởi tạo mặt hàng cho ngày mới nếu ngày đó chưa có dữ liệu (Bảo tồn toàn bộ tên tủ/bảng)
-  const handleAutoPopulateDate = (targetDate: string) => {
-    const existing = localItems.filter((i) => i.dateStr === targetDate);
-    if (existing.length > 0) return;
-
-    // Lấy danh sách mặt hàng của ngày gần nhất
-    const otherDate = existingDates.find((d) => d !== targetDate) || todayStr;
-    const baseItems = localItems.filter((i) => i.dateStr === otherDate);
-
-    if (baseItems.length > 0) {
-      const clonedRows: InventoryCheckItem[] = baseItems.map((item, idx) => {
-        const prevEndingStock = parseFloat(item.stockQty) || 0;
-        return {
-          id: `inv-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 5)}`,
-          stt: item.stt || idx + 1,
-          dateStr: targetDate,
-          tableName: item.tableName || DEFAULT_TABLE_NAME, // Bảo tồn tên tủ/bảng khi sang ngày mới!
-          itemName: item.itemName,
-          prevStock: String(prevEndingStock),
-          importQty: '0',
-          stockQty: String(prevEndingStock),
-          wasteQty: '0',
-          minThreshold: item.minThreshold ?? 3,
-          unit: item.unit || 'kg',
-          statusType: 'ton',
-          createdBy: currentUser?.fullName || 'Nhân viên',
-          createdAt: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
-        };
-      });
-
-      const nextAll = [...localItems, ...clonedRows];
-      setLocalItems(nextAll);
-      if (onSaveDailyTable) {
-        onSaveDailyTable(targetDate, nextAll);
-      }
-    }
-  };
-
   // Đổi ngày đang xem
   const handleSelectDate = (date: string) => {
     setSelectedDate(date);
-    handleAutoPopulateDate(date);
+    ensureAllTablesPopulatedForDate(date);
   };
 
   // Cập nhật ô trong bảng theo công thức:
