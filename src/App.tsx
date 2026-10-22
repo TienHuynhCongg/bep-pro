@@ -270,6 +270,10 @@ export default function App() {
       return DEFAULT_INVENTORY;
     }
   });
+  const inventoryRef = useRef<InventoryCheckItem[]>(inventory);
+  useEffect(() => {
+    inventoryRef.current = inventory;
+  }, [inventory]);
 
   // Keep latest state refs to avoid stale closures in SSE / BroadcastChannel / timers
   const currentUserRef = useRef<StaffUser | null>(currentUser);
@@ -808,13 +812,26 @@ export default function App() {
         const serverTs = s.updatedAt || 0;
         const lastSeenTs = getLastSeenServerTs();
         // Server bị reset về bản cũ (VD: sau khi deploy bản mới) -> máy này đẩy dữ liệu mới nhất của mình lên khôi phục
-        const serverRolledBack = isServerInitialized && lastSeenTs > 0 && serverTs + 1000 < lastSeenTs;
+        const serverRolledBack = (isServerInitialized && lastSeenTs > 0 && serverTs + 1000 < lastSeenTs) || Boolean(s.isSeedReset);
 
         if (isServerInitialized && !serverRolledBack) {
           rememberServerTs(serverTs);
           if (Array.isArray(s.tasks)) {
-            tasksRef.current = s.tasks;
-            setTasks(s.tasks);
+            // Khiên chống ghi đè: Nếu server trả về 6 việc mẫu mặc định nhưng máy này có danh sách việc riêng phong phú hơn
+            const localHasCustom =
+              tasksRef.current.length > 0 &&
+              !tasksRef.current.every((t) => DEFAULT_TASKS.some((d) => d.title === t.title));
+            const serverIsDefaultSeed =
+              s.tasks.length === DEFAULT_TASKS.length &&
+              s.tasks.every((t) => DEFAULT_TASKS.some((d) => d.title === t.title));
+
+            if (localHasCustom && (serverIsDefaultSeed || s.isSeedReset) && currentUserRef.current?.role === 'admin') {
+              // Máy Admin giữ việc riêng -> Tự động khôi phục ngược lại lên server thay vì bị server ghi đè!
+              pushStateToServer({ tasks: tasksRef.current }, undefined, 'auto_protect_custom_tasks');
+            } else {
+              tasksRef.current = s.tasks;
+              setTasks(s.tasks);
+            }
           }
           if (Array.isArray(s.logs)) setLogs(s.logs);
           if (Array.isArray(s.staffList) && s.staffList.length > 0) {
@@ -830,7 +847,34 @@ export default function App() {
             setNotifications(s.notifications);
           }
           if (Array.isArray(s.recipes)) setRecipes(s.recipes);
-          if (Array.isArray(s.inventory)) setInventory(s.inventory);
+          if (Array.isArray(s.inventory)) {
+            const localHasCustomInv =
+              inventoryRef.current.length > 0 &&
+              (inventoryRef.current.length > s.inventory.length ||
+                inventoryRef.current.some(
+                  (i) => i.tableName && i.tableName !== 'Tủ Mát Chính'
+                ));
+            const serverIsDefaultSeed =
+              s.inventory.length <= 5 &&
+              s.inventory.every(
+                (i) => !i.tableName || i.tableName === 'Tủ Mát Chính'
+              );
+
+            if (
+              localHasCustomInv &&
+              (serverIsDefaultSeed || s.isSeedReset) &&
+              currentUserRef.current?.role === 'admin'
+            ) {
+              pushStateToServer(
+                { inventory: inventoryRef.current },
+                undefined,
+                'auto_protect_custom_inventory'
+              );
+            } else {
+              inventoryRef.current = s.inventory;
+              setInventory(s.inventory);
+            }
+          }
           if (s.appConfig && typeof s.appConfig === 'object') setAppConfig(s.appConfig);
         } else if (currentUserRef.current?.role === 'admin') {
           // CHỈ tài khoản Admin mới được phép chủ động đẩy dữ liệu cục bộ lên khôi phục server
@@ -879,7 +923,10 @@ export default function App() {
                 setNotifications(s.notifications);
               }
               if (Array.isArray(s.recipes)) setRecipes(s.recipes);
-              if (Array.isArray(s.inventory)) setInventory(s.inventory);
+              if (Array.isArray(s.inventory)) {
+                inventoryRef.current = s.inventory;
+                setInventory(s.inventory);
+              }
             }
 
             const notif = data.notification;
@@ -952,8 +999,18 @@ export default function App() {
             rememberServerTs(s.updatedAt);
             if (s.appConfig && typeof s.appConfig === 'object') setAppConfig(s.appConfig);
             if (Array.isArray(s.tasks)) {
-              tasksRef.current = s.tasks;
-              setTasks(s.tasks);
+              const localHasCustom =
+                tasksRef.current.length > 0 &&
+                !tasksRef.current.every((t) => DEFAULT_TASKS.some((d) => d.title === t.title));
+              const serverIsDefaultSeed =
+                s.tasks.length === DEFAULT_TASKS.length &&
+                s.tasks.every((t) => DEFAULT_TASKS.some((d) => d.title === t.title));
+              if (localHasCustom && (serverIsDefaultSeed || s.isSeedReset) && currentUserRef.current?.role === 'admin') {
+                pushStateToServer({ tasks: tasksRef.current }, undefined, 'auto_protect_custom_tasks');
+              } else {
+                tasksRef.current = s.tasks;
+                setTasks(s.tasks);
+              }
             }
             if (Array.isArray(s.logs)) setLogs(s.logs);
             if (Array.isArray(s.staffList) && s.staffList.length > 0) {
@@ -965,7 +1022,34 @@ export default function App() {
               setNotifications(s.notifications);
             }
             if (Array.isArray(s.recipes)) setRecipes(s.recipes);
-            if (Array.isArray(s.inventory)) setInventory(s.inventory);
+            if (Array.isArray(s.inventory)) {
+              const localHasCustomInv =
+                inventoryRef.current.length > 0 &&
+                (inventoryRef.current.length > s.inventory.length ||
+                  inventoryRef.current.some(
+                    (i) => i.tableName && i.tableName !== 'Tủ Mát Chính'
+                  ));
+              const serverIsDefaultSeed =
+                s.inventory.length <= 5 &&
+                s.inventory.every(
+                  (i) => !i.tableName || i.tableName === 'Tủ Mát Chính'
+                );
+
+              if (
+                localHasCustomInv &&
+                (serverIsDefaultSeed || s.isSeedReset) &&
+                currentUserRef.current?.role === 'admin'
+              ) {
+                pushStateToServer(
+                  { inventory: inventoryRef.current },
+                  undefined,
+                  'auto_protect_custom_inventory'
+                );
+              } else {
+                inventoryRef.current = s.inventory;
+                setInventory(s.inventory);
+              }
+            }
           }
         });
       }
@@ -1633,10 +1717,63 @@ export default function App() {
     showToast(target ? `Đã xóa việc: "${target.title}"` : 'Đã xóa đầu việc');
   };
 
+  // Lưu snapshot khẩn cấp trước khi có bất kỳ thao tác xóa hoặc thay thế checklist nào
+  const saveEmergencyTaskSnapshot = (currentList: KitchenTask[]) => {
+    try {
+      if (Array.isArray(currentList) && currentList.length > 0) {
+        localStorage.setItem(
+          'kitchen_tasks_emergency_snapshot',
+          JSON.stringify({
+            timestamp: Date.now(),
+            tasks: currentList,
+          })
+        );
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleRestoreEmergencyTasks = () => {
+    try {
+      // 1. Thử từ emergency snapshot
+      const rawSnapshot = localStorage.getItem('kitchen_tasks_emergency_snapshot');
+      if (rawSnapshot) {
+        const parsed = JSON.parse(rawSnapshot);
+        const restoredTasks = Array.isArray(parsed) ? parsed : parsed.tasks;
+        if (Array.isArray(restoredTasks) && restoredTasks.length > 0) {
+          tasksRef.current = restoredTasks;
+          setTasks(restoredTasks);
+          pushStateToServer({ tasks: restoredTasks }, undefined, 'emergency_restore');
+          showToast(`Đã phục hồi ${restoredTasks.length} đầu việc từ bản lưu khẩn cấp!`);
+          return;
+        }
+      }
+
+      // 2. Thử từ admin auto backup
+      const rawAdminBackup = localStorage.getItem('kitchen_admin_auto_backup_latest');
+      if (rawAdminBackup) {
+        const parsed = JSON.parse(rawAdminBackup);
+        if (Array.isArray(parsed.tasks) && parsed.tasks.length > 0) {
+          tasksRef.current = parsed.tasks;
+          setTasks(parsed.tasks);
+          pushStateToServer({ tasks: parsed.tasks }, undefined, 'emergency_restore');
+          showToast(`Đã phục hồi ${parsed.tasks.length} đầu việc từ bản sao lưu gần nhất!`);
+          return;
+        }
+      }
+
+      showToast('Không tìm thấy bản lưu công việc trước đó trên thiết bị này!', 'error');
+    } catch (err: any) {
+      showToast('Lỗi phục hồi: ' + (err?.message || ''), 'error');
+    }
+  };
+
   const handleClearAllTasks = () => {
+    saveEmergencyTaskSnapshot(tasksRef.current);
     tasksRef.current = [];
     setTasks([]);
-    pushStateToServer({ tasks: [] });
+    pushStateToServer({ tasks: [] }, undefined, 'admin_clear_all_tasks');
 
     if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
       try {
@@ -1651,28 +1788,109 @@ export default function App() {
       }
     }
 
-    showToast('Đã dọn dẹp toàn bộ danh sách việc giao');
+    showToast('Đã dọn dẹp toàn bộ danh sách việc giao (Đã lưu bản khôi phục khẩn cấp)');
   };
 
-  const handleLoadTaskPreset = (type: 'standard' | 'haccp' | 'bakery') => {
-    if (type === 'standard') {
-      tasksRef.current = DEFAULT_TASKS;
-      setTasks(DEFAULT_TASKS);
-      pushStateToServer({ tasks: DEFAULT_TASKS });
-      showToast('Đã nạp mẫu Bếp Tiêu Chuẩn!');
-    } else if (type === 'haccp') {
-      const haccpTasks: KitchenTask[] = [
-        { id: 'h1', title: 'Đo & ghi nhiệt độ tủ cấp đông sâu (< -18°C)', category: 'An toàn ATTP', priority: 'Gấp', taskType: 'daily', completed: false, assignedShift: 'Tất cả ca' },
-        { id: 'h2', title: 'Đo & ghi nhiệt độ tủ mát bảo quản thịt cá (< 4°C)', category: 'An toàn ATTP', priority: 'Gấp', taskType: 'daily', completed: false, assignedShift: 'Tất cả ca' },
-        { id: 'h3', title: 'Khử khuẩn thớt màu (Đỏ: thịt sống, Xanh: rau, Trắng: đồ chín)', category: 'An toàn ATTP', priority: 'Gấp', taskType: 'daily', completed: false, assignedShift: 'Tất cả ca' },
-        { id: 'h4', title: 'Kiểm tra tem nhãn NSX, HSD và bọc màng thực phẩm chuẩn FIFO', category: 'Kiểm kê', priority: 'Thường', taskType: 'daily', completed: false, assignedShift: 'Ca Sáng' },
-        { id: 'h5', title: 'Vệ sinh bẫy mỡ inox và khử trùng bồn rửa bát', category: 'Vệ sinh', priority: 'Thường', taskType: 'daily', completed: false, assignedShift: 'Ca Chiều' },
-        { id: 'h6', title: 'Nghiệm thu rác hữu cơ đóng kín & khóa van an toàn hệ thống gas', category: 'An toàn ATTP', priority: 'Tối khẩn', taskType: 'urgent_today', completed: false, assignedShift: 'Tất cả ca' },
-      ];
-      tasksRef.current = haccpTasks;
-      setTasks(haccpTasks);
-      pushStateToServer({ tasks: haccpTasks });
-      showToast('Đã nạp mẫu Vệ Sinh An Toàn HACCP!');
+  const handleLoadTaskPreset = (
+    type: 'standard' | 'haccp' | 'bakery',
+    mode: 'append' | 'replace' = 'append'
+  ) => {
+    if (currentUser?.role !== 'admin' && currentUser?.role !== 'manager') {
+      showToast('Chỉ Bếp Trưởng hoặc Quản Lý mới có quyền nạp mẫu việc!', 'error');
+      return;
+    }
+
+    const templateItems: KitchenTask[] =
+      type === 'standard'
+        ? DEFAULT_TASKS.map((t, idx) => ({
+            ...t,
+            id: `task-std-${Date.now()}-${idx}`,
+            completed: false,
+            completedAt: undefined,
+            completedTimestamp: undefined,
+          }))
+        : [
+            {
+              id: `h1-${Date.now()}`,
+              title: 'Đo & ghi nhiệt độ tủ cấp đông sâu (< -18°C)',
+              category: 'An toàn ATTP',
+              priority: 'Gấp',
+              taskType: 'daily',
+              completed: false,
+              assignedShift: 'Tất cả ca',
+            },
+            {
+              id: `h2-${Date.now()}`,
+              title: 'Đo & ghi nhiệt độ tủ mát bảo quản thịt cá (< 4°C)',
+              category: 'An toàn ATTP',
+              priority: 'Gấp',
+              taskType: 'daily',
+              completed: false,
+              assignedShift: 'Tất cả ca',
+            },
+            {
+              id: `h3-${Date.now()}`,
+              title: 'Khử khuẩn thớt màu (Đỏ: thịt sống, Xanh: rau, Trắng: đồ chín)',
+              category: 'An toàn ATTP',
+              priority: 'Gấp',
+              taskType: 'daily',
+              completed: false,
+              assignedShift: 'Tất cả ca',
+            },
+            {
+              id: `h4-${Date.now()}`,
+              title: 'Kiểm tra tem nhãn NSX, HSD và bọc màng thực phẩm chuẩn FIFO',
+              category: 'Kiểm kê',
+              priority: 'Thường',
+              taskType: 'daily',
+              completed: false,
+              assignedShift: 'Ca Sáng',
+            },
+            {
+              id: `h5-${Date.now()}`,
+              title: 'Vệ sinh bẫy mỡ inox và khử trùng bồn rửa bát',
+              category: 'Vệ sinh',
+              priority: 'Thường',
+              taskType: 'daily',
+              completed: false,
+              assignedShift: 'Ca Chiều',
+            },
+            {
+              id: `h6-${Date.now()}`,
+              title: 'Nghiệm thu rác hữu cơ đóng kín & khóa van an toàn hệ thống gas',
+              category: 'An toàn ATTP',
+              priority: 'Tối khẩn',
+              taskType: 'urgent_today',
+              completed: false,
+              assignedShift: 'Tất cả ca',
+            },
+          ];
+
+    let nextTasks: KitchenTask[];
+    if (mode === 'append') {
+      nextTasks = [...tasksRef.current, ...templateItems];
+      showToast(`Đã thêm ${templateItems.length} việc từ mẫu chuẩn vào danh sách!`);
+    } else {
+      saveEmergencyTaskSnapshot(tasksRef.current);
+      nextTasks = templateItems;
+      showToast(`Đã nạp mẫu chuẩn (${templateItems.length} việc)!`);
+    }
+
+    tasksRef.current = nextTasks;
+    setTasks(nextTasks);
+    pushStateToServer({ tasks: nextTasks }, undefined, 'admin_preset_load');
+
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      try {
+        const channel = new BroadcastChannel('kitchen_tasks_sync_channel');
+        channel.postMessage({
+          type: 'TASKS_UPDATED',
+          tasks: nextTasks,
+        });
+        channel.close();
+      } catch {
+        // ignore
+      }
     }
   };
 
@@ -1956,16 +2174,70 @@ export default function App() {
     showToast(target ? `Đã xóa công thức: "${target.dishName}"` : 'Đã xóa công thức');
   };
 
+  // Lưu snapshot tồn kho khẩn cấp trước khi có thay đổi lớn
+  const saveEmergencyInventorySnapshot = (currentInv: InventoryCheckItem[]) => {
+    try {
+      if (Array.isArray(currentInv) && currentInv.length > 0) {
+        localStorage.setItem(
+          'kitchen_inventory_emergency_snapshot',
+          JSON.stringify({
+            timestamp: Date.now(),
+            inventory: currentInv,
+          })
+        );
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleRestoreEmergencyInventory = () => {
+    try {
+      // 1. Thử từ emergency snapshot
+      const rawSnapshot = localStorage.getItem('kitchen_inventory_emergency_snapshot');
+      if (rawSnapshot) {
+        const parsed = JSON.parse(rawSnapshot);
+        const restoredInv = Array.isArray(parsed) ? parsed : parsed.inventory;
+        if (Array.isArray(restoredInv) && restoredInv.length > 0) {
+          inventoryRef.current = restoredInv;
+          setInventory(restoredInv);
+          pushStateToServer({ inventory: restoredInv }, undefined, 'emergency_restore_inventory');
+          showToast(`Đã phục hồi ${restoredInv.length} dòng tồn kiểm từ bản lưu khẩn cấp!`);
+          return;
+        }
+      }
+
+      // 2. Thử từ admin auto backup
+      const rawAdminBackup = localStorage.getItem('kitchen_admin_auto_backup_latest');
+      if (rawAdminBackup) {
+        const parsed = JSON.parse(rawAdminBackup);
+        if (Array.isArray(parsed.inventory) && parsed.inventory.length > 0) {
+          inventoryRef.current = parsed.inventory;
+          setInventory(parsed.inventory);
+          pushStateToServer({ inventory: parsed.inventory }, undefined, 'emergency_restore_inventory');
+          showToast(`Đã phục hồi ${parsed.inventory.length} dòng tồn kiểm từ bản sao lưu gần nhất!`);
+          return;
+        }
+      }
+
+      showToast('Không tìm thấy bản lưu tồn kho trước đó trên thiết bị này!', 'error');
+    } catch (err: any) {
+      showToast('Lỗi phục hồi tồn kho: ' + (err?.message || ''), 'error');
+    }
+  };
+
   // 2. Handlers Lưu Số Lượng Tồn Kiểm (Inventory Check - Sửa trực tiếp trong bảng, Lưu theo ngày, Chỉ Admin được xóa)
   const handleSaveInventoryItem = (itemPayload: InventoryCheckItem, isEdit: boolean) => {
-    const exists = inventory.some((i) => i.id === itemPayload.id);
+    const currentList = inventoryRef.current;
+    const exists = currentList.some((i) => i.id === itemPayload.id);
     const nextInventory =
       isEdit && exists
-        ? inventory.map((i) => (i.id === itemPayload.id ? itemPayload : i))
-        : [...inventory, itemPayload];
+        ? currentList.map((i) => (i.id === itemPayload.id ? itemPayload : i))
+        : [...currentList, itemPayload];
+    saveEmergencyInventorySnapshot(nextInventory);
+    inventoryRef.current = nextInventory;
     setInventory(nextInventory);
 
-    // Không thông báo về các thao tác chỉnh sửa trực tiếp từng ô của nhân viên và admin
     // Dữ liệu được đồng bộ ngầm lên Server, không tạo thông báo cho đến khi người dùng bấm Lưu
     pushStateToServer({ inventory: nextInventory });
   };
@@ -1974,6 +2246,8 @@ export default function App() {
     dateStr: string,
     updatedAllItems: InventoryCheckItem[]
   ) => {
+    saveEmergencyInventorySnapshot(updatedAllItems);
+    inventoryRef.current = updatedAllItems;
     setInventory(updatedAllItems);
     const countForDate = updatedAllItems.filter((i) => i.dateStr === dateStr).length;
     const actorName = currentUser?.fullName || 'Nhân viên ca';
@@ -1995,8 +2269,11 @@ export default function App() {
       showToast('🔒 Chỉ Bếp Trưởng (Admin) mới có quyền xóa dữ liệu trong bảng tồn kiểm!', 'error');
       return;
     }
-    const target = inventory.find((i) => i.id === id);
-    const nextInventory = inventory.filter((i) => i.id !== id);
+    const currentList = inventoryRef.current;
+    const target = currentList.find((i) => i.id === id);
+    const nextInventory = currentList.filter((i) => i.id !== id);
+    saveEmergencyInventorySnapshot(currentList);
+    inventoryRef.current = nextInventory;
     setInventory(nextInventory);
     pushStateToServer({ inventory: nextInventory });
     showToast(target?.itemName ? `Đã xóa dòng tồn kiểm: "${target.itemName}"` : 'Đã xóa dòng trong bảng');
@@ -2007,7 +2284,10 @@ export default function App() {
       showToast('🔒 Chỉ Bếp Trưởng (Admin) mới có quyền xóa bảng tồn kiểm theo ngày!', 'error');
       return;
     }
-    const nextInventory = inventory.filter((i) => i.dateStr !== dateStr);
+    const currentList = inventoryRef.current;
+    const nextInventory = currentList.filter((i) => i.dateStr !== dateStr);
+    saveEmergencyInventorySnapshot(currentList);
+    inventoryRef.current = nextInventory;
     setInventory(nextInventory);
     pushStateToServer({ inventory: nextInventory });
     showToast(`🗑️ Admin đã xóa bảng tồn kiểm ngày ${dateStr}`);
@@ -2221,6 +2501,7 @@ export default function App() {
                   initialOpenOrderList={autoOpenOrderList}
                   onCloseOrderListModal={() => setAutoOpenOrderList(false)}
                   onLowStockCountChange={setRealtimeLowStockCount}
+                  onRestoreEmergencyInventory={handleRestoreEmergencyInventory}
                 />
               )}
 

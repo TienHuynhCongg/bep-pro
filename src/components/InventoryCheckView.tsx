@@ -36,6 +36,7 @@ interface InventoryCheckViewProps {
   initialOpenOrderList?: boolean;
   onCloseOrderListModal?: () => void;
   onLowStockCountChange?: (count: number) => void;
+  onRestoreEmergencyInventory?: () => void;
 }
 
 const COMMON_UNITS = [
@@ -126,6 +127,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
   initialOpenOrderList = false,
   onCloseOrderListModal,
   onLowStockCountChange,
+  onRestoreEmergencyInventory,
 }) => {
   const todayStr = new Date().toLocaleDateString('vi-VN');
   const isAdmin = currentUser?.role === 'admin';
@@ -250,17 +252,29 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     'Kho Khô & Gia Vị',
   ];
 
-  // Danh sách các bảng / tủ trong ngày đang chọn
-  const existingTablesForDate = useMemo(() => {
-    const dateItems = localItems.filter((i) => i.dateStr === selectedDate);
+  // Danh sách các bảng / tủ đã từng được tạo trên toàn bộ hệ thống
+  const allKnownTables = useMemo(() => {
     const set = new Set<string>();
+    set.add(DEFAULT_TABLE_NAME);
+    localItems.forEach((i) => {
+      const name = (i.tableName || DEFAULT_TABLE_NAME).trim();
+      if (name) set.add(name);
+    });
+    return Array.from(set);
+  }, [localItems]);
+
+  // Danh sách các bảng / tủ trong ngày đang chọn (luôn bao gồm tất cả các tủ đã có để không bị biến mất khi đổi ngày)
+  const existingTablesForDate = useMemo(() => {
+    const set = new Set<string>();
+    allKnownTables.forEach((t) => set.add(t));
+    const dateItems = localItems.filter((i) => i.dateStr === selectedDate);
     dateItems.forEach((i) => {
       const name = (i.tableName || DEFAULT_TABLE_NAME).trim();
       if (name) set.add(name);
     });
     if (set.size === 0) set.add(DEFAULT_TABLE_NAME);
     return Array.from(set);
-  }, [localItems, selectedDate]);
+  }, [allKnownTables, localItems, selectedDate]);
 
   // Bảng / Tủ đang chọn trong ngày
   const [selectedTable, setSelectedTable] = useState<string>(DEFAULT_TABLE_NAME);
@@ -288,6 +302,53 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
   const allRowsForSelectedDate = useMemo(() => {
     return localItems.filter((i) => i.dateStr === selectedDate);
   }, [localItems, selectedDate]);
+
+  // Lấy các mặt hàng của tủ này từ các ngày trước đó nếu ngày hiện tại chưa có
+  const getPreviousDayItemsForTable = (tableName: string): InventoryCheckItem[] => {
+    const curTable = tableName || DEFAULT_TABLE_NAME;
+    const pastDates = existingDates.filter((d) => d !== selectedDate);
+    for (const d of pastDates) {
+      const itemsInTable = localItems.filter(
+        (i) => i.dateStr === d && (i.tableName || DEFAULT_TABLE_NAME) === curTable
+      );
+      if (itemsInTable.length > 0) return itemsInTable;
+    }
+    return [];
+  };
+
+  // Nạp nhanh các mặt hàng của tủ này từ ngày hôm trước
+  const handleCopyTableFromPreviousDay = (tableName: string) => {
+    const prevItems = getPreviousDayItemsForTable(tableName);
+    if (prevItems.length === 0) return;
+
+    const cloned = prevItems.map((item, idx) => {
+      const prevEnding = parseFloat(item.stockQty) || 0;
+      return {
+        id: `inv-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 5)}`,
+        stt: item.stt || idx + 1,
+        dateStr: selectedDate,
+        tableName: tableName || DEFAULT_TABLE_NAME,
+        itemName: item.itemName,
+        prevStock: String(prevEnding),
+        importQty: '0',
+        stockQty: String(prevEnding),
+        wasteQty: '0',
+        minThreshold: item.minThreshold ?? 3,
+        unit: item.unit || 'kg',
+        statusType: 'ton',
+        createdBy: currentUser?.fullName || 'Nhân viên ca',
+        createdAt: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+      };
+    });
+
+    const nextAll = [...localItems, ...cloned];
+    setLocalItems(nextAll);
+    if (onSaveDailyTable) {
+      onSaveDailyTable(selectedDate, nextAll);
+    }
+    setJustSavedBanner(true);
+    setTimeout(() => setJustSavedBanner(false), 2500);
+  };
 
   // Hàm tính toán tồn hôm trước tự động từ ngày trước đó
   const getPreviousDayStock = (dateStr: string, itemName: string, tableName?: string): number => {
@@ -324,7 +385,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     return 0;
   };
 
-  // Tự động khởi tạo mặt hàng cho ngày mới nếu ngày đó chưa có dữ liệu
+  // Tự động khởi tạo mặt hàng cho ngày mới nếu ngày đó chưa có dữ liệu (Bảo tồn toàn bộ tên tủ/bảng)
   const handleAutoPopulateDate = (targetDate: string) => {
     const existing = localItems.filter((i) => i.dateStr === targetDate);
     if (existing.length > 0) return;
@@ -340,6 +401,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
           id: `inv-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 5)}`,
           stt: item.stt || idx + 1,
           dateStr: targetDate,
+          tableName: item.tableName || DEFAULT_TABLE_NAME, // Bảo tồn tên tủ/bảng khi sang ngày mới!
           itemName: item.itemName,
           prevStock: String(prevEndingStock),
           importQty: '0',
@@ -1214,6 +1276,19 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
               <span>Xuất Text</span>
             </button>
 
+            {/* Nút Phục Hồi Tồn Kho Khẩn Cấp nếu có bản sao lưu trên thiết bị */}
+            {onRestoreEmergencyInventory && (
+              <button
+                type="button"
+                onClick={onRestoreEmergencyInventory}
+                className="h-8 px-2.5 rounded-xl text-xs font-bold bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 transition flex items-center gap-1.5 shrink-0"
+                title="Khôi phục lại dữ liệu tồn kho từ bản lưu khẩn cấp trên máy"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-amber-300" />
+                <span>Phục Hồi Tồn</span>
+              </button>
+            )}
+
             {/* Nút Lưu Bảng */}
             <button
               type="button"
@@ -1430,8 +1505,22 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
             <tbody className="divide-y divide-zinc-100">
               {filteredRows.length === 0 ? (
                 <tr>
-                  <td colSpan={isAdmin ? 10 : 8} className="py-12 text-center text-zinc-400">
-                    Chưa có mặt hàng nào cho ngày {selectedDate}.
+                  <td colSpan={isAdmin ? 10 : 8} className="py-10 px-4 text-center">
+                    <div className="max-w-md mx-auto space-y-2.5">
+                      <p className="text-zinc-400 text-xs">
+                        Bảng / Tủ <strong>&ldquo;{selectedTable}&rdquo;</strong> chưa có mặt hàng nào cho ngày <strong>{selectedDate}</strong>.
+                      </p>
+                      {getPreviousDayItemsForTable(selectedTable).length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => handleCopyTableFromPreviousDay(selectedTable)}
+                          className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 mx-auto shadow-xs"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Sao chép {getPreviousDayItemsForTable(selectedTable).length} mặt hàng & tồn hôm trước vào tủ này</span>
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ) : (
