@@ -172,14 +172,28 @@ function loadDb(): KitchenServerState {
     if (!fs.existsSync(DATA_DIR)) {
       fs.mkdirSync(DATA_DIR, { recursive: true });
     }
+    const SEED_FILE = path.join(process.cwd(), 'initial-data.json');
     if (fs.existsSync(DB_FILE)) {
       const raw = fs.readFileSync(DB_FILE, 'utf-8').replace(/^\uFEFF/, '');
-      return JSON.parse(raw);
+      const parsed = JSON.parse(raw);
+      if (parsed && (parsed.initialized || (Array.isArray(parsed.tasks) && parsed.tasks.length > 0))) {
+        return parsed;
+      }
+    }
+    // Nếu chưa có DB hoặc DB trống (ví dụ sau khi Deploy lên Render): nạp ngay từ initial-data.json
+    if (fs.existsSync(SEED_FILE)) {
+      const rawSeed = fs.readFileSync(SEED_FILE, 'utf-8').replace(/^\uFEFF/, '');
+      const seedState = JSON.parse(rawSeed);
+      seedState.initialized = true;
+      seedState.updatedAt = Date.now();
+      saveDb(seedState);
+      console.log('Successfully initialized database from initial-data.json on server start.');
+      return seedState;
     }
   } catch (err) {
     console.error('Error loading kitchen-db.json:', err);
   }
-  return { updatedAt: Date.now() };
+  return { updatedAt: Date.now(), initialized: true };
 }
 
 function saveDb(state: KitchenServerState) {
@@ -625,11 +639,51 @@ export function createKitchenApiMiddleware() {
     } = req.body || {};
 
     dbState.initialized = true;
-    if (appConfig && typeof appConfig === 'object') dbState.appConfig = appConfig;
-    if (Array.isArray(tasks)) dbState.tasks = tasks;
+    if (appConfig && typeof appConfig === 'object') {
+      if (senderRole === 'admin' || !dbState.appConfig) {
+        dbState.appConfig = appConfig;
+      }
+    }
+    if (Array.isArray(toolbarItems)) {
+      if (senderRole === 'admin' || !dbState.toolbarItems || dbState.toolbarItems.length === 0) {
+        dbState.toolbarItems = toolbarItems;
+      }
+    }
+    if (Array.isArray(staffList)) {
+      // Chỉ Admin được phép thay đổi danh sách nhân sự
+      if (senderRole === 'admin' || !dbState.staffList || dbState.staffList.length === 0) {
+        dbState.staffList = staffList;
+      } else {
+        console.warn(`[Sync Security] Blocked non-admin (${senderRole || 'anonymous'}) from modifying staffList`);
+      }
+    }
+    if (Array.isArray(tasks)) {
+      // Admin hoặc Quản lý được phép cập nhật toàn bộ danh sách tasks
+      if (senderRole === 'admin' || senderRole === 'manager' || !dbState.tasks || dbState.tasks.length === 0) {
+        dbState.tasks = tasks;
+      } else {
+        // Staff chỉ được phép cập nhật trạng thái hoàn thành (complete/incomplete/note) của các task có sẵn
+        if (Array.isArray(dbState.tasks) && dbState.tasks.length > 0) {
+          const incomingMap = new Map(tasks.map((t: any) => [t.id, t]));
+          dbState.tasks = dbState.tasks.map((existing: any) => {
+            const incoming = incomingMap.get(existing.id);
+            if (!incoming) return existing;
+            return {
+              ...existing,
+              completed: Boolean(incoming.completed),
+              completedAt: incoming.completedAt,
+              completedTimestamp: incoming.completedTimestamp,
+              completedBy: incoming.completedBy,
+              completedById: incoming.completedById,
+              completedByRole: incoming.completedByRole,
+            };
+          });
+        } else {
+          dbState.tasks = tasks;
+        }
+      }
+    }
     if (Array.isArray(logs)) dbState.logs = logs;
-    if (Array.isArray(staffList)) dbState.staffList = staffList;
-    if (Array.isArray(toolbarItems)) dbState.toolbarItems = toolbarItems;
     if (Array.isArray(deleteRequests)) dbState.deleteRequests = deleteRequests;
     if (Array.isArray(notifications)) dbState.notifications = notifications;
     if (Array.isArray(recipes)) dbState.recipes = recipes;
@@ -819,6 +873,19 @@ export function createKitchenApiMiddleware() {
       res.download(targetPath, filename);
     } catch (err: any) {
       res.status(500).send(err?.message);
+    }
+  });
+
+  // POST /api/admin/save-seed - Lưu toàn bộ dữ liệu hiện tại làm initial-data.json để đưa lên Git
+  router.post('/api/admin/save-seed', (_req, res) => {
+    try {
+      const SEED_FILE = path.join(process.cwd(), 'initial-data.json');
+      const seedCopy = { ...dbState, updatedAt: Date.now(), initialized: true };
+      fs.writeFileSync(SEED_FILE, JSON.stringify(seedCopy, null, 2), 'utf-8');
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ ok: true, message: 'Đã lưu initial-data.json thành công' }));
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err?.message || 'Lỗi lưu initial-data.json' });
     }
   });
 

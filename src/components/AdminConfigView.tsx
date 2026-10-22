@@ -181,6 +181,41 @@ export const AdminConfigView: React.FC<AdminConfigViewProps> = ({
     }
   };
 
+  const handleSaveSeedData = async () => {
+    try {
+      setIsExporting(true);
+      setBackupMessage('Đang đóng gói dữ liệu khởi động gốc...');
+      const res = await fetch('/api/admin/save-seed', {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (data.ok) {
+        // Đồng thời tải file initial-data.json về máy để Admin có thể kéo lên GitHub
+        const stateRes = await fetch('/api/state');
+        const stateJson = await stateRes.json();
+        const seedPayload = stateJson?.state || {};
+        const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(seedPayload, null, 2));
+        const downloadAnchor = document.createElement('a');
+        downloadAnchor.setAttribute('href', dataStr);
+        downloadAnchor.setAttribute('download', 'initial-data.json');
+        document.body.appendChild(downloadAnchor);
+        downloadAnchor.click();
+        downloadAnchor.remove();
+
+        setBackupMessage('Đã lưu & tải initial-data.json thành công! Bạn hãy kéo file này lên Git để cố định dữ liệu.');
+        setTimeout(() => setBackupMessage(null), 5000);
+      } else {
+        setBackupMessage('Lỗi lưu: ' + (data.error || 'Thất bại'));
+        setTimeout(() => setBackupMessage(null), 4000);
+      }
+    } catch (err: any) {
+      setBackupMessage('Lỗi kết nối server: ' + (err?.message || ''));
+      setTimeout(() => setBackupMessage(null), 4000);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   const handleRestoreServerBackup = async (filename: string) => {
     try {
       setRestoringBackupName(filename);
@@ -1283,6 +1318,33 @@ export const AdminConfigView: React.FC<AdminConfigViewProps> = ({
                 disabled={isImporting}
               />
             </label>
+          </div>
+
+          {/* Box 3: Đóng gói dữ liệu khởi động gốc (initial-data.json) */}
+          <div className="p-4 rounded-xl border-2 border-amber-300 bg-amber-50/60 space-y-2.5 sm:col-span-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-amber-600" />
+                <h4 className="text-xs font-bold uppercase tracking-wider text-amber-950">
+                  Đóng Gói Khởi Động Gốc (initial-data.json)
+                </h4>
+              </div>
+              <span className="self-start sm:self-auto text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-amber-200 text-amber-900 border border-amber-300">
+                Cố định dữ liệu cho mọi lần Deploy
+              </span>
+            </div>
+            <p className="text-xs text-amber-900/80 leading-relaxed">
+              Lưu toàn bộ dữ liệu hiện tại (Nhân viên, Công việc, Tồn kiểm, Công thức) thành file chuẩn <code className="font-mono font-bold bg-amber-100 px-1 py-0.5 rounded text-amber-900">initial-data.json</code>. Khi kéo file này lên Git, mỗi lần deploy bản mới trên Render hệ thống sẽ tự động nạp dữ liệu này, không bao giờ bị reset về mẫu ban đầu nữa!
+            </p>
+            <button
+              type="button"
+              onClick={handleSaveSeedData}
+              disabled={isExporting}
+              className="w-full sm:w-auto h-9 px-5 bg-amber-600 hover:bg-amber-500 disabled:bg-zinc-400 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition shadow-xs"
+            >
+              <Save className="w-3.5 h-3.5" />
+              <span>Lưu & Tải initial-data.json (Kéo lên Git)</span>
+            </button>
           </div>
         </div>
 

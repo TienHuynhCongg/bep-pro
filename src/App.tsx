@@ -832,8 +832,8 @@ export default function App() {
           if (Array.isArray(s.recipes)) setRecipes(s.recipes);
           if (Array.isArray(s.inventory)) setInventory(s.inventory);
           if (s.appConfig && typeof s.appConfig === 'object') setAppConfig(s.appConfig);
-        } else {
-          // Server mới tinh hoặc vừa bị reset: khôi phục từ dữ liệu cục bộ trên máy này
+        } else if (currentUserRef.current?.role === 'admin') {
+          // CHỈ tài khoản Admin mới được phép chủ động đẩy dữ liệu cục bộ lên khôi phục server
           pushStateToServer({
             tasks: tasksRef.current,
             logs,
