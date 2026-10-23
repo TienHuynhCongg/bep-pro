@@ -117,6 +117,24 @@ function sanitizeNumericInput(raw: string): string {
   return result;
 }
 
+// Tự động định dạng số: chuyển "05" -> "5", "005" -> "5", nhưng giữ nguyên "0.5", "0", "0."
+function formatNumericString(raw: string): string {
+  const sanitized = sanitizeNumericInput(raw);
+  // Nếu bắt đầu bằng 0 và số tiếp theo là chữ số 1-9 (không phải dấu chấm), VD: "05" -> "5"
+  if (/^0+[1-9]/.test(sanitized)) {
+    return sanitized.replace(/^0+/, '');
+  }
+  // Nếu nhiều số 0 liên tiếp, VD: "00", "000" -> "0"
+  if (/^0{2,}$/.test(sanitized)) {
+    return '0';
+  }
+  // Nếu bắt đầu bằng nhiều số 0 rồi đến dấu chấm, VD: "00.5" -> "0.5"
+  if (/^0{2,}\./.test(sanitized)) {
+    return sanitized.replace(/^0+/, '0');
+  }
+  return sanitized;
+}
+
 export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
   items,
   onSaveItem,
@@ -230,13 +248,14 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
   const [orderQuantities, setOrderQuantities] = useState<
     Record<string, { qty: number; unit: string }>
   >({});
+  const [orderCabinetFilter, setOrderCabinetFilter] = useState<string>('all');
 
   // Add Item form state
   const [newItemName, setNewItemName] = useState('');
   const [newItemStt, setNewItemStt] = useState<number>(1);
-  const [newItemThreshold, setNewItemThreshold] = useState<number>(3);
-  const [newItemInitialStock, setNewItemInitialStock] = useState<string>('10');
-  const [newItemUnit, setNewItemUnit] = useState<string>('kg');
+  const [newItemThreshold, setNewItemThreshold] = useState<number>(0);
+  const [newItemInitialStock, setNewItemInitialStock] = useState<string>('0');
+  const [newItemUnit, setNewItemUnit] = useState<string>('phần');
 
   // Add Custom Order form state
   const [newCustomName, setNewCustomName] = useState('');
@@ -376,7 +395,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
               importQty: '0',                     // Nhập mới = 0
               wasteQty: '0',                      // Hủy = 0
               stockQty: String(prevEndingStock),  // Tồn hiện tại bắt đầu bằng Tồn hôm trước
-              minThreshold: item.minThreshold ?? 3,
+              minThreshold: item.minThreshold ?? 0,
               unit: item.unit || 'kg',
               statusType: 'ton',
               isManualStock: false,
@@ -425,7 +444,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
             importQty: '0',
             stockQty: String(prevEnding),
             wasteQty: '0',
-            minThreshold: item.minThreshold ?? 3,
+            minThreshold: item.minThreshold ?? 0,
             unit: item.unit || 'kg',
             statusType: 'ton',
             isManualStock: false,
@@ -497,7 +516,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
   };
 
   // Cập nhật ô trong bảng theo công thức:
-  // HÀNG TỒN = NHẬP VÀO + TỒN HÔM TRƯỚC - HỦY
+  // HÀNG TỒN = NHẬP VÀO + TỒN HÔM TRƯỚC - BÁN RA
   const handleCellChange = (
     id: string,
     field: 'itemName' | 'importQty' | 'stockQty' | 'wasteQty' | 'unit' | 'minThreshold' | 'stt',
@@ -512,13 +531,13 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
         let nextRow = { ...row };
 
         if (field === 'importQty') {
-          const sanitized = sanitizeNumericInput(String(rawValue));
-          const importNum = parseFloat(sanitized) || 0;
+          const formatted = formatNumericString(String(rawValue));
+          const importNum = parseFloat(formatted) || 0;
           const wasteNum = parseFloat(row.wasteQty || '0') || 0;
           nextRow = {
             ...nextRow,
             prevStock: String(prevStockNum),
-            importQty: sanitized,
+            importQty: formatted,
           };
           // Độ ưu tiên của công thức xếp SAU việc nhập thủ công của users:
           // Chỉ tự động tính tồn nếu user CHƯA từng nhập tay số tồn cho dòng này
@@ -530,13 +549,13 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
             nextRow.stockQty = String(calculatedStock);
           }
         } else if (field === 'wasteQty') {
-          const sanitized = sanitizeNumericInput(String(rawValue));
-          const wasteNum = parseFloat(sanitized) || 0;
+          const formatted = formatNumericString(String(rawValue));
+          const wasteNum = parseFloat(formatted) || 0;
           const importNum = parseFloat(row.importQty || '0') || 0;
           nextRow = {
             ...nextRow,
             prevStock: String(prevStockNum),
-            wasteQty: sanitized,
+            wasteQty: formatted,
           };
           // Độ ưu tiên của công thức xếp SAU việc nhập thủ công của users:
           if (!row.isManualStock) {
@@ -547,20 +566,22 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
             nextRow.stockQty = String(calculatedStock);
           }
         } else if (field === 'stockQty') {
-          const sanitized = sanitizeNumericInput(String(rawValue));
+          const formatted = formatNumericString(String(rawValue));
           // Khi user nhập thủ công vào cột Tồn: Ưu tiên tuyệt đối giá trị user nhập!
           // KHÔNG ép đổi ngược lại cột Nhập
           nextRow = {
             ...nextRow,
             prevStock: String(prevStockNum),
-            stockQty: sanitized,
+            stockQty: formatted,
             isManualStock: true, // Đánh dấu đã nhập thủ công
           };
         } else if (field === 'minThreshold') {
-          const val = rawValue === '' ? 0 : (parseFloat(rawValue) || 0);
+          const formatted = formatNumericString(String(rawValue));
+          const val = formatted === '' ? 0 : (parseFloat(formatted) || 0);
           nextRow.minThreshold = val;
         } else if (field === 'stt') {
-          nextRow.stt = parseInt(rawValue, 10) || 1;
+          const formatted = formatNumericString(String(rawValue));
+          nextRow.stt = parseInt(formatted, 10) || 1;
         } else {
           (nextRow as any)[field] = rawValue;
         }
@@ -672,7 +693,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
         importQty: '0',
         stockQty: '0',
         wasteQty: '0',
-        minThreshold: item.minThreshold ?? 3,
+        minThreshold: item.minThreshold ?? 0,
         unit: item.unit || 'kg',
         statusType: 'ton',
         createdBy: currentUser?.fullName || 'Người tạo',
@@ -716,17 +737,20 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     setTimeout(() => setJustSavedBanner(false), 2500);
   };
 
-  // Xóa toàn bộ dữ liệu của 1 bảng / tủ trong ngày
+  // Xóa dứt điểm 1 bảng / tủ khỏi toàn bộ hệ thống
   const handleDeleteCurrentTable = (tableToDelete: string) => {
-    if (!window.confirm(`Bạn có chắc chắn muốn xóa toàn bộ dữ liệu của bảng/tủ "${tableToDelete}" ngày ${selectedDate} không?`)) {
+    if (tableToDelete === DEFAULT_TABLE_NAME) {
+      alert(`Không thể xóa bảng chính mặc định "${DEFAULT_TABLE_NAME}"!`);
+      return;
+    }
+    if (!window.confirm(`Bạn có chắc chắn muốn XÓA HOÀN TOÀN bảng/tủ "${tableToDelete}" khỏi hệ thống không?\n\nThao tác này sẽ xóa dứt điểm bảng này và toàn bộ danh mục mặt hàng của bảng trên tất cả các ngày!`)) {
       return;
     }
     const nextAll = localItems.filter(
-      (i) => !(i.dateStr === selectedDate && (i.tableName || DEFAULT_TABLE_NAME) === tableToDelete)
+      (i) => (i.tableName || DEFAULT_TABLE_NAME).trim() !== tableToDelete.trim()
     );
     setLocalItems(nextAll);
-    const remainingTables = existingTablesForDate.filter((t) => t !== tableToDelete);
-    setSelectedTable(remainingTables[0] || DEFAULT_TABLE_NAME);
+    setSelectedTable(DEFAULT_TABLE_NAME);
     if (onSaveDailyTable) {
       onSaveDailyTable(selectedDate, nextAll);
     }
@@ -747,15 +771,15 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     }, 20);
   };
 
-  // Khi rời ô (onBlur), chuẩn hóa các số (loại bỏ dấu chấm ở cuối nếu đang gõ dở) và lưu ngầm
+  // Khi rời ô (onBlur), chuẩn hóa các số: tự động bỏ số 0 ở đầu (05 -> 5), loại bỏ dấu chấm ở cuối nếu gõ dở và lưu ngầm
   const handleCellBlur = (id: string) => {
     setLocalItems((prev) =>
       prev.map((r) => {
         if (r.id !== id) return r;
         const cleanNumber = (val?: string) => {
           if (val === undefined || val === null) return val;
-          const trimmed = String(val).replace(/\.+$/, '');
-          return trimmed === '' ? '0' : trimmed;
+          const formatted = formatNumericString(String(val)).replace(/\.+$/, '');
+          return formatted === '' ? '0' : formatted;
         };
         const updatedRow = {
           ...r,
@@ -773,7 +797,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
   const lowStockCount = useMemo(() => {
     let count = 0;
     allRowsForSelectedDate.forEach((item) => {
-      const threshold = item.minThreshold ?? 3;
+      const threshold = item.minThreshold ?? 0;
       const currentStock = parseFloat(item.stockQty) || 0;
       if (currentStock <= threshold) {
         count++;
@@ -781,6 +805,30 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     });
     return count;
   }, [allRowsForSelectedDate]);
+
+  // Phân loại các mặt hàng cần đặt theo từng Tủ
+  const lowStockRowsByCabinet = useMemo(() => {
+    const map = new Map<string, InventoryCheckItem[]>();
+    allRowsForSelectedDate.forEach((item) => {
+      const threshold = item.minThreshold ?? 0;
+      const currentStock = parseFloat(item.stockQty) || 0;
+      if (currentStock <= threshold) {
+        const cabName = (item.tableName || DEFAULT_TABLE_NAME).trim();
+        if (!map.has(cabName)) {
+          map.set(cabName, []);
+        }
+        map.get(cabName)!.push(item);
+      }
+    });
+    return map;
+  }, [allRowsForSelectedDate, DEFAULT_TABLE_NAME]);
+
+  const cabinetsWithOrders = useMemo(() => {
+    const set = new Set<string>();
+    existingTablesForDate.forEach((t) => set.add(t));
+    lowStockRowsByCabinet.forEach((_, k) => set.add(k));
+    return Array.from(set);
+  }, [existingTablesForDate, lowStockRowsByCabinet]);
 
   // Đồng bộ số lượng hàng cần đặt theo thời gian thực ra App / HeaderNav
   useEffect(() => {
@@ -894,7 +942,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
   // Đặt hàng nhanh theo dòng cho mọi role
   const handleQuickOrderItem = (item: InventoryCheckItem) => {
     const keyId = `inv_${item.id}`;
-    const threshold = item.minThreshold ?? 3;
+    const threshold = item.minThreshold ?? 0;
     const currentStock = parseFloat(item.stockQty) || 0;
     const defaultOrderQty = Math.max(1, threshold * 2 - currentStock);
 
@@ -963,12 +1011,12 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     setTimeout(() => setJustSavedBanner(false), 2500);
   };
 
-  // Xuất file text Bảng Tồn Kho (Hủy trước Tồn)
+  // Xuất file text Bảng Tồn Kho (Bán Ra trước Tồn)
   const exportInventoryToText = () => {
     let content = `BẢNG TỒN KHO NGÀY ${selectedDate} - ${selectedTable}\n`;
-    content += `(Công thức: Tồn = Nhập + Tồn Trước - Hủy • Ưu tiên nhập tay)\n\n`;
-    content += `STT | Tên Mặt Hàng        | Tồn Trước | Nhập | Hủy | Tồn | Đơn Vị\n`;
-    content += `----+---------------------+-----------+------+-----+-----+-------\n`;
+    content += `(Công thức: Tồn = Nhập + Tồn Trước - Bán Ra • Ưu tiên nhập tay)\n\n`;
+    content += `STT | Tên Mặt Hàng                  | Tồn Trước | Nhập | Bán Ra | Tồn | Đơn Vị\n`;
+    content += `----+-------------------------------+-----------+------+--------+-----+-------\n`;
 
     filteredRows.forEach((item) => {
       const prev = getPreviousDayStock(selectedDate, item.itemName, selectedTable);
@@ -976,12 +1024,12 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
       const waste = item.wasteQty || '0';
       const stock = item.stockQty || String(prev);
       const sttStr = String(item.stt || 1).padEnd(3);
-      const nameStr = item.itemName.padEnd(20);
+      const nameStr = item.itemName.slice(0, 29).padEnd(29);
       const prevStr = String(prev).padEnd(9);
       const impStr = String(imp).padEnd(4);
-      const wasteStr = String(waste).padEnd(3);
+      const wasteStr = String(waste).padEnd(6);
       const stockStr = String(stock).padEnd(4);
-      const unitStr = item.unit || 'kg';
+      const unitStr = item.unit || 'phần';
 
       content += `${sttStr} | ${nameStr} | ${prevStr} | ${impStr} | ${wasteStr} | ${stockStr} | ${unitStr}\n`;
     });
@@ -999,132 +1047,20 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     URL.revokeObjectURL(url);
   };
 
-  // Xuất file text Danh Sách Đặt Hàng (Gom từ toàn bộ tủ trong ngày)
-  const exportOrderListToText = () => {
-    let content = `DANH SÁCH ĐẶT HÀNG NGÀY ${selectedDate}\n\n`;
-    content += `STT  | Tên Mặt Hàng                  | Số Lượng Đặt | Đơn Vị\n`;
-    content += `-----+-------------------------------+--------------+-------\n`;
-
-    let count = 0;
-    // 1. Mặt hàng thiếu trong bảng tồn (tất cả các tủ)
-    allRowsForSelectedDate.forEach((item) => {
-      const threshold = item.minThreshold ?? 3;
-      const currentStock = parseFloat(item.stockQty) || 0;
-      if (currentStock <= threshold) {
-        const keyId = `inv_${item.id}`;
-        if (orderSelection[keyId] !== false) {
-          count++;
-          const orderData = orderQuantities[keyId] || {
-            qty: Math.max(1, threshold * 2 - currentStock),
-            unit: item.unit || 'Kg',
-          };
-          const cabinetTag = item.tableName && item.tableName !== DEFAULT_TABLE_NAME ? ` [${item.tableName}]` : '';
-          const sttStr = String(item.stt || count).padEnd(4);
-          const nameStr = `${item.itemName}${cabinetTag}`.slice(0, 29).padEnd(29);
-          const qtyStr = String(orderData.qty).padEnd(12);
-          content += `${sttStr} | ${nameStr} | ${qtyStr} | ${orderData.unit}\n`;
-        }
-      }
-    });
-
-    // 2. Mặt hàng đặt cố định
-    customOrders.forEach((customItem, idx) => {
-      const keyId = `custom_${customItem.id}`;
-      if (orderSelection[keyId] !== false) {
-        count++;
-        const orderData = orderQuantities[keyId] || {
-          qty: customItem.defaultQty,
-          unit: customItem.unit,
-        };
-        const sttStr = `CD-${idx + 1}`.padEnd(4);
-        const nameStr = customItem.name.padEnd(20);
-        const qtyStr = String(orderData.qty).padEnd(12);
-        content += `${sttStr} | ${nameStr} | ${qtyStr} | ${orderData.unit}\n`;
-      }
-    });
-
-    if (count === 0) {
-      alert('Vui lòng chọn ít nhất 1 mặt hàng để xuất file đặt hàng!');
-      return;
-    }
-
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    const safeDate = selectedDate.replace(/\//g, '-');
-    a.download = `DanhSachDatHang_${safeDate}.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
-
-  // Xuất file ảnh PNG Danh Sách Đặt Hàng (Đẹp mắt, trực quan để gửi thẳng qua Zalo)
-  const exportOrderListToImage = () => {
-    const selectedItemsList: Array<{
-      stt: string;
-      name: string;
-      stock: string;
-      qty: number;
-      unit: string;
-      isCustom?: boolean;
-    }> = [];
-
-    // 1. Mặt hàng thiếu trong bảng tồn (trên toàn bộ các tủ trong ngày)
-    allRowsForSelectedDate.forEach((item) => {
-      const threshold = item.minThreshold ?? 3;
-      const currentStock = parseFloat(item.stockQty) || 0;
-      if (currentStock <= threshold) {
-        const keyId = `inv_${item.id}`;
-        if (orderSelection[keyId] !== false) {
-          const orderData = orderQuantities[keyId] || {
-            qty: Math.max(1, threshold * 2 - currentStock),
-            unit: item.unit || 'Kg',
-          };
-          const cabinetTag = item.tableName && item.tableName !== DEFAULT_TABLE_NAME ? ` [${item.tableName}]` : '';
-          selectedItemsList.push({
-            stt: String(item.stt || selectedItemsList.length + 1),
-            name: `${item.itemName}${cabinetTag}`,
-            stock: String(currentStock),
-            qty: orderData.qty,
-            unit: orderData.unit,
-          });
-        }
-      }
-    });
-
-    // 2. Mặt hàng đặt cố định
-    customOrders.forEach((customItem, idx) => {
-      const keyId = `custom_${customItem.id}`;
-      if (orderSelection[keyId] !== false) {
-        const orderData = orderQuantities[keyId] || {
-          qty: customItem.defaultQty,
-          unit: customItem.unit,
-        };
-        selectedItemsList.push({
-          stt: `CD-${idx + 1}`,
-          name: customItem.name,
-          stock: 'Cố định',
-          qty: orderData.qty,
-          unit: orderData.unit,
-          isCustom: true,
-        });
-      }
-    });
-
-    if (selectedItemsList.length === 0) {
-      alert('Vui lòng chọn ít nhất 1 mặt hàng để xuất ảnh đặt hàng!');
+  // Xuất file ảnh PNG Bảng Tồn Kho (Gọn gàng, ít khoảng trống thừa, cực nét để gửi Zalo)
+  const exportInventoryToImage = () => {
+    if (filteredRows.length === 0) {
+      alert('Bảng tồn hiện tại chưa có mặt hàng nào để xuất ảnh!');
       return;
     }
 
     const scale = 2;
-    const canvasWidth = 540;
-    const headerHeight = 84;
-    const tableHeaderHeight = 34;
-    const rowHeight = 36;
-    const footerHeight = 44;
-    const totalHeight = headerHeight + tableHeaderHeight + selectedItemsList.length * rowHeight + footerHeight;
+    const canvasWidth = 560;
+    const headerHeight = 56;
+    const tableHeaderHeight = 26;
+    const rowHeight = 26;
+    const footerHeight = 28;
+    const totalHeight = headerHeight + tableHeaderHeight + filteredRows.length * rowHeight + footerHeight;
 
     const canvas = document.createElement('canvas');
     canvas.width = canvasWidth * scale;
@@ -1143,149 +1079,523 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
       }
     };
 
-    // 1. Nền tổng thể
+    // 1. Nền
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvasWidth, totalHeight);
 
-    // 2. Header Banner màu tối phong cách Bếp Pro
+    // 2. Header
     ctx.fillStyle = '#0f172a';
     ctx.fillRect(0, 0, canvasWidth, headerHeight);
 
-    // Viền vàng hổ phách trang trí
-    ctx.fillStyle = '#f59e0b';
+    // Viền xanh lá
+    ctx.fillStyle = '#10b981';
     ctx.fillRect(0, headerHeight - 3, canvasWidth, 3);
 
-    // Tiêu đề thương hiệu
-    ctx.font = 'bold 10px "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
-    ctx.fillStyle = '#f59e0b';
+    ctx.font = 'bold 9.5px "Segoe UI", Roboto, sans-serif';
+    ctx.fillStyle = '#10b981';
     ctx.textAlign = 'left';
-    ctx.fillText('KITCHEN LOG PRO • ĐƠN ĐẶT HÀNG BẾP', 16, 24);
+    ctx.fillText('KITCHEN LOG PRO • BẢNG KIỂM TỒN KHO BẾP', 12, 18);
 
-    // Tiêu đề đơn hàng
-    ctx.font = 'bold 17px "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+    ctx.font = 'bold 15px "Segoe UI", Roboto, sans-serif';
     ctx.fillStyle = '#ffffff';
-    ctx.fillText('DANH SÁCH CẦN ĐẶT HÀNG', 16, 48);
+    ctx.fillText(`${selectedTable.toUpperCase()} • NGÀY ${selectedDate}`, 12, 36);
 
-    // Thông tin ca / ngày / người lập
-    ctx.font = '500 11px "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
-    ctx.fillStyle = '#cbd5e1';
+    ctx.font = '500 10.5px "Segoe UI", Roboto, sans-serif';
+    ctx.fillStyle = '#94a3b8';
     const nowTimeStr = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-    const creatorName = currentUser?.fullName || 'Bếp';
-    ctx.fillText(`Ngày: ${selectedDate}  •  ${creatorName}  •  ${nowTimeStr}`, 16, 68);
+    ctx.fillText(`Người lập: ${currentUser?.fullName || 'Bếp'} • ${nowTimeStr}`, 12, 49);
 
-    // Badge tổng số mặt hàng
-    ctx.fillStyle = '#d97706';
-    const badgeText = `${selectedItemsList.length} MẶT HÀNG`;
-    ctx.font = 'bold 11px "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
-    const badgeWidth = ctx.measureText(badgeText).width + 14;
+    // Badge tổng
+    const badgeText = `${filteredRows.length} MẶT HÀNG`;
+    ctx.font = 'bold 10.5px "Segoe UI", Roboto, sans-serif';
+    const badgeW = ctx.measureText(badgeText).width + 12;
+    ctx.fillStyle = '#059669';
     ctx.beginPath();
-    safeRoundRect(canvasWidth - badgeWidth - 16, 26, badgeWidth, 24, 6);
+    safeRoundRect(canvasWidth - badgeW - 12, 17, badgeW, 22, 5);
     ctx.fill();
     ctx.fillStyle = '#ffffff';
     ctx.textAlign = 'center';
-    ctx.fillText(badgeText, canvasWidth - 16 - badgeWidth / 2, 42);
+    ctx.fillText(badgeText, canvasWidth - 12 - badgeW / 2, 32);
 
     // 3. Table Header
-    const tableTop = headerHeight + 8;
+    const tableTop = headerHeight + 4;
     ctx.fillStyle = '#f1f5f9';
     ctx.beginPath();
-    safeRoundRect(12, tableTop, canvasWidth - 24, tableHeaderHeight, 6);
+    safeRoundRect(10, tableTop, canvasWidth - 20, tableHeaderHeight, 4);
     ctx.fill();
 
-    ctx.font = 'bold 11px "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+    ctx.font = 'bold 10px "Segoe UI", Roboto, sans-serif';
     ctx.fillStyle = '#475569';
     ctx.textAlign = 'center';
-    ctx.fillText('STT', 32, tableTop + 21);
+    ctx.fillText('STT', 26, tableTop + 17);
     ctx.textAlign = 'left';
-    ctx.fillText('TÊN MẶT HÀNG', 62, tableTop + 21);
+    ctx.fillText('TÊN MẶT HÀNG', 52, tableTop + 17);
     ctx.textAlign = 'center';
-    ctx.fillText('TỒN', 345, tableTop + 21);
-    ctx.fillText('SỐ ĐẶT', 425, tableTop + 21);
-    ctx.fillText('ĐƠN VỊ', 498, tableTop + 21);
+    ctx.fillText('TRƯỚC', 280, tableTop + 17);
+    ctx.fillText('NHẬP', 335, tableTop + 17);
+    ctx.fillText('BÁN RA', 390, tableTop + 17);
+    ctx.fillText('TỒN', 450, tableTop + 17);
+    ctx.fillText('ĐVT', 515, tableTop + 17);
 
     // 4. Rows
     let currentY = tableTop + tableHeaderHeight;
-    selectedItemsList.forEach((row, idx) => {
-      // Nền xen kẽ
+    filteredRows.forEach((item, idx) => {
       ctx.fillStyle = idx % 2 === 0 ? '#ffffff' : '#f8fafc';
-      ctx.fillRect(12, currentY, canvasWidth - 24, rowHeight);
+      ctx.fillRect(10, currentY, canvasWidth - 20, rowHeight);
 
-      // Đường kẻ mờ ngang
       ctx.strokeStyle = '#e2e8f0';
-      ctx.lineWidth = 1;
+      ctx.lineWidth = 0.8;
       ctx.beginPath();
-      ctx.moveTo(12, currentY + rowHeight);
-      ctx.lineTo(canvasWidth - 12, currentY + rowHeight);
+      ctx.moveTo(10, currentY + rowHeight);
+      ctx.lineTo(canvasWidth - 10, currentY + rowHeight);
       ctx.stroke();
+
+      const prev = getPreviousDayStock(selectedDate, item.itemName, selectedTable);
+      const imp = item.importQty || '0';
+      const waste = item.wasteQty || '0';
+      const stock = item.stockQty || String(prev);
+      const threshold = item.minThreshold ?? 0;
+      const isLow = parseFloat(stock) <= threshold;
 
       // STT
       ctx.textAlign = 'center';
-      ctx.font = row.isCustom ? 'bold 10px monospace' : 'bold 11px "Segoe UI", Roboto';
-      ctx.fillStyle = row.isCustom ? '#4f46e5' : '#64748b';
-      ctx.fillText(row.stt, 32, currentY + 22);
+      ctx.font = 'bold 10.5px monospace';
+      ctx.fillStyle = '#64748b';
+      ctx.fillText(String(item.stt || idx + 1), 26, currentY + 17);
 
-      // Tên hàng (ngắn gọn, cắt nếu dài quá)
+      // Tên hàng
       ctx.textAlign = 'left';
-      ctx.font = 'bold 12px "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+      ctx.font = 'bold 11px "Segoe UI", Roboto, sans-serif';
       ctx.fillStyle = '#0f172a';
-      let displayName = row.name;
-      if (ctx.measureText(displayName).width > 260) {
-        while (ctx.measureText(displayName + '...').width > 260 && displayName.length > 0) {
-          displayName = displayName.slice(0, -1);
+      let nameStr = item.itemName;
+      if (ctx.measureText(nameStr).width > 210) {
+        while (ctx.measureText(nameStr + '...').width > 210 && nameStr.length > 0) {
+          nameStr = nameStr.slice(0, -1);
         }
-        displayName += '...';
+        nameStr += '...';
       }
-      ctx.fillText(displayName, 62, currentY + 22);
+      ctx.fillText(nameStr, 52, currentY + 17);
 
-      // Tồn hiện tại
+      // Tồn trước
       ctx.textAlign = 'center';
-      ctx.font = '600 12px "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
-      ctx.fillStyle = row.isCustom ? '#94a3b8' : '#e11d48';
-      ctx.fillText(row.stock, 345, currentY + 22);
+      ctx.font = '500 11px "Segoe UI", Roboto, sans-serif';
+      ctx.fillStyle = '#64748b';
+      ctx.fillText(String(prev), 280, currentY + 17);
 
-      // Khung nổi bật Số lượng đặt
-      ctx.fillStyle = '#fef3c7';
+      // Nhập (xanh)
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 11px "Segoe UI", Roboto, sans-serif';
+      ctx.fillStyle = '#4338ca';
+      ctx.fillText(String(imp), 335, currentY + 17);
+
+      // Bán ra (hồng đậm)
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 11px "Segoe UI", Roboto, sans-serif';
+      ctx.fillStyle = '#e11d48';
+      ctx.fillText(String(waste), 390, currentY + 17);
+
+      // Tồn (khung nổi bật)
+      ctx.fillStyle = isLow ? '#ffe4e6' : '#dcfce7';
       ctx.beginPath();
-      safeRoundRect(398, currentY + 6, 54, 24, 6);
+      safeRoundRect(430, currentY + 3, 40, 20, 4);
       ctx.fill();
 
       ctx.textAlign = 'center';
-      ctx.font = 'bold 13px "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
-      ctx.fillStyle = '#b45309';
-      ctx.fillText(String(row.qty), 425, currentY + 22);
+      ctx.font = 'bold 11.5px "Segoe UI", Roboto, sans-serif';
+      ctx.fillStyle = isLow ? '#be123c' : '#15803d';
+      ctx.fillText(String(stock), 450, currentY + 17);
 
       // Đơn vị
       ctx.textAlign = 'center';
-      ctx.font = '600 11px "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
-      ctx.fillStyle = '#334155';
-      ctx.fillText(row.unit, 498, currentY + 22);
+      ctx.font = '500 10.5px "Segoe UI", Roboto, sans-serif';
+      ctx.fillStyle = '#475569';
+      ctx.fillText(item.unit || 'phần', 515, currentY + 17);
 
       currentY += rowHeight;
     });
 
-    // 5. Footer tóm tắt
-    const footerTop = currentY + 6;
+    // 5. Footer
+    const footerTop = currentY + 2;
     ctx.fillStyle = '#f8fafc';
     ctx.beginPath();
-    safeRoundRect(12, footerTop, canvasWidth - 24, 32, 6);
+    safeRoundRect(10, footerTop, canvasWidth - 20, 22, 4);
     ctx.fill();
     ctx.strokeStyle = '#e2e8f0';
-    ctx.lineWidth = 1;
+    ctx.lineWidth = 0.8;
     ctx.stroke();
 
     ctx.textAlign = 'left';
-    ctx.font = 'bold 11px "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+    ctx.font = 'bold 9.5px "Segoe UI", Roboto, sans-serif';
     ctx.fillStyle = '#166534';
-    ctx.fillText(`✓ Xác nhận: ${selectedItemsList.length} mặt hàng cần nhập • Kitchen Log Pro`, 24, footerTop + 20);
+    ctx.fillText(`✓ Bảng Tồn: ${selectedTable} • Ngày ${selectedDate} • Kitchen Log Pro`, 16, footerTop + 15);
 
-    // Tải ảnh về
     canvas.toBlob((blob) => {
       if (!blob) return;
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       const safeDate = selectedDate.replace(/\//g, '-');
-      a.download = `DanhSachDatHang_${safeDate}.png`;
+      const safeTable = selectedTable.replace(/[^a-zA-Z0-9_\u00C0-\u024F\u1EA0-\u1EF9]/g, '_');
+      a.download = `TonKho_${safeDate}_${safeTable}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 'image/png');
+  };
+
+  // Xuất file text Danh Sách Đặt Hàng (Phân nhóm theo từng tủ gọn gàng)
+  const exportOrderListToText = () => {
+    let content = `==============================================\n`;
+    content += `DANH SÁCH ĐẶT HÀNG NGÀY ${selectedDate}\n`;
+    if (orderCabinetFilter === 'all') {
+      content += `(Khu vực: Tổng Hợp Toàn Bộ Các Tủ)\n`;
+    } else if (orderCabinetFilter === 'custom') {
+      content += `(Khu vực: Hàng Đặt Cố Định)\n`;
+    } else {
+      content += `(Khu vực: ${orderCabinetFilter})\n`;
+    }
+    content += `Thời gian xuất: ${new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}\n`;
+    content += `==============================================\n\n`;
+
+    let totalSelected = 0;
+
+    if (orderCabinetFilter !== 'custom') {
+      const cabinetsToExport = orderCabinetFilter === 'all'
+        ? Array.from(new Set(allRowsForSelectedDate.map((i) => (i.tableName || DEFAULT_TABLE_NAME).trim())))
+        : [orderCabinetFilter];
+
+      cabinetsToExport.forEach((cabName) => {
+        const cabItems = allRowsForSelectedDate.filter(
+          (i) => (i.tableName || DEFAULT_TABLE_NAME).trim() === cabName &&
+                 (parseFloat(i.stockQty) || 0) <= (i.minThreshold ?? 0)
+        );
+
+        const selectedInCab = cabItems.filter((i) => orderSelection[`inv_${i.id}`] !== false);
+        if (selectedInCab.length > 0) {
+          content += `[KHU VỰC: ${cabName.toUpperCase()}] (${selectedInCab.length} mặt hàng)\n`;
+          content += `STT  | Tên Mặt Hàng                  | Tồn Hiện Tại | Số Đặt | Đơn Vị\n`;
+          content += `-----+-------------------------------+--------------+--------+-------\n`;
+          selectedInCab.forEach((item, idx) => {
+            totalSelected++;
+            const keyId = `inv_${item.id}`;
+            const threshold = item.minThreshold ?? 0;
+            const currentStock = parseFloat(item.stockQty) || 0;
+            const orderData = orderQuantities[keyId] || {
+              qty: Math.max(1, threshold * 2 - currentStock),
+              unit: item.unit || 'Kg',
+            };
+            const sttStr = String(item.stt || idx + 1).padEnd(4);
+            const nameStr = item.itemName.slice(0, 29).padEnd(29);
+            const stockStr = String(item.stockQty).padEnd(12);
+            const qtyStr = String(orderData.qty).padEnd(6);
+            content += `${sttStr} | ${nameStr} | ${stockStr} | ${qtyStr} | ${orderData.unit}\n`;
+          });
+          content += `\n`;
+        }
+      });
+    }
+
+    if (orderCabinetFilter === 'all' || orderCabinetFilter === 'custom') {
+      const selectedCustom = customOrders.filter((c) => orderSelection[`custom_${c.id}`] !== false);
+      if (selectedCustom.length > 0) {
+        content += `[HÀNG ĐẶT CỐ ĐỊNH] (${selectedCustom.length} mặt hàng)\n`;
+        content += `STT  | Tên Mặt Hàng                  | Số Lượng Đặt | Đơn Vị\n`;
+        content += `-----+-------------------------------+--------------+-------\n`;
+        selectedCustom.forEach((c, idx) => {
+          totalSelected++;
+          const keyId = `custom_${c.id}`;
+          const orderData = orderQuantities[keyId] || {
+            qty: c.defaultQty,
+            unit: c.unit,
+          };
+          const sttStr = `CD-${idx + 1}`.padEnd(4);
+          const nameStr = c.name.slice(0, 29).padEnd(29);
+          const qtyStr = String(orderData.qty).padEnd(12);
+          content += `${sttStr} | ${nameStr} | ${qtyStr} | ${orderData.unit}\n`;
+        });
+        content += `\n`;
+      }
+    }
+
+    if (totalSelected === 0) {
+      alert('Vui lòng chọn ít nhất 1 mặt hàng để xuất file đặt hàng!');
+      return;
+    }
+
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const safeDate = selectedDate.replace(/\//g, '-');
+    const safeFilter = orderCabinetFilter.replace(/[^a-zA-Z0-9_\u00C0-\u024F\u1EA0-\u1EF9]/g, '_');
+    a.download = `DanhSachDatHang_${safeDate}_${safeFilter}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  // Xuất file ảnh PNG Danh Sách Đặt Hàng (Gọn gàng, ít khoảng trống thừa, chia theo tủ sắc nét để gửi Zalo)
+  const exportOrderListToImage = () => {
+    type ExportOrderItem = {
+      stt: string;
+      name: string;
+      stock: string;
+      qty: number;
+      unit: string;
+      isCustom?: boolean;
+    };
+
+    const sections: Array<{ title: string; items: ExportOrderItem[] }> = [];
+
+    if (orderCabinetFilter !== 'custom') {
+      const cabinetsToExport = orderCabinetFilter === 'all'
+        ? Array.from(new Set(allRowsForSelectedDate.map((i) => (i.tableName || DEFAULT_TABLE_NAME).trim())))
+        : [orderCabinetFilter];
+
+      cabinetsToExport.forEach((cabName) => {
+        const cabItems = allRowsForSelectedDate.filter(
+          (i) => (i.tableName || DEFAULT_TABLE_NAME).trim() === cabName &&
+                 (parseFloat(i.stockQty) || 0) <= (i.minThreshold ?? 0)
+        );
+        const selected = cabItems.filter((i) => orderSelection[`inv_${i.id}`] !== false);
+        if (selected.length > 0) {
+          sections.push({
+            title: `KHU VỰC: ${cabName.toUpperCase()} (${selected.length} món)`,
+            items: selected.map((item, idx) => {
+              const keyId = `inv_${item.id}`;
+              const threshold = item.minThreshold ?? 0;
+              const currentStock = parseFloat(item.stockQty) || 0;
+              const orderData = orderQuantities[keyId] || {
+                qty: Math.max(1, threshold * 2 - currentStock),
+                unit: item.unit || 'phần',
+              };
+              return {
+                stt: String(item.stt || idx + 1),
+                name: item.itemName,
+                stock: String(currentStock),
+                qty: orderData.qty,
+                unit: orderData.unit,
+              };
+            }),
+          });
+        }
+      });
+    }
+
+    if (orderCabinetFilter === 'all' || orderCabinetFilter === 'custom') {
+      const selectedCustom = customOrders.filter((c) => orderSelection[`custom_${c.id}`] !== false);
+      if (selectedCustom.length > 0) {
+        sections.push({
+          title: `HÀNG ĐẶT CỐ ĐỊNH (${selectedCustom.length} món)`,
+          items: selectedCustom.map((c, idx) => {
+            const keyId = `custom_${c.id}`;
+            const orderData = orderQuantities[keyId] || {
+              qty: c.defaultQty,
+              unit: c.unit,
+            };
+            return {
+              stt: `CD-${idx + 1}`,
+              name: c.name,
+              stock: 'Cố định',
+              qty: orderData.qty,
+              unit: orderData.unit,
+              isCustom: true,
+            };
+          }),
+        });
+      }
+    }
+
+    const totalItemsCount = sections.reduce((acc, s) => acc + s.items.length, 0);
+    if (totalItemsCount === 0) {
+      alert('Vui lòng chọn ít nhất 1 mặt hàng để xuất ảnh đặt hàng!');
+      return;
+    }
+
+    const scale = 2;
+    const canvasWidth = 520; // Rất gọn, vừa vặn khung ảnh di động Zalo
+    const headerHeight = 56;
+    const sectionBarHeight = 22;
+    const tableHeaderHeight = 24;
+    const rowHeight = 26;
+    const footerHeight = 28;
+
+    const totalHeight =
+      headerHeight +
+      sections.length * (sectionBarHeight + tableHeaderHeight + 4) +
+      totalItemsCount * rowHeight +
+      footerHeight;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = canvasWidth * scale;
+    canvas.height = totalHeight * scale;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.scale(scale, scale);
+
+    const safeRoundRect = (x: number, y: number, w: number, h: number, r: number) => {
+      if (typeof (ctx as any).roundRect === 'function') {
+        (ctx as any).roundRect(x, y, w, h, r);
+      } else {
+        ctx.rect(x, y, w, h);
+      }
+    };
+
+    // 1. Nền
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvasWidth, totalHeight);
+
+    // 2. Header
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(0, 0, canvasWidth, headerHeight);
+
+    ctx.fillStyle = '#f59e0b';
+    ctx.fillRect(0, headerHeight - 3, canvasWidth, 3);
+
+    ctx.font = 'bold 9.5px "Segoe UI", Roboto, sans-serif';
+    ctx.fillStyle = '#f59e0b';
+    ctx.textAlign = 'left';
+    ctx.fillText('KITCHEN LOG PRO • ĐƠN ĐẶT HÀNG BẾP', 12, 18);
+
+    ctx.font = 'bold 15px "Segoe UI", Roboto, sans-serif';
+    ctx.fillStyle = '#ffffff';
+    const subTitle = orderCabinetFilter === 'all'
+      ? 'DANH SÁCH CẦN ĐẶT HÀNG (TẤT CẢ CÁC TỦ)'
+      : `ĐẶT HÀNG: ${orderCabinetFilter.toUpperCase()}`;
+    ctx.fillText(subTitle, 12, 36);
+
+    ctx.font = '500 10px "Segoe UI", Roboto, sans-serif';
+    ctx.fillStyle = '#94a3b8';
+    const nowTimeStr = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+    ctx.fillText(`Ngày: ${selectedDate} • ${currentUser?.fullName || 'Bếp'} • ${nowTimeStr}`, 12, 49);
+
+    const badgeText = `${totalItemsCount} MẶT HÀNG`;
+    ctx.font = 'bold 10px "Segoe UI", Roboto, sans-serif';
+    const badgeW = ctx.measureText(badgeText).width + 12;
+    ctx.fillStyle = '#d97706';
+    ctx.beginPath();
+    safeRoundRect(canvasWidth - badgeW - 12, 17, badgeW, 22, 5);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.fillText(badgeText, canvasWidth - 12 - badgeW / 2, 32);
+
+    // 3. Render Sections
+    let currentY = headerHeight + 6;
+
+    sections.forEach((sec) => {
+      // Tiêu đề phân nhóm tủ
+      ctx.fillStyle = '#1e293b';
+      ctx.beginPath();
+      safeRoundRect(10, currentY, canvasWidth - 20, sectionBarHeight, 4);
+      ctx.fill();
+
+      ctx.textAlign = 'left';
+      ctx.font = 'bold 10.5px "Segoe UI", Roboto, sans-serif';
+      ctx.fillStyle = '#fbbf24';
+      ctx.fillText(`▶ ${sec.title}`, 16, currentY + 15);
+      currentY += sectionBarHeight + 2;
+
+      // Table Header của Tủ
+      ctx.fillStyle = '#f1f5f9';
+      ctx.fillRect(10, currentY, canvasWidth - 20, tableHeaderHeight);
+
+      ctx.font = 'bold 9.5px "Segoe UI", Roboto, sans-serif';
+      ctx.fillStyle = '#475569';
+      ctx.textAlign = 'center';
+      ctx.fillText('STT', 26, currentY + 16);
+      ctx.textAlign = 'left';
+      ctx.fillText('TÊN MẶT HÀNG', 52, currentY + 16);
+      ctx.textAlign = 'center';
+      ctx.fillText('TỒN', 325, currentY + 16);
+      ctx.fillText('SỐ ĐẶT', 395, currentY + 16);
+      ctx.fillText('ĐƠN VỊ', 465, currentY + 16);
+
+      currentY += tableHeaderHeight;
+
+      // Rows
+      sec.items.forEach((row, idx) => {
+        ctx.fillStyle = idx % 2 === 0 ? '#ffffff' : '#f8fafc';
+        ctx.fillRect(10, currentY, canvasWidth - 20, rowHeight);
+
+        ctx.strokeStyle = '#e2e8f0';
+        ctx.lineWidth = 0.8;
+        ctx.beginPath();
+        ctx.moveTo(10, currentY + rowHeight);
+        ctx.lineTo(canvasWidth - 10, currentY + rowHeight);
+        ctx.stroke();
+
+        ctx.textAlign = 'center';
+        ctx.font = row.isCustom ? 'bold 9.5px monospace' : 'bold 10px monospace';
+        ctx.fillStyle = row.isCustom ? '#4f46e5' : '#64748b';
+        ctx.fillText(row.stt, 26, currentY + 17);
+
+        ctx.textAlign = 'left';
+        ctx.font = 'bold 11px "Segoe UI", Roboto, sans-serif';
+        ctx.fillStyle = '#0f172a';
+        let displayName = row.name;
+        if (ctx.measureText(displayName).width > 230) {
+          while (ctx.measureText(displayName + '...').width > 230 && displayName.length > 0) {
+            displayName = displayName.slice(0, -1);
+          }
+          displayName += '...';
+        }
+        ctx.fillText(displayName, 52, currentY + 17);
+
+        ctx.textAlign = 'center';
+        ctx.font = '600 11px "Segoe UI", Roboto, sans-serif';
+        ctx.fillStyle = row.isCustom ? '#94a3b8' : '#e11d48';
+        ctx.fillText(row.stock, 325, currentY + 17);
+
+        // Khung số đặt
+        ctx.fillStyle = '#fef3c7';
+        ctx.beginPath();
+        safeRoundRect(375, currentY + 3, 40, 20, 4);
+        ctx.fill();
+
+        ctx.textAlign = 'center';
+        ctx.font = 'bold 12px "Segoe UI", Roboto, sans-serif';
+        ctx.fillStyle = '#b45309';
+        ctx.fillText(String(row.qty), 395, currentY + 17);
+
+        ctx.textAlign = 'center';
+        ctx.font = '600 10.5px "Segoe UI", Roboto, sans-serif';
+        ctx.fillStyle = '#334155';
+        ctx.fillText(row.unit, 465, currentY + 17);
+
+        currentY += rowHeight;
+      });
+
+      currentY += 4;
+    });
+
+    // 4. Footer
+    const footerTop = currentY;
+    ctx.fillStyle = '#f8fafc';
+    ctx.beginPath();
+    safeRoundRect(10, footerTop, canvasWidth - 20, 22, 4);
+    ctx.fill();
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+
+    ctx.textAlign = 'left';
+    ctx.font = 'bold 9.5px "Segoe UI", Roboto, sans-serif';
+    ctx.fillStyle = '#166534';
+    ctx.fillText(`✓ Xác nhận ${totalItemsCount} mặt hàng cần nhập • Kitchen Log Pro`, 16, footerTop + 15);
+
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const safeDate = selectedDate.replace(/\//g, '-');
+      const safeFilter = orderCabinetFilter.replace(/[^a-zA-Z0-9_\u00C0-\u024F\u1EA0-\u1EF9]/g, '_');
+      a.download = `DanhSachDatHang_${safeDate}_${safeFilter}.png`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -1383,6 +1693,17 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
               <span>Xuất Text</span>
             </button>
 
+            {/* Nút Xuất Ảnh PNG Bảng Tồn */}
+            <button
+              type="button"
+              onClick={exportInventoryToImage}
+              className="h-8 px-3 rounded-xl text-xs font-bold bg-emerald-700 hover:bg-emerald-600 text-white transition flex items-center gap-1.5 shrink-0 shadow-xs active:scale-95"
+              title="Xuất ảnh bảng tồn kho đẹp mắt, sắc nét để gửi Zalo"
+            >
+              <Camera className="w-3.5 h-3.5" />
+              <span>Xuất Ảnh PNG</span>
+            </button>
+
             {/* Nút Phục Hồi Tồn Kho Khẩn Cấp nếu có bản sao lưu trên thiết bị */}
             {onRestoreEmergencyInventory && (
               <button
@@ -1433,7 +1754,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
             const lowStockCountInTable = localItems.filter((i) => {
               if (i.dateStr !== selectedDate || (i.tableName || DEFAULT_TABLE_NAME) !== tableName) return false;
               const s = parseFloat(i.stockQty);
-              return !isNaN(s) && s <= (i.minThreshold ?? 3);
+              return !isNaN(s) && s <= (i.minThreshold ?? 0);
             }).length;
 
             return (
@@ -1536,7 +1857,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
           </div>
 
           <span className="hidden xl:inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-zinc-50 text-zinc-600 text-[11px] font-mono border border-zinc-200">
-            Công thức: <strong>Tồn = Nhập + Tồn Trước - Hủy</strong> (Ưu tiên nhập tay)
+            Công thức: <strong>Tồn = Nhập + Tồn Trước - Bán Ra</strong> (Ưu tiên nhập tay)
           </span>
         </div>
 
@@ -1601,7 +1922,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                 <th className="py-2.5 px-2 min-w-[120px] sm:min-w-[170px]">Tên Hàng</th>
                 <th className="py-2.5 px-1.5 w-14 sm:w-16 text-right">Trước</th>
                 <th className="py-2.5 px-1.5 w-14 sm:w-16 text-right">Nhập</th>
-                <th className="py-2.5 px-1.5 w-12 sm:w-14 text-right">Hủy</th>
+                <th className="py-2.5 px-1.5 w-12 sm:w-14 text-right">Bán Ra</th>
                 <th className="py-2.5 px-1.5 w-16 sm:w-20 text-right">Tồn</th>
                 <th className="py-2.5 px-1 w-11 sm:w-12 text-center">ĐVT</th>
                 <th className="py-2.5 px-1 w-12 text-center">Đặt</th>
@@ -1634,7 +1955,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                 filteredRows.map((item, idx) => {
                   const prevStock = getPreviousDayStock(selectedDate, item.itemName);
                   const currentStockNum = parseFloat(item.stockQty) || 0;
-                  const threshold = item.minThreshold ?? 3;
+                  const threshold = item.minThreshold ?? 0;
                   const isLowStock = currentStockNum <= threshold;
 
                   return (
@@ -1758,7 +2079,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                         )}
                       </td>
 
-                      {/* Hủy (Đưa lên trước Tồn) */}
+                      {/* Bán Ra (Đưa lên trước Tồn) */}
                       <td className="py-2 px-1.5 text-right">
                         {tableMode === 'view' ? (
                           <span className="font-semibold text-rose-600 text-xs">{item.wasteQty || '0'}</span>
@@ -2014,8 +2335,8 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
       {/* Modal: Danh Sách Đặt Hàng (OrderListModal) */}
       {isOrderListModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-3xl w-full p-5 sm:p-6 shadow-2xl border border-zinc-200 max-h-[90vh] flex flex-col space-y-4">
-            <div className="flex justify-between items-center pb-3 border-b border-zinc-100">
+          <div className="bg-white rounded-3xl max-w-3xl w-full p-5 sm:p-6 shadow-2xl border border-zinc-200 max-h-[90vh] flex flex-col space-y-3.5">
+            <div className="flex justify-between items-center pb-2.5 border-b border-zinc-100">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center font-bold">
                   <ShoppingCart className="w-4 h-4" />
@@ -2024,7 +2345,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                   <h3 className="text-base font-bold text-zinc-950">
                     Danh Sách Mặt Hàng Cần Đặt Hàng
                   </h3>
-                  <p className="text-xs text-zinc-500">
+                  <p className="text-[11px] text-zinc-500">
                     Tổng hợp các mặt hàng dưới ngưỡng tồn và hàng đặt cố định để gửi nhà cung cấp.
                   </p>
                 </div>
@@ -2051,11 +2372,74 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
               </div>
             </div>
 
+            {/* Thanh Tab Bộ Lọc Theo Tủ */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none border-b border-zinc-100">
+              <button
+                type="button"
+                onClick={() => setOrderCabinetFilter('all')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap flex items-center gap-1.5 ${
+                  orderCabinetFilter === 'all'
+                    ? 'bg-amber-600 text-white shadow-xs'
+                    : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+                }`}
+              >
+                <span>Tất Cả Các Tủ</span>
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${
+                  orderCabinetFilter === 'all' ? 'bg-amber-700 text-white' : 'bg-zinc-200 text-zinc-700'
+                }`}>
+                  {lowStockCount + customOrders.length}
+                </span>
+              </button>
+
+              {cabinetsWithOrders.map((cabName) => {
+                const cabCount = lowStockRowsByCabinet.get(cabName)?.length || 0;
+                const isActive = orderCabinetFilter === cabName;
+                return (
+                  <button
+                    key={cabName}
+                    type="button"
+                    onClick={() => setOrderCabinetFilter(cabName)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap flex items-center gap-1.5 ${
+                      isActive
+                        ? 'bg-amber-600 text-white shadow-xs'
+                        : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+                    }`}
+                  >
+                    <span>{cabName}</span>
+                    <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${
+                      isActive ? 'bg-amber-700 text-white' : 'bg-zinc-200 text-zinc-700'
+                    }`}>
+                      {cabCount}
+                    </span>
+                  </button>
+                );
+              })}
+
+              {customOrders.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setOrderCabinetFilter('custom')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap flex items-center gap-1.5 ${
+                    orderCabinetFilter === 'custom'
+                      ? 'bg-indigo-600 text-white shadow-xs'
+                      : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+                  }`}
+                >
+                  <span>Hàng Cố Định</span>
+                  <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${
+                    orderCabinetFilter === 'custom' ? 'bg-indigo-700 text-white' : 'bg-zinc-200 text-zinc-700'
+                  }`}>
+                    {customOrders.length}
+                  </span>
+                </button>
+              )}
+            </div>
+
             <div className="flex-1 overflow-y-auto">
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
-                  <tr className="bg-zinc-50 border-b border-zinc-200 text-zinc-600 font-bold uppercase text-[11px]">
-                    <th className="py-2.5 px-3 w-10 text-center">
+                  <tr className="bg-zinc-50 border-b border-zinc-200 text-zinc-600 font-bold uppercase text-[11px] sticky top-0 z-10">
+                    <th className="py-2 px-3 w-10 text-center">
                       <input
                         type="checkbox"
                         checked={Object.values(orderSelection).every(Boolean)}
@@ -2073,196 +2457,466 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                         className="rounded border-zinc-300 text-amber-600 cursor-pointer"
                       />
                     </th>
-                    <th className="py-2.5 px-3 w-14 text-center">STT</th>
-                    <th className="py-2.5 px-3">Tên Mặt Hàng</th>
-                    <th className="py-2.5 px-3 text-right w-24">Tồn Hiện Tại</th>
-                    <th className="py-2.5 px-3 text-right w-28">Số Lượng Đặt</th>
-                    <th className="py-2.5 px-3 text-center w-28">Định Lượng</th>
-                    {isAdmin && <th className="py-2.5 px-3 w-16 text-center">Xóa</th>}
+                    <th className="py-2 px-3 w-14 text-center">STT</th>
+                    <th className="py-2 px-3">Tên Mặt Hàng</th>
+                    <th className="py-2 px-3 text-right w-24">Tồn Hiện Tại</th>
+                    <th className="py-2 px-3 text-right w-28">Số Lượng Đặt</th>
+                    <th className="py-2 px-3 text-center w-28">Định Lượng</th>
+                    {isAdmin && <th className="py-2 px-3 w-16 text-center">Xóa</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-100">
-                  {/* 1. Mặt hàng thiếu trong bảng tồn (trên toàn bộ các tủ) */}
-                  {allRowsForSelectedDate
-                    .filter((item) => (parseFloat(item.stockQty) || 0) <= (item.minThreshold ?? 3))
-                    .map((item) => {
-                      const keyId = `inv_${item.id}`;
-                      const isSelected = orderSelection[keyId] !== false;
-                      const threshold = item.minThreshold ?? 3;
-                      const currentStock = parseFloat(item.stockQty) || 0;
-                      const defaultOrderQty = Math.max(1, threshold * 2 - currentStock);
-                      const currentOrderData = orderQuantities[keyId] || {
-                        qty: defaultOrderQty,
-                        unit: item.unit || 'Kg',
-                      };
+                  {/* Chế độ Tất Cả: Nhóm theo từng Tủ có phân cách rõ ràng */}
+                  {orderCabinetFilter === 'all' && (
+                    <>
+                      {cabinetsWithOrders.map((cabName) => {
+                        const cabItems = lowStockRowsByCabinet.get(cabName) || [];
+                        if (cabItems.length === 0) return null;
+                        const allSelectedInCab = cabItems.every((i) => orderSelection[`inv_${i.id}`] !== false);
+                        return (
+                          <React.Fragment key={cabName}>
+                            <tr className="bg-zinc-100/90 border-y border-zinc-200">
+                              <td colSpan={isAdmin ? 7 : 6} className="py-2 px-3">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-bold text-zinc-900 text-xs">
+                                      🧊 Khu Vực: {cabName}
+                                    </span>
+                                    <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                                      {cabItems.length} món cần đặt
+                                    </span>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const next = { ...orderSelection };
+                                      cabItems.forEach((i) => {
+                                        next[`inv_${i.id}`] = !allSelectedInCab;
+                                      });
+                                      setOrderSelection(next);
+                                    }}
+                                    className="text-[11px] text-amber-700 hover:text-amber-900 font-bold"
+                                  >
+                                    {allSelectedInCab ? 'Bỏ chọn tủ này' : 'Chọn tất cả tủ này'}
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                            {cabItems.map((item) => {
+                              const keyId = `inv_${item.id}`;
+                              const isSelected = orderSelection[keyId] !== false;
+                              const threshold = item.minThreshold ?? 0;
+                              const currentStock = parseFloat(item.stockQty) || 0;
+                              const defaultOrderQty = Math.max(1, threshold * 2 - currentStock);
+                              const currentOrderData = orderQuantities[keyId] || {
+                                qty: defaultOrderQty,
+                                unit: item.unit || 'phần',
+                              };
+                              return (
+                                <tr
+                                  key={item.id}
+                                  className={`hover:bg-zinc-50 transition ${
+                                    isSelected ? 'bg-amber-50/40 font-semibold' : ''
+                                  }`}
+                                >
+                                  <td className="py-2 px-3 text-center">
+                                    <input
+                                      type="checkbox"
+                                      checked={isSelected}
+                                      onChange={(e) =>
+                                        setOrderSelection({
+                                          ...orderSelection,
+                                          [keyId]: e.target.checked,
+                                        })
+                                      }
+                                      className="rounded border-zinc-300 text-amber-600 cursor-pointer"
+                                    />
+                                  </td>
+                                  <td className="py-2 px-3 text-center text-zinc-500 font-mono">
+                                    {item.stt}
+                                  </td>
+                                  <td className="py-2 px-3 font-medium text-zinc-900">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <span>{item.itemName}</span>
+                                      {item.tableName && (
+                                        <span className="text-[10px] px-1.5 py-0.2 rounded font-bold bg-zinc-100 text-zinc-600 border border-zinc-200">
+                                          {item.tableName}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </td>
+                                  <td className="py-2 px-3 text-right font-bold text-rose-600">
+                                    {item.stockQty}
+                                  </td>
+                                  <td className="py-2 px-3 text-right">
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      value={currentOrderData.qty}
+                                      onChange={(e) => {
+                                        const val = parseInt(e.target.value, 10) || 1;
+                                        setOrderQuantities({
+                                          ...orderQuantities,
+                                          [keyId]: { ...currentOrderData, qty: val },
+                                        });
+                                      }}
+                                      className="w-20 text-right bg-white border border-zinc-200 rounded-lg px-2 py-1 font-bold text-amber-800 outline-none"
+                                    />
+                                  </td>
+                                  <td className="py-2 px-3 text-center">
+                                    <select
+                                      value={currentOrderData.unit}
+                                      onChange={(e) =>
+                                        setOrderQuantities({
+                                          ...orderQuantities,
+                                          [keyId]: { ...currentOrderData, unit: e.target.value },
+                                        })
+                                      }
+                                      className="bg-white border border-zinc-200 rounded-lg px-2 py-1 text-xs outline-none"
+                                    >
+                                      {ORDER_UNITS.map((u) => (
+                                        <option key={u} value={u}>
+                                          {u}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </td>
+                                  {isAdmin && <td className="py-2 px-3 text-center text-zinc-400">-</td>}
+                                </tr>
+                              );
+                            })}
+                          </React.Fragment>
+                        );
+                      })}
 
-                      return (
-                        <tr
-                          key={item.id}
-                          className={`hover:bg-zinc-50 transition ${
-                            isSelected ? 'bg-amber-50/40 font-semibold' : ''
-                          }`}
-                        >
-                          <td className="py-2 px-3 text-center">
-                            <input
-                              type="checkbox"
-                              checked={isSelected}
-                              onChange={(e) =>
-                                setOrderSelection({
-                                  ...orderSelection,
-                                  [keyId]: e.target.checked,
-                                })
-                              }
-                              className="rounded border-zinc-300 text-amber-600 cursor-pointer"
-                            />
-                          </td>
-                          <td className="py-2 px-3 text-center text-zinc-500 font-mono">
-                            {item.stt}
-                          </td>
-                          <td className="py-2 px-3 font-medium text-zinc-900">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span>{item.itemName}</span>
-                              {item.tableName && (
-                                <span className="text-[10px] px-1.5 py-0.2 rounded font-bold bg-zinc-100 text-zinc-600 border border-zinc-200">
-                                  {item.tableName}
-                                </span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="py-2 px-3 text-right font-bold text-rose-600">
-                            {item.stockQty}
-                          </td>
-                          <td className="py-2 px-3 text-right">
-                            <input
-                              type="number"
-                              min="1"
-                              value={currentOrderData.qty}
-                              onChange={(e) => {
-                                const val = parseInt(e.target.value, 10) || 1;
-                                setOrderQuantities({
-                                  ...orderQuantities,
-                                  [keyId]: { ...currentOrderData, qty: val },
-                                });
-                              }}
-                              className="w-20 text-right bg-white border border-zinc-200 rounded-lg px-2 py-1 font-bold text-amber-800 outline-none"
-                            />
-                          </td>
-                          <td className="py-2 px-3 text-center">
-                            <select
-                              value={currentOrderData.unit}
-                              onChange={(e) =>
-                                setOrderQuantities({
-                                  ...orderQuantities,
-                                  [keyId]: { ...currentOrderData, unit: e.target.value },
-                                })
-                              }
-                              className="bg-white border border-zinc-200 rounded-lg px-2 py-1 text-xs outline-none"
+                      {customOrders.length > 0 && (
+                        <>
+                          <tr className="bg-indigo-50/80 border-y border-indigo-200">
+                            <td colSpan={isAdmin ? 7 : 6} className="py-2 px-3">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-bold text-indigo-950 text-xs">
+                                    📦 Hàng Đặt Cố Định
+                                  </span>
+                                  <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-200">
+                                    {customOrders.length} mặt hàng
+                                  </span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const allCustomSelected = customOrders.every(
+                                      (c) => orderSelection[`custom_${c.id}`] !== false
+                                    );
+                                    const next = { ...orderSelection };
+                                    customOrders.forEach((c) => {
+                                      next[`custom_${c.id}`] = !allCustomSelected;
+                                    });
+                                    setOrderSelection(next);
+                                  }}
+                                  className="text-[11px] text-indigo-700 hover:text-indigo-900 font-bold"
+                                >
+                                  {customOrders.every((c) => orderSelection[`custom_${c.id}`] !== false)
+                                    ? 'Bỏ chọn hàng cố định'
+                                    : 'Chọn tất cả'}
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                          {customOrders.map((customItem, cIdx) => {
+                            const keyId = `custom_${customItem.id}`;
+                            const isSelected = orderSelection[keyId] !== false;
+                            const currentOrderData = orderQuantities[keyId] || {
+                              qty: customItem.defaultQty,
+                              unit: customItem.unit,
+                            };
+                            return (
+                              <tr
+                                key={customItem.id}
+                                className={`hover:bg-zinc-50 transition ${
+                                  isSelected ? 'bg-indigo-50/40 font-semibold' : ''
+                                }`}
+                              >
+                                <td className="py-2 px-3 text-center">
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={(e) =>
+                                      setOrderSelection({
+                                        ...orderSelection,
+                                        [keyId]: e.target.checked,
+                                      })
+                                    }
+                                    className="rounded border-zinc-300 text-indigo-600 cursor-pointer"
+                                  />
+                                </td>
+                                <td className="py-2 px-3 text-center text-indigo-600 font-mono font-bold">
+                                  CD-{cIdx + 1}
+                                </td>
+                                <td className="py-2 px-3 font-medium text-zinc-900">
+                                  {customItem.name}
+                                </td>
+                                <td className="py-2 px-3 text-right italic text-zinc-400">
+                                  Cố định
+                                </td>
+                                <td className="py-2 px-3 text-right">
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    value={currentOrderData.qty}
+                                    onChange={(e) => {
+                                      const val = parseInt(e.target.value, 10) || 1;
+                                      setOrderQuantities({
+                                        ...orderQuantities,
+                                        [keyId]: { ...currentOrderData, qty: val },
+                                      });
+                                    }}
+                                    className="w-20 text-right bg-white border border-zinc-200 rounded-lg px-2 py-1 font-bold text-indigo-800 outline-none"
+                                  />
+                                </td>
+                                <td className="py-2 px-3 text-center">
+                                  <select
+                                    value={currentOrderData.unit}
+                                    onChange={(e) =>
+                                      setOrderQuantities({
+                                        ...orderQuantities,
+                                        [keyId]: { ...currentOrderData, unit: e.target.value },
+                                      })
+                                    }
+                                    className="bg-white border border-zinc-200 rounded-lg px-2 py-1 text-xs outline-none"
+                                  >
+                                    {ORDER_UNITS.map((u) => (
+                                      <option key={u} value={u}>
+                                        {u}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </td>
+                                {isAdmin && (
+                                  <td className="py-2 px-3 text-center">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteCustomOrder(customItem.id)}
+                                      className="text-zinc-400 hover:text-rose-600 p-1 rounded"
+                                      title="Xóa hàng cố định"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </td>
+                                )}
+                              </tr>
+                            );
+                          })}
+                        </>
+                      )}
+                    </>
+                  )}
+
+                  {/* Chế độ Lọc Riêng 1 Tủ */}
+                  {orderCabinetFilter !== 'all' && orderCabinetFilter !== 'custom' && (
+                    <>
+                      {(() => {
+                        const cabItems = lowStockRowsByCabinet.get(orderCabinetFilter) || [];
+                        if (cabItems.length === 0) {
+                          return (
+                            <tr>
+                              <td colSpan={isAdmin ? 7 : 6} className="py-8 text-center text-zinc-400">
+                                Tủ <strong>&ldquo;{orderCabinetFilter}&rdquo;</strong> hiện không có mặt hàng nào dưới ngưỡng cần đặt!
+                              </td>
+                            </tr>
+                          );
+                        }
+                        return cabItems.map((item) => {
+                          const keyId = `inv_${item.id}`;
+                          const isSelected = orderSelection[keyId] !== false;
+                          const threshold = item.minThreshold ?? 0;
+                          const currentStock = parseFloat(item.stockQty) || 0;
+                          const defaultOrderQty = Math.max(1, threshold * 2 - currentStock);
+                          const currentOrderData = orderQuantities[keyId] || {
+                            qty: defaultOrderQty,
+                            unit: item.unit || 'phần',
+                          };
+                          return (
+                            <tr
+                              key={item.id}
+                              className={`hover:bg-zinc-50 transition ${
+                                isSelected ? 'bg-amber-50/40 font-semibold' : ''
+                              }`}
                             >
-                              {ORDER_UNITS.map((u) => (
-                                <option key={u} value={u}>
-                                  {u}
-                                </option>
-                              ))}
-                            </select>
+                              <td className="py-2 px-3 text-center">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={(e) =>
+                                    setOrderSelection({
+                                      ...orderSelection,
+                                      [keyId]: e.target.checked,
+                                    })
+                                  }
+                                  className="rounded border-zinc-300 text-amber-600 cursor-pointer"
+                                />
+                              </td>
+                              <td className="py-2 px-3 text-center text-zinc-500 font-mono">
+                                {item.stt}
+                              </td>
+                              <td className="py-2 px-3 font-medium text-zinc-900">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span>{item.itemName}</span>
+                                  {item.tableName && (
+                                    <span className="text-[10px] px-1.5 py-0.2 rounded font-bold bg-zinc-100 text-zinc-600 border border-zinc-200">
+                                      {item.tableName}
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="py-2 px-3 text-right font-bold text-rose-600">
+                                {item.stockQty}
+                              </td>
+                              <td className="py-2 px-3 text-right">
+                                <input
+                                  type="number"
+                                  min="1"
+                                  value={currentOrderData.qty}
+                                  onChange={(e) => {
+                                    const val = parseInt(e.target.value, 10) || 1;
+                                    setOrderQuantities({
+                                      ...orderQuantities,
+                                      [keyId]: { ...currentOrderData, qty: val },
+                                    });
+                                  }}
+                                  className="w-20 text-right bg-white border border-zinc-200 rounded-lg px-2 py-1 font-bold text-amber-800 outline-none"
+                                />
+                              </td>
+                              <td className="py-2 px-3 text-center">
+                                <select
+                                  value={currentOrderData.unit}
+                                  onChange={(e) =>
+                                    setOrderQuantities({
+                                      ...orderQuantities,
+                                      [keyId]: { ...currentOrderData, unit: e.target.value },
+                                    })
+                                  }
+                                  className="bg-white border border-zinc-200 rounded-lg px-2 py-1 text-xs outline-none"
+                                >
+                                  {ORDER_UNITS.map((u) => (
+                                    <option key={u} value={u}>
+                                      {u}
+                                    </option>
+                                  ))}
+                                </select>
+                              </td>
+                              {isAdmin && <td className="py-2 px-3 text-center text-zinc-400">-</td>}
+                            </tr>
+                          );
+                        });
+                      })()}
+                    </>
+                  )}
+
+                  {/* Chế độ Lọc Riêng Hàng Cố Định */}
+                  {orderCabinetFilter === 'custom' && (
+                    <>
+                      {customOrders.length === 0 ? (
+                        <tr>
+                          <td colSpan={isAdmin ? 7 : 6} className="py-8 text-center text-zinc-400">
+                            Chưa có mặt hàng đặt cố định nào.
                           </td>
-                          {isAdmin && <td className="py-2 px-3 text-center text-zinc-400">-</td>}
                         </tr>
-                      );
-                    })}
-
-                  {/* 2. Mặt hàng đặt cố định */}
-                  {customOrders.map((customItem, cIdx) => {
-                    const keyId = `custom_${customItem.id}`;
-                    const isSelected = orderSelection[keyId] !== false;
-                    const currentOrderData = orderQuantities[keyId] || {
-                      qty: customItem.defaultQty,
-                      unit: customItem.unit,
-                    };
-
-                    return (
-                      <tr
-                        key={customItem.id}
-                        className={`hover:bg-zinc-50 transition ${
-                          isSelected ? 'bg-indigo-50/40 font-semibold' : ''
-                        }`}
-                      >
-                        <td className="py-2 px-3 text-center">
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={(e) =>
-                              setOrderSelection({
-                                ...orderSelection,
-                                [keyId]: e.target.checked,
-                              })
-                            }
-                            className="rounded border-zinc-300 text-indigo-600 cursor-pointer"
-                          />
-                        </td>
-                        <td className="py-2 px-3 text-center text-indigo-600 font-mono font-bold">
-                          CD-{cIdx + 1}
-                        </td>
-                        <td className="py-2 px-3 font-medium text-zinc-900">
-                          {customItem.name}
-                        </td>
-                        <td className="py-2 px-3 text-right italic text-zinc-400">
-                          Cố định
-                        </td>
-                        <td className="py-2 px-3 text-right">
-                          <input
-                            type="number"
-                            min="1"
-                            value={currentOrderData.qty}
-                            onChange={(e) => {
-                              const val = parseInt(e.target.value, 10) || 1;
-                              setOrderQuantities({
-                                ...orderQuantities,
-                                [keyId]: { ...currentOrderData, qty: val },
-                              });
-                            }}
-                            className="w-20 text-right bg-white border border-zinc-200 rounded-lg px-2 py-1 font-bold text-indigo-800 outline-none"
-                          />
-                        </td>
-                        <td className="py-2 px-3 text-center">
-                          <select
-                            value={currentOrderData.unit}
-                            onChange={(e) =>
-                              setOrderQuantities({
-                                ...orderQuantities,
-                                [keyId]: { ...currentOrderData, unit: e.target.value },
-                              })
-                            }
-                            className="bg-white border border-zinc-200 rounded-lg px-2 py-1 text-xs outline-none"
-                          >
-                            {ORDER_UNITS.map((u) => (
-                              <option key={u} value={u}>
-                                {u}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                        {isAdmin && (
-                          <td className="py-2 px-3 text-center">
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteCustomOrder(customItem.id)}
-                              className="text-zinc-400 hover:text-rose-600 p-1 rounded"
-                              title="Xóa hàng cố định"
+                      ) : (
+                        customOrders.map((customItem, cIdx) => {
+                          const keyId = `custom_${customItem.id}`;
+                          const isSelected = orderSelection[keyId] !== false;
+                          const currentOrderData = orderQuantities[keyId] || {
+                            qty: customItem.defaultQty,
+                            unit: customItem.unit,
+                          };
+                          return (
+                            <tr
+                              key={customItem.id}
+                              className={`hover:bg-zinc-50 transition ${
+                                isSelected ? 'bg-indigo-50/40 font-semibold' : ''
+                              }`}
                             >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </td>
-                        )}
-                      </tr>
-                    );
-                  })}
+                              <td className="py-2 px-3 text-center">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={(e) =>
+                                    setOrderSelection({
+                                      ...orderSelection,
+                                      [keyId]: e.target.checked,
+                                    })
+                                  }
+                                  className="rounded border-zinc-300 text-indigo-600 cursor-pointer"
+                                />
+                              </td>
+                              <td className="py-2 px-3 text-center text-indigo-600 font-mono font-bold">
+                                CD-{cIdx + 1}
+                              </td>
+                              <td className="py-2 px-3 font-medium text-zinc-900">
+                                {customItem.name}
+                              </td>
+                              <td className="py-2 px-3 text-right italic text-zinc-400">
+                                Cố định
+                              </td>
+                              <td className="py-2 px-3 text-right">
+                                <input
+                                  type="number"
+                                  min="1"
+                                  value={currentOrderData.qty}
+                                  onChange={(e) => {
+                                    const val = parseInt(e.target.value, 10) || 1;
+                                    setOrderQuantities({
+                                      ...orderQuantities,
+                                      [keyId]: { ...currentOrderData, qty: val },
+                                    });
+                                  }}
+                                  className="w-20 text-right bg-white border border-zinc-200 rounded-lg px-2 py-1 font-bold text-indigo-800 outline-none"
+                                />
+                              </td>
+                              <td className="py-2 px-3 text-center">
+                                <select
+                                  value={currentOrderData.unit}
+                                  onChange={(e) =>
+                                    setOrderQuantities({
+                                      ...orderQuantities,
+                                      [keyId]: { ...currentOrderData, unit: e.target.value },
+                                    })
+                                  }
+                                  className="bg-white border border-zinc-200 rounded-lg px-2 py-1 text-xs outline-none"
+                                >
+                                  {ORDER_UNITS.map((u) => (
+                                    <option key={u} value={u}>
+                                      {u}
+                                    </option>
+                                  ))}
+                                </select>
+                              </td>
+                              {isAdmin && (
+                                <td className="py-2 px-3 text-center">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteCustomOrder(customItem.id)}
+                                    className="text-zinc-400 hover:text-rose-600 p-1 rounded"
+                                    title="Xóa hàng cố định"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </td>
+                              )}
+                            </tr>
+                          );
+                        })
+                      )}
+                    </>
+                  )}
                 </tbody>
               </table>
             </div>
 
             <div className="flex flex-col sm:flex-row justify-between items-center gap-2 pt-3 border-t border-zinc-100">
               <span className="text-xs text-zinc-500 font-semibold">
-                Tổng cộng: {lowStockCount + customOrders.length} mặt hàng ({lowStockCount} hàng thiếu kho • {customOrders.length} hàng cố định)
+                Đang xem: {orderCabinetFilter === 'all' ? 'Tất cả các tủ' : orderCabinetFilter === 'custom' ? 'Hàng cố định' : `Tủ ${orderCabinetFilter}`} • Tổng {lowStockCount + customOrders.length} mặt hàng
               </span>
 
               <div className="flex flex-wrap items-center gap-2">
@@ -2270,7 +2924,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                   type="button"
                   onClick={exportOrderListToImage}
                   className="px-4 py-2 text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl transition flex items-center gap-1.5 shadow-xs active:scale-95"
-                  title="Xuất ảnh danh sách đặt hàng đẹp mắt để gửi Zalo"
+                  title="Xuất ảnh danh sách đặt hàng đẹp mắt, gọn gàng để gửi Zalo"
                 >
                   <Camera className="w-3.5 h-3.5" />
                   <span>Xuất Ảnh PNG (Gửi Zalo)</span>
@@ -2441,7 +3095,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                     type="number"
                     min="0"
                     value={newItemThreshold}
-                    onChange={(e) => setNewItemThreshold(parseInt(e.target.value, 10) || 3)}
+                    onChange={(e) => setNewItemThreshold(parseInt(e.target.value, 10) || 0)}
                     className="w-full p-2.5 bg-zinc-50 border border-zinc-300 rounded-xl font-bold outline-none"
                   />
                 </div>
@@ -2455,7 +3109,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                     inputMode="decimal"
                     value={newItemInitialStock}
                     onFocus={handleFocusToEnd}
-                    onChange={(e) => setNewItemInitialStock(sanitizeNumericInput(e.target.value))}
+                    onChange={(e) => setNewItemInitialStock(formatNumericString(e.target.value))}
                     className="w-full p-2.5 bg-zinc-50 border border-zinc-300 rounded-xl font-bold text-emerald-800 outline-none"
                   />
                 </div>
