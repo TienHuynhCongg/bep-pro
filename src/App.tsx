@@ -1717,7 +1717,7 @@ export default function App() {
         if (Array.isArray(restoredTasks) && restoredTasks.length > 0) {
           tasksRef.current = restoredTasks;
           setTasks(restoredTasks);
-          pushStateToServer({ tasks: restoredTasks }, undefined, 'emergency_restore');
+          pushStateToServer({ tasks: restoredTasks });
           showToast(`Đã phục hồi ${restoredTasks.length} đầu việc từ bản lưu khẩn cấp!`);
           return;
         }
@@ -1730,7 +1730,7 @@ export default function App() {
         if (Array.isArray(parsed.tasks) && parsed.tasks.length > 0) {
           tasksRef.current = parsed.tasks;
           setTasks(parsed.tasks);
-          pushStateToServer({ tasks: parsed.tasks }, undefined, 'emergency_restore');
+          pushStateToServer({ tasks: parsed.tasks });
           showToast(`Đã phục hồi ${parsed.tasks.length} đầu việc từ bản sao lưu gần nhất!`);
           return;
         }
@@ -1746,7 +1746,7 @@ export default function App() {
     saveEmergencyTaskSnapshot(tasksRef.current);
     tasksRef.current = [];
     setTasks([]);
-    pushStateToServer({ tasks: [] }, undefined, 'admin_clear_all_tasks');
+    pushStateToServer({ tasks: [] });
 
     if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
       try {
@@ -1851,7 +1851,7 @@ export default function App() {
 
     tasksRef.current = nextTasks;
     setTasks(nextTasks);
-    pushStateToServer({ tasks: nextTasks }, undefined, 'admin_preset_load');
+    pushStateToServer({ tasks: nextTasks });
 
     if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
       try {
@@ -2174,7 +2174,7 @@ export default function App() {
         if (Array.isArray(restoredInv) && restoredInv.length > 0) {
           inventoryRef.current = restoredInv;
           setInventory(restoredInv);
-          pushStateToServer({ inventory: restoredInv }, undefined, 'emergency_restore_inventory');
+          pushStateToServer({ inventory: restoredInv });
           showToast(`Đã phục hồi ${restoredInv.length} dòng tồn kiểm từ bản lưu khẩn cấp!`);
           return;
         }
@@ -2187,7 +2187,7 @@ export default function App() {
         if (Array.isArray(parsed.inventory) && parsed.inventory.length > 0) {
           inventoryRef.current = parsed.inventory;
           setInventory(parsed.inventory);
-          pushStateToServer({ inventory: parsed.inventory }, undefined, 'emergency_restore_inventory');
+          pushStateToServer({ inventory: parsed.inventory });
           showToast(`Đã phục hồi ${parsed.inventory.length} dòng tồn kiểm từ bản sao lưu gần nhất!`);
           return;
         }
@@ -2556,6 +2556,7 @@ export default function App() {
                     pushStateToServer(restored);
                     showToast('Khôi phục toàn bộ dữ liệu thành công!');
                   }}
+                  onRestoreEmergencyInventory={handleRestoreEmergencyInventory}
                 />
               )}
 

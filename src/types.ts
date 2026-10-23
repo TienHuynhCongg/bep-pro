@@ -150,6 +150,12 @@ export interface AppConfig {
   hourlyReminderEnabled?: boolean;
   hourlyReminderStartHour?: number;
   hourlyReminderEndHour?: number;
+  emailBackupEnabled?: boolean;
+  emailBackupRecipient?: string;
+  emailBackupSenderEmail?: string;
+  emailBackupSenderPassword?: string;
+  emailBackupFrequency?: 'weekly' | 'daily';
+  lastEmailBackupAt?: number;
 }
 
 export type UserRole = 'admin' | 'manager' | 'staff';

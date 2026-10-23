@@ -1,5 +1,5 @@
 {
-  "updatedAt": 1792691242206,
+  "updatedAt": 1792775826716,
   "tasks": [
     {
       "title": "Nấu nước daisi",
@@ -254,9 +254,50 @@
   "appConfig": {
     "appTitle": "Bếp Nóng",
     "appSubtitle": "Quản Lý Công Việc Bếp Núc Hàng Ngày",
-    "brandIcon": "Utensils"
+    "brandIcon": "Utensils",
+    "emailBackupEnabled": true,
+    "emailBackupRecipient": "test@example.com",
+    "emailBackupSenderEmail": "",
+    "emailBackupSenderPassword": "",
+    "emailBackupFrequency": "weekly"
   },
   "notifications": [
+    {
+      "id": "notif-1792728021796-hourly-11",
+      "actorName": "Nhắc Việc 11:00",
+      "actorRole": "manager",
+      "actionText": "thông báo còn 9 việc chưa làm",
+      "targetText": "Tiến độ: 0/9 việc",
+      "createdAtMs": 1792728021796,
+      "type": "task_urgent"
+    },
+    {
+      "id": "notif-1792724420774-hourly-10",
+      "actorName": "Nhắc Việc 10:00",
+      "actorRole": "manager",
+      "actionText": "thông báo còn 9 việc chưa làm",
+      "targetText": "Tiến độ: 0/9 việc",
+      "createdAtMs": 1792724420774,
+      "type": "task_urgent"
+    },
+    {
+      "id": "notif-1792720818509-hourly-9",
+      "actorName": "Nhắc Việc 9:00",
+      "actorRole": "manager",
+      "actionText": "thông báo còn 9 việc chưa làm",
+      "targetText": "Tiến độ: 0/9 việc",
+      "createdAtMs": 1792720818509,
+      "type": "task_urgent"
+    },
+    {
+      "id": "notif-1792717217552-hourly-8",
+      "actorName": "Nhắc Việc 8:00",
+      "actorRole": "manager",
+      "actionText": "thông báo còn 9 việc chưa làm",
+      "targetText": "Tiến độ: 0/9 việc",
+      "createdAtMs": 1792717217552,
+      "type": "task_urgent"
+    },
     {
       "actorName": "admin",
       "actorRole": "admin",
@@ -1436,18 +1477,15 @@
       "createdAt": "00:47"
     }
   ],
-  "pushSubscriptions": [
-    {
-      "endpoint": "https://fcm.googleapis.com/fcm/send/dI-QJKavQak:APA91bE2HK0Ys7gT5ApTXf5hCzMDtD44G_JlC56hl-KEg4UPB_n2YG4AWvKjPPqLSIqdbmEBKqQ_vMIsxYcE-xeF7filzVxjyz6n3YggeRpJmMma5HcnnjgkGJMc6v9GBiwq1WEAFK2k",
-      "expirationTime": null,
-      "keys": {
-        "p256dh": "BLWXTy78KBmRYAv7IeU-djE_S8SrtAQNuawsUD-a76oGpJjcIXuDdxq-JkwsIx6wAuuHMb695vIB7ovaWOUtULU",
-        "auth": "usmeZMS4iIHeTiuFEJho8g"
-      },
-      "userId": "staff-1",
-      "userRole": "admin",
-      "userName": "admin",
-      "updatedAt": 1792691237396
-    }
-  ]
+  "pushSubscriptions": [],
+  "lastHourlyReminderKey": "23/10/2026-11",
+  "latestPushMessage": {
+    "id": "notif-1792728021796-hourly-11",
+    "title": "⏰ [11:00] Nhắc Việc: Còn 9 việc chưa làm!",
+    "body": "Còn 9 việc chưa làm. Các bạn vào kiểm tra và xử lý nhé!",
+    "tag": "bep-pro-hourly-11",
+    "urgent": true,
+    "url": "/",
+    "timestamp": 1792728021796
+  }
 }

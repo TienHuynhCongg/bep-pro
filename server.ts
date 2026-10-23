@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import type { IncomingMessage, ServerResponse } from 'http';
 import { MongoClient, Db } from 'mongodb';
+import nodemailer from 'nodemailer';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -55,6 +56,9 @@ export interface KitchenServerState {
   latestPushMessage?: PushPayloadMessage;
   lastManager1430Date?: string;
   lastHourlyReminderKey?: string;
+  lastEmailBackupWeek?: string;
+  lastEmailBackupDay?: string;
+  isSeedReset?: boolean;
   updatedAt: number;
 }
 
@@ -305,6 +309,243 @@ function createAutoBackup(state: KitchenServerState, reason = 'admin_action'): s
   }
 }
 
+async function sendKitchenBackupEmail(
+  state: KitchenServerState,
+  overrideConfig?: {
+    recipient?: string;
+    senderEmail?: string;
+    senderPassword?: string;
+  }
+) {
+  const cfg = state.appConfig || {};
+  const recipient = (overrideConfig?.recipient || cfg.emailBackupRecipient || '').trim();
+  const senderEmail = (overrideConfig?.senderEmail || cfg.emailBackupSenderEmail || '').trim();
+  const senderPassword = (overrideConfig?.senderPassword || cfg.emailBackupSenderPassword || '').trim().replace(/\s+/g, '');
+
+  if (!recipient) {
+    throw new Error('Chưa nhập địa chỉ Email người nhận bản sao lưu!');
+  }
+  if (!senderEmail || !senderPassword) {
+    throw new Error('Chưa điền Gmail gửi đi hoặc Mật khẩu ứng dụng (Google App Password 16 ký tự)!');
+  }
+
+  const transporter = nodemailer.createTransport({
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true,
+    auth: {
+      user: senderEmail,
+      pass: senderPassword,
+    },
+  });
+
+  // Kiểm tra xác thực SMTP Gmail
+  await transporter.verify();
+
+  // Hàm escape trường CSV
+  const escapeCsv = (val: any) => `"${String(val ?? '').replace(/"/g, '""')}"`;
+
+  // 1. Tạo file CSV Tồn Kho Kiểm Kê
+  const invList: any[] = Array.isArray(state.inventory) ? state.inventory : [];
+  let invCsv = '\uFEFF"STT","Ngày","Tên Mặt Hàng / Nguyên Liệu","Tồn Đầu","Nhập Thêm","Tồn Thực Tế","Bán Ra / Hủy","Ngưỡng Báo Đặt","Đơn Vị","Tủ / Phân Loại","Trạng Thái","Người Kiểm","Giờ Kiểm"\n';
+  invList.forEach((item: any, idx: number) => {
+    invCsv +=
+      [
+        idx + 1,
+        escapeCsv(item.dateStr || ''),
+        escapeCsv(item.itemName || ''),
+        escapeCsv(item.prevStock ?? 0),
+        escapeCsv(item.importQty ?? 0),
+        escapeCsv(item.stockQty ?? 0),
+        escapeCsv(item.wasteQty ?? 0),
+        escapeCsv(item.minThreshold ?? 0),
+        escapeCsv(item.unit || 'phần'),
+        escapeCsv(item.cabinetName || item.group || 'Chung'),
+        escapeCsv(item.statusType === 'ton' ? 'Còn hàng' : 'Cần đặt hàng'),
+        escapeCsv(item.createdBy || 'Admin'),
+        escapeCsv(item.createdAt || ''),
+      ].join(',') + '\n';
+  });
+
+  // 2. Tạo file CSV Công Việc Checklist
+  const taskList: any[] = Array.isArray(state.tasks) ? state.tasks : [];
+  let tasksCsv = '\uFEFF"STT","Tên Công Việc","Phân Loại","Ca Làm Việc","Mức Độ Ưu Tiên","Người Tạo","Giờ Tạo","Trạng Thái"\n';
+  taskList.forEach((t: any, idx: number) => {
+    tasksCsv +=
+      [
+        idx + 1,
+        escapeCsv(t.title || ''),
+        escapeCsv(t.category || 'Sơ chế'),
+        escapeCsv(t.assignedShift || 'Hàng ngày'),
+        escapeCsv(t.priority || 'Thường'),
+        escapeCsv(t.createdBy || 'Admin'),
+        escapeCsv(t.createdAt || ''),
+        escapeCsv(t.completed ? 'Đã xong' : 'Chưa xong'),
+      ].join(',') + '\n';
+  });
+
+  // 3. Tạo file CSV Công Thức Món & Cách Làm
+  const recipeList: any[] = Array.isArray(state.recipes) ? state.recipes : [];
+  let recipesCsv = '\uFEFF"STT","Tên Món","Phân Loại","Khẩu Phần","Thời Gian Nấu","Cách Làm / Quy Trình Thực Hiện","Định Lượng Nguyên Liệu"\n';
+  recipeList.forEach((r: any, idx: number) => {
+    const ingredientsStr = Array.isArray(r.ingredients)
+      ? r.ingredients.map((ing: any) => `${ing.name || ''} (${ing.quantity || ''} ${ing.unit || ''})`).join('; ')
+      : '';
+    recipesCsv +=
+      [
+        idx + 1,
+        escapeCsv(r.name || r.title || ''),
+        escapeCsv(r.category || 'Món chính'),
+        escapeCsv(r.servings || 1),
+        escapeCsv(r.cookTime || ''),
+        escapeCsv(r.instructions || r.steps || r.method || ''),
+        escapeCsv(ingredientsStr),
+      ].join(',') + '\n';
+  });
+
+  // 4. File JSON kỹ thuật đầy đủ để khôi phục khi cần
+  const jsonContent = JSON.stringify(state, null, 2);
+
+  // Thống kê nhanh
+  const completedTasks = taskList.filter((t: any) => t.completed).length;
+  const pendingTasks = taskList.length - completedTasks;
+  const lowStockItems = invList.filter((i: any) => {
+    const stock = Number(i.stockQty ?? 0);
+    const min = Number(i.minThreshold ?? 0);
+    return i.statusType === 'het' || (min > 0 && stock <= min);
+  });
+
+  const nowVN = new Date(Date.now() + 7 * 60 * 60 * 1000);
+  const dateFormatted = `${String(nowVN.getUTCDate()).padStart(2, '0')}/${String(nowVN.getUTCMonth() + 1).padStart(2, '0')}/${nowVN.getUTCFullYear()} ${String(nowVN.getUTCHours()).padStart(2, '0')}:${String(nowVN.getUTCMinutes()).padStart(2, '0')}`;
+  const fileDateTag = `${nowVN.getUTCFullYear()}-${String(nowVN.getUTCMonth() + 1).padStart(2, '0')}-${String(nowVN.getUTCDate()).padStart(2, '0')}`;
+
+  let lowStockRowsHtml = '';
+  if (lowStockItems.length > 0) {
+    lowStockRowsHtml = lowStockItems
+      .slice(0, 15)
+      .map(
+        (item: any) => `
+      <tr style="border-bottom: 1px solid #fee2e2;">
+        <td style="padding: 8px 12px; font-weight: bold; color: #991b1b;">${item.itemName || 'Món'}</td>
+        <td style="padding: 8px 12px; text-align: center; color: #b91c1c; font-weight: bold;">${item.stockQty ?? 0} ${item.unit || 'phần'}</td>
+        <td style="padding: 8px 12px; text-align: center; color: #6b7280;">${item.minThreshold ?? 0} ${item.unit || 'phần'}</td>
+        <td style="padding: 8px 12px; text-align: center; color: #4b5563;">${item.cabinetName || 'Chung'}</td>
+      </tr>
+    `
+      )
+      .join('');
+  }
+
+  const htmlBody = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 650px; margin: 0 auto; background: #ffffff; border-radius: 12px; border: 1px solid #e5e7eb; overflow: hidden;">
+      <div style="background: linear-gradient(135deg, #047857 0%, #065f46 100%); padding: 24px; text-align: center; color: #ffffff;">
+        <h1 style="margin: 0; font-size: 22px; font-weight: bold; letter-spacing: -0.5px;">BẾP PRO - BÁO CÁO SAO LƯU DỮ LIỆU ĐỊNH KỲ</h1>
+        <p style="margin: 6px 0 0 0; font-size: 13px; opacity: 0.9;">Thời gian tạo: <b>${dateFormatted}</b></p>
+      </div>
+
+      <div style="padding: 24px;">
+        <p style="font-size: 14px; color: #374151; line-height: 1.6; margin-top: 0;">
+          Xin chào Quản lý Bếp,<br/>
+          Hệ thống <b>Bếp Pro</b> vừa tự động sao lưu và đóng gói toàn bộ dữ liệu của bạn. Các file đính kèm dạng Excel (.csv UTF-8) giúp bạn mở xem trực tiếp trên điện thoại rất thuận tiện, không cần thao tác kỹ thuật với file JSON.
+        </p>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 20px 0;">
+          <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 12px; text-align: center;">
+            <div style="font-size: 11px; text-transform: uppercase; color: #166534; font-weight: bold;">Kiểm Tồn Kho</div>
+            <div style="font-size: 20px; font-weight: bold; color: #15803d; margin: 4px 0;">${invList.length} <span style="font-size: 12px; font-weight: normal;">món</span></div>
+            <div style="font-size: 11px; color: #16a34a;">${lowStockItems.length} món sắp hết / cần đặt</div>
+          </div>
+          <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 12px; text-align: center;">
+            <div style="font-size: 11px; text-transform: uppercase; color: #1e40af; font-weight: bold;">Công Việc Checklist</div>
+            <div style="font-size: 20px; font-weight: bold; color: #1d4ed8; margin: 4px 0;">${taskList.length} <span style="font-size: 12px; font-weight: normal;">việc</span></div>
+            <div style="font-size: 11px; color: #2563eb;">${completedTasks} xong • ${pendingTasks} còn lại</div>
+          </div>
+          <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 12px; text-align: center;">
+            <div style="font-size: 11px; text-transform: uppercase; color: #92400e; font-weight: bold;">Công Thức & Quy Trình</div>
+            <div style="font-size: 20px; font-weight: bold; color: #b45309; margin: 4px 0;">${recipeList.length} <span style="font-size: 12px; font-weight: normal;">món</span></div>
+            <div style="font-size: 11px; color: #d97706;">Bao gồm cách làm</div>
+          </div>
+          <div style="background: #f5f3ff; border: 1px solid #ddd6fe; border-radius: 8px; padding: 12px; text-align: center;">
+            <div style="font-size: 11px; text-transform: uppercase; color: #5b21b6; font-weight: bold;">Nhân Sự Bếp</div>
+            <div style="font-size: 20px; font-weight: bold; color: #6d28d9; margin: 4px 0;">${Array.isArray(state.staffList) ? state.staffList.length : 0} <span style="font-size: 12px; font-weight: normal;">nhân sự</span></div>
+            <div style="font-size: 11px; color: #7c3aed;">Đang hoạt động</div>
+          </div>
+        </div>
+
+        ${
+          lowStockItems.length > 0
+            ? `
+          <div style="margin: 20px 0; border: 1px solid #fecaca; border-radius: 8px; overflow: hidden;">
+            <div style="background: #fee2e2; padding: 10px 14px; font-size: 12px; font-weight: bold; color: #991b1b;">
+              ⚠️ CẢNH BÁO: ${lowStockItems.length} MẶT HÀNG SẮP HẾT CẦN ĐẶT THÊM
+            </div>
+            <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+              <thead>
+                <tr style="background: #fff1f2; color: #881337; text-align: left;">
+                  <th style="padding: 8px 12px;">Mặt hàng</th>
+                  <th style="padding: 8px 12px; text-align: center;">Tồn hiện tại</th>
+                  <th style="padding: 8px 12px; text-align: center;">Ngưỡng đặt</th>
+                  <th style="padding: 8px 12px; text-align: center;">Tủ / Khu vực</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${lowStockRowsHtml}
+              </tbody>
+            </table>
+          </div>
+        `
+            : ''
+        }
+
+        <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 14px; margin-top: 20px; font-size: 12px; color: #4b5563; line-height: 1.6;">
+          <b style="color: #111827;">📎 4 Tệp đính kèm trong thư:</b>
+          <ul style="margin: 6px 0 0 0; padding-left: 20px;">
+            <li><b>Bao-Cao-Ton-Kho.csv</b>: Mở bằng Excel trên điện thoại để tra cứu số lượng tồn kho.</li>
+            <li><b>Danh-Sach-Cong-Viec.csv</b>: Bảng Excel danh sách công việc checklist.</li>
+            <li><b>Cong-Thuc-Mon-An.csv</b>: Bảng Excel công thức, cách làm và định lượng món.</li>
+            <li><b>Kitchen-Backup-Full.json</b>: Tệp kỹ thuật chứa toàn bộ dữ liệu để khôi phục trong Admin nếu xảy ra sự cố.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div style="background: #f3f4f6; padding: 14px; text-align: center; font-size: 11px; color: #6b7280; border-top: 1px solid #e5e7eb;">
+        Hệ Thống Quản Lý Bếp Pro • Tự động gửi bảo vệ dữ liệu nhà hàng
+      </div>
+    </div>
+  `;
+
+  await transporter.sendMail({
+    from: `"Bếp Pro Backup" <${senderEmail}>`,
+    to: recipient,
+    subject: `📦 [Bếp Pro] Sao lưu dữ liệu (${fileDateTag}) - ${invList.length} món tồn, ${taskList.length} việc`,
+    html: htmlBody,
+    attachments: [
+      {
+        filename: `Bao-Cao-Ton-Kho-${fileDateTag}.csv`,
+        content: invCsv,
+        contentType: 'text/csv; charset=utf-8',
+      },
+      {
+        filename: `Danh-Sach-Cong-Viec-${fileDateTag}.csv`,
+        content: tasksCsv,
+        contentType: 'text/csv; charset=utf-8',
+      },
+      {
+        filename: `Cong-Thuc-Mon-An-${fileDateTag}.csv`,
+        content: recipesCsv,
+        contentType: 'text/csv; charset=utf-8',
+      },
+      {
+        filename: `Kitchen-Backup-Full-${fileDateTag}.json`,
+        content: jsonContent,
+        contentType: 'application/json; charset=utf-8',
+      },
+    ],
+  });
+
+  return { ok: true, recipient, sentAt: Date.now() };
+}
+
 export function createKitchenApiMiddleware() {
   const router = express.Router();
   router.use(express.json({ limit: '5mb' }));
@@ -525,6 +766,53 @@ export function createKitchenApiMiddleware() {
           url: '/',
           timestamp: nowMs,
         });
+      }
+    }
+
+    // 4. Tự động gửi Email sao lưu dữ liệu (Hàng tuần vào thứ Hai hoặc Hàng ngày theo cấu hình)
+    const emailConfig = dbState.appConfig || {};
+    if (
+      emailConfig.emailBackupEnabled !== false &&
+      emailConfig.emailBackupRecipient &&
+      emailConfig.emailBackupSenderEmail &&
+      emailConfig.emailBackupSenderPassword
+    ) {
+      const freq = emailConfig.emailBackupFrequency || 'weekly';
+      const vnHourVal = vnTime.getHours();
+      let shouldSendEmail = false;
+
+      // Tính ISO week key: YYYY-Www
+      const tempDate = new Date(Date.UTC(vnTime.getFullYear(), vnTime.getMonth(), vnTime.getDate()));
+      tempDate.setUTCDate(tempDate.getUTCDate() + 4 - (tempDate.getUTCDay() || 7));
+      const yearStart = new Date(Date.UTC(tempDate.getUTCFullYear(), 0, 1));
+      const weekNo = Math.ceil((((tempDate.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+      const currentWeekKey = `${tempDate.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+
+      if (freq === 'daily') {
+        if (vnHourVal >= 7 && dbState.lastEmailBackupDay !== vnDateStr) {
+          shouldSendEmail = true;
+        }
+      } else {
+        // Hàng tuần: Gửi vào tuần mới (từ 7h sáng thứ Hai trở đi, hoặc bất kỳ khi nào server mở trong tuần đó)
+        if (vnHourVal >= 7 && dbState.lastEmailBackupWeek !== currentWeekKey) {
+          shouldSendEmail = true;
+        }
+      }
+
+      if (shouldSendEmail) {
+        dbState.lastEmailBackupWeek = currentWeekKey;
+        dbState.lastEmailBackupDay = vnDateStr;
+        if (!dbState.appConfig) dbState.appConfig = {};
+        dbState.appConfig.lastEmailBackupAt = nowMs;
+        changed = true;
+
+        sendKitchenBackupEmail(dbState)
+          .then(() => {
+            console.log(`📧 [Auto Backup Email] Đã tự động gửi email sao lưu thành công tới ${emailConfig.emailBackupRecipient}`);
+          })
+          .catch((err) => {
+            console.error('⚠️ [Auto Backup Email] Tự động gửi email sao lưu thất bại:', err?.message || err);
+          });
       }
     }
 
@@ -996,6 +1284,89 @@ export function createKitchenApiMiddleware() {
       res.end(JSON.stringify({ ok: true, message: 'Đã lưu initial-data.json thành công' }));
     } catch (err: any) {
       res.status(500).json({ ok: false, error: err?.message || 'Lỗi lưu initial-data.json' });
+    }
+  });
+
+  // POST /api/admin/save-email-config - Lưu cấu hình Email tự động sao lưu định kỳ
+  router.post('/api/admin/save-email-config', (req, res) => {
+    try {
+      const {
+        emailBackupEnabled,
+        emailBackupRecipient,
+        emailBackupSenderEmail,
+        emailBackupSenderPassword,
+        emailBackupFrequency,
+      } = req.body || {};
+
+      if (!dbState.appConfig) dbState.appConfig = {};
+      dbState.appConfig = {
+        ...dbState.appConfig,
+        emailBackupEnabled: emailBackupEnabled !== false,
+        emailBackupRecipient: (emailBackupRecipient || '').trim(),
+        emailBackupSenderEmail: (emailBackupSenderEmail || '').trim(),
+        emailBackupSenderPassword: (emailBackupSenderPassword || '').trim(),
+        emailBackupFrequency: emailBackupFrequency === 'daily' ? 'daily' : 'weekly',
+      };
+      dbState.updatedAt = Date.now();
+      saveDb(dbState);
+
+      broadcastSse({
+        type: 'STATE_UPDATED',
+        senderId: 'admin-email-config',
+        state: dbState,
+        timestamp: Date.now(),
+      });
+
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ ok: true, appConfig: dbState.appConfig }));
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err?.message || 'Lỗi lưu cấu hình email' });
+    }
+  });
+
+  // POST /api/admin/send-email-backup - Gửi ngay bản sao lưu về email (gửi thử hoặc thủ công)
+  router.post('/api/admin/send-email-backup', async (req, res) => {
+    try {
+      const { recipient, senderEmail, senderPassword } = req.body || {};
+      const result = await sendKitchenBackupEmail(dbState, {
+        recipient,
+        senderEmail,
+        senderPassword,
+      });
+
+      if (!dbState.appConfig) dbState.appConfig = {};
+      dbState.appConfig.lastEmailBackupAt = Date.now();
+      saveDb(dbState);
+
+      res.setHeader('Content-Type', 'application/json');
+      res.end(
+        JSON.stringify({
+          ok: true,
+          message: `Đã gửi bản sao lưu dữ liệu kèm 3 file Excel và 1 file JSON thành công tới: ${result.recipient}`,
+        })
+      );
+    } catch (err: any) {
+      console.error('Lỗi khi gửi email backup:', err);
+      res.status(500).json({
+        ok: false,
+        error:
+          err?.message ||
+          'Không thể gửi email sao lưu. Vui lòng kiểm tra lại địa chỉ email hoặc Mật khẩu ứng dụng Google (16 chữ số).',
+      });
+    }
+  });
+
+  // GET /api/cron/email-backup - Cho phép Web Cron bên ngoài ping để kích hoạt gửi email sao lưu
+  router.get('/api/cron/email-backup', async (_req, res) => {
+    try {
+      const result = await sendKitchenBackupEmail(dbState);
+      if (!dbState.appConfig) dbState.appConfig = {};
+      dbState.appConfig.lastEmailBackupAt = Date.now();
+      saveDb(dbState);
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ ok: true, message: 'Đã kích hoạt gửi email sao lưu thành công', result }));
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err?.message || 'Lỗi khi kích hoạt gửi email sao lưu' });
     }
   });
 

@@ -446,7 +446,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
             wasteQty: '0',
             minThreshold: item.minThreshold ?? 0,
             unit: item.unit || 'kg',
-            statusType: 'ton',
+            statusType: 'ton' as const,
             isManualStock: false,
             createdBy: currentUser?.fullName || 'Hệ thống tự động',
             createdAt: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
@@ -781,10 +781,10 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
           const formatted = formatNumericString(String(val)).replace(/\.+$/, '');
           return formatted === '' ? '0' : formatted;
         };
-        const updatedRow = {
+        const updatedRow: InventoryCheckItem = {
           ...r,
-          importQty: cleanNumber(r.importQty),
-          wasteQty: cleanNumber(r.wasteQty),
+          importQty: cleanNumber(r.importQty) || '0',
+          wasteQty: cleanNumber(r.wasteQty) || '0',
           stockQty: cleanNumber(r.stockQty) || '0',
         };
         onSaveItem(updatedRow, true);
@@ -1703,19 +1703,6 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
               <Camera className="w-3.5 h-3.5" />
               <span>Xuất Ảnh PNG</span>
             </button>
-
-            {/* Nút Phục Hồi Tồn Kho Khẩn Cấp nếu có bản sao lưu trên thiết bị */}
-            {onRestoreEmergencyInventory && (
-              <button
-                type="button"
-                onClick={onRestoreEmergencyInventory}
-                className="h-8 px-2.5 rounded-xl text-xs font-bold bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 transition flex items-center gap-1.5 shrink-0"
-                title="Khôi phục lại dữ liệu tồn kho từ bản lưu khẩn cấp trên máy"
-              >
-                <RotateCcw className="w-3.5 h-3.5 text-amber-300" />
-                <span>Phục Hồi Tồn</span>
-              </button>
-            )}
 
             {/* Nút Lưu Bảng */}
             <button
