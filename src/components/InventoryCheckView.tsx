@@ -226,12 +226,6 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
   const [isAddCustomOrderModalOpen, setIsAddCustomOrderModalOpen] = useState(false);
   const [confirmDeleteDate, setConfirmDeleteDate] = useState(false);
 
-  useEffect(() => {
-    if (initialOpenOrderList) {
-      setIsOrderListModalOpen(true);
-    }
-  }, [initialOpenOrderList]);
-
   // Đóng modal đặt hàng và báo ra ngoài nếu cần
   const handleCloseOrderModal = () => {
     setIsOrderListModalOpen(false);
@@ -248,7 +242,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
   const [orderQuantities, setOrderQuantities] = useState<
     Record<string, { qty: number; unit: string }>
   >({});
-  const [orderCabinetFilter, setOrderCabinetFilter] = useState<string>('all');
+  const [orderCabinetFilter, setOrderCabinetFilter] = useState<string>('Tủ Mát Chính');
 
   // Add Item form state
   const [newItemName, setNewItemName] = useState('');
@@ -305,6 +299,20 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
       setSelectedTable(existingTablesForDate[0] || DEFAULT_TABLE_NAME);
     }
   }, [existingTablesForDate, selectedTable]);
+
+  // Tự động đồng bộ tab Đặt Hàng theo bảng/tủ đang chọn ngoài bảng kiểm tồn
+  useEffect(() => {
+    if (!isOrderListModalOpen) {
+      setOrderCabinetFilter(selectedTable);
+    }
+  }, [selectedTable, isOrderListModalOpen]);
+
+  useEffect(() => {
+    if (initialOpenOrderList) {
+      setOrderCabinetFilter(selectedTable);
+      setIsOrderListModalOpen(true);
+    }
+  }, [initialOpenOrderList, selectedTable]);
 
   // Modal thêm bảng / tủ mới
   const [isAddTableModalOpen, setIsAddTableModalOpen] = useState<boolean>(false);
@@ -830,6 +838,29 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     return Array.from(set);
   }, [existingTablesForDate, lowStockRowsByCabinet]);
 
+  // Bảng / Tủ đang được chọn để áp dụng nút "Tick All" trong Modal Đặt Hàng
+  const currentActiveOrderCabinet = useMemo(() => {
+    if (orderCabinetFilter !== 'all') return orderCabinetFilter;
+    const countInSelectedTable = lowStockRowsByCabinet.get(selectedTable)?.length || 0;
+    if (countInSelectedTable > 0) return selectedTable;
+    return cabinetsWithOrders[0] || selectedTable;
+  }, [orderCabinetFilter, selectedTable, lowStockRowsByCabinet, cabinetsWithOrders]);
+
+  // Danh sách keyId mặt hàng thuộc riêng bảng đang chọn
+  const activeOrderKeysForCurrentCabinet = useMemo(() => {
+    if (currentActiveOrderCabinet === 'custom') {
+      return customOrders.map((c) => `custom_${c.id}`);
+    }
+    const cabItems = lowStockRowsByCabinet.get(currentActiveOrderCabinet) || [];
+    return cabItems.map((i) => `inv_${i.id}`);
+  }, [currentActiveOrderCabinet, lowStockRowsByCabinet, customOrders]);
+
+  // Kiểm tra xem tất cả các món thuộc bảng đang chọn đã được tick hay chưa
+  const isAllSelectedInCurrentCabinet = useMemo(() => {
+    if (activeOrderKeysForCurrentCabinet.length === 0) return false;
+    return activeOrderKeysForCurrentCabinet.every((keyId) => orderSelection[keyId] !== false);
+  }, [activeOrderKeysForCurrentCabinet, orderSelection]);
+
   // Đồng bộ số lượng hàng cần đặt theo thời gian thực ra App / HeaderNav
   useEffect(() => {
     onLowStockCountChange?.(lowStockCount);
@@ -959,6 +990,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
         },
       }));
     }
+    setOrderCabinetFilter(item.tableName || selectedTable);
     setIsOrderListModalOpen(true);
   };
 
@@ -1654,7 +1686,10 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
             {/* Nút Danh Sách Đặt Hàng */}
             <button
               type="button"
-              onClick={() => setIsOrderListModalOpen(true)}
+              onClick={() => {
+                setOrderCabinetFilter(selectedTable);
+                setIsOrderListModalOpen(true);
+              }}
               className="h-8 px-3 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white transition flex items-center gap-1.5 shrink-0 shadow-xs relative"
             >
               <ShoppingCart className="w-3.5 h-3.5" />
@@ -2429,19 +2464,23 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                     <th className="py-2 px-3 w-10 text-center">
                       <input
                         type="checkbox"
-                        checked={Object.values(orderSelection).every(Boolean)}
+                        checked={isAllSelectedInCurrentCabinet}
+                        disabled={activeOrderKeysForCurrentCabinet.length === 0}
                         onChange={(e) => {
                           const val = e.target.checked;
-                          const next: Record<string, boolean> = {};
-                          allRowsForSelectedDate.forEach((i) => {
-                            next[`inv_${i.id}`] = val;
-                          });
-                          customOrders.forEach((c) => {
-                            next[`custom_${c.id}`] = val;
+                          // Giữ nguyên trạng thái chọn của các bảng khác, chỉ cập nhật riêng cho bảng đang chọn
+                          const next = { ...orderSelection };
+                          activeOrderKeysForCurrentCabinet.forEach((keyId) => {
+                            next[keyId] = val;
                           });
                           setOrderSelection(next);
                         }}
-                        className="rounded border-zinc-300 text-amber-600 cursor-pointer"
+                        className="rounded border-zinc-300 text-amber-600 cursor-pointer disabled:opacity-40"
+                        title={
+                          activeOrderKeysForCurrentCabinet.length === 0
+                            ? `Bảng "${currentActiveOrderCabinet}" không có mặt hàng cần đặt`
+                            : `Chọn / bỏ chọn tất cả món trong bảng: ${currentActiveOrderCabinet}`
+                        }
                       />
                     </th>
                     <th className="py-2 px-3 w-14 text-center">STT</th>
