@@ -45,6 +45,7 @@ export interface KitchenRecipe {
   id: string;
   dishName: string; // Tên món ăn ở trên cùng
   ingredients: RecipeIngredient[];
+  instructions?: string; // Cách làm / Các bước chế biến món
   note?: string;
   createdBy?: string;
   updatedAt: string;

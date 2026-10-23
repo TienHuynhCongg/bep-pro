@@ -512,30 +512,38 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
         let nextRow = { ...row };
 
         if (field === 'importQty') {
-          const importNum = parseFloat(sanitizeNumericInput(String(rawValue))) || 0;
+          const sanitized = sanitizeNumericInput(String(rawValue));
+          const importNum = parseFloat(sanitized) || 0;
           const wasteNum = parseFloat(row.wasteQty || '0') || 0;
           nextRow = {
             ...nextRow,
             prevStock: String(prevStockNum),
-            importQty: String(importNum),
+            importQty: sanitized,
           };
           // Độ ưu tiên của công thức xếp SAU việc nhập thủ công của users:
           // Chỉ tự động tính tồn nếu user CHƯA từng nhập tay số tồn cho dòng này
           if (!row.isManualStock) {
-            const calculatedStock = Math.max(importNum + prevStockNum - wasteNum, 0);
+            const calculatedStock = Math.max(
+              Math.round((importNum + prevStockNum - wasteNum) * 1000) / 1000,
+              0
+            );
             nextRow.stockQty = String(calculatedStock);
           }
         } else if (field === 'wasteQty') {
-          const wasteNum = parseFloat(sanitizeNumericInput(String(rawValue))) || 0;
+          const sanitized = sanitizeNumericInput(String(rawValue));
+          const wasteNum = parseFloat(sanitized) || 0;
           const importNum = parseFloat(row.importQty || '0') || 0;
           nextRow = {
             ...nextRow,
             prevStock: String(prevStockNum),
-            wasteQty: String(wasteNum),
+            wasteQty: sanitized,
           };
           // Độ ưu tiên của công thức xếp SAU việc nhập thủ công của users:
           if (!row.isManualStock) {
-            const calculatedStock = Math.max(importNum + prevStockNum - wasteNum, 0);
+            const calculatedStock = Math.max(
+              Math.round((importNum + prevStockNum - wasteNum) * 1000) / 1000,
+              0
+            );
             nextRow.stockQty = String(calculatedStock);
           }
         } else if (field === 'stockQty') {
@@ -549,7 +557,8 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
             isManualStock: true, // Đánh dấu đã nhập thủ công
           };
         } else if (field === 'minThreshold') {
-          nextRow.minThreshold = parseInt(rawValue, 10) || 0;
+          const val = rawValue === '' ? 0 : (parseFloat(rawValue) || 0);
+          nextRow.minThreshold = val;
         } else if (field === 'stt') {
           nextRow.stt = parseInt(rawValue, 10) || 1;
         } else {
@@ -569,7 +578,10 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
         const prevStockNum = parseFloat(row.prevStock || '0') || getPreviousDayStock(row.dateStr, row.itemName);
         const importNum = parseFloat(row.importQty || '0') || 0;
         const wasteNum = parseFloat(row.wasteQty || '0') || 0;
-        const calculatedStock = Math.max(importNum + prevStockNum - wasteNum, 0);
+        const calculatedStock = Math.max(
+          Math.round((importNum + prevStockNum - wasteNum) * 1000) / 1000,
+          0
+        );
         const updatedRow = {
           ...row,
           stockQty: String(calculatedStock),
@@ -722,11 +734,39 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     setTimeout(() => setJustSavedBanner(false), 2500);
   };
 
-  // Khi rời ô (onBlur), lưu ngầm để đồng bộ không làm hiện thông báo
+  // Khi click hoặc chạm vào bất kỳ ô số liệu nào, tự động đưa con trỏ về số sau cùng để dễ chỉnh sửa
+  const handleFocusToEnd = (e: React.FocusEvent<HTMLInputElement>) => {
+    const el = e.currentTarget;
+    const len = el.value.length;
+    setTimeout(() => {
+      try {
+        el.setSelectionRange(len, len);
+      } catch {
+        // Bỏ qua với các trường hợp không hỗ trợ selection
+      }
+    }, 20);
+  };
+
+  // Khi rời ô (onBlur), chuẩn hóa các số (loại bỏ dấu chấm ở cuối nếu đang gõ dở) và lưu ngầm
   const handleCellBlur = (id: string) => {
-    const updated = localItems.find((r) => r.id === id);
-    if (!updated) return;
-    onSaveItem(updated, true);
+    setLocalItems((prev) =>
+      prev.map((r) => {
+        if (r.id !== id) return r;
+        const cleanNumber = (val?: string) => {
+          if (val === undefined || val === null) return val;
+          const trimmed = String(val).replace(/\.+$/, '');
+          return trimmed === '' ? '0' : trimmed;
+        };
+        const updatedRow = {
+          ...r,
+          importQty: cleanNumber(r.importQty),
+          wasteQty: cleanNumber(r.wasteQty),
+          stockQty: cleanNumber(r.stockQty) || '0',
+        };
+        onSaveItem(updatedRow, true);
+        return updatedRow;
+      })
+    );
   };
 
   // Đếm số lượng mặt hàng cần đặt (Tồn <= Ngưỡng Đặt) trên toàn bộ các tủ hôm nay
@@ -1656,8 +1696,10 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                           </div>
                           {isAdmin && tableMode === 'edit' ? (
                             <input
-                              type="number"
-                              value={item.stt || idx + 1}
+                              type="text"
+                              inputMode="numeric"
+                              value={item.stt !== undefined ? item.stt : idx + 1}
+                              onFocus={handleFocusToEnd}
                               onChange={(e) => handleCellChange(item.id, 'stt', e.target.value)}
                               onBlur={() => handleCellBlur(item.id)}
                               className="w-8 text-center bg-zinc-100 border border-zinc-200 rounded py-0.5 font-bold outline-none text-xs"
@@ -1707,7 +1749,8 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                           <input
                             type="text"
                             inputMode="decimal"
-                            value={item.importQty || '0'}
+                            value={item.importQty !== undefined ? item.importQty : '0'}
+                            onFocus={handleFocusToEnd}
                             onChange={(e) => handleCellChange(item.id, 'importQty', e.target.value)}
                             onBlur={() => handleCellBlur(item.id)}
                             className="w-12 sm:w-14 text-center sm:text-right bg-zinc-50 focus:bg-white border border-zinc-200 rounded px-1 py-0.5 font-bold text-indigo-700 outline-none focus:ring-1 focus:ring-indigo-500 text-xs"
@@ -1723,7 +1766,8 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                           <input
                             type="text"
                             inputMode="decimal"
-                            value={item.wasteQty || '0'}
+                            value={item.wasteQty !== undefined ? item.wasteQty : '0'}
+                            onFocus={handleFocusToEnd}
                             onChange={(e) => handleCellChange(item.id, 'wasteQty', e.target.value)}
                             onBlur={() => handleCellBlur(item.id)}
                             className="w-11 sm:w-13 text-center sm:text-right bg-rose-50/60 focus:bg-white border border-rose-200 focus:border-rose-400 rounded px-1 py-0.5 font-semibold text-rose-700 outline-none text-xs"
@@ -1746,7 +1790,8 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                             <input
                               type="text"
                               inputMode="decimal"
-                              value={item.stockQty}
+                              value={item.stockQty !== undefined ? item.stockQty : '0'}
+                              onFocus={handleFocusToEnd}
                               onChange={(e) => handleCellChange(item.id, 'stockQty', e.target.value)}
                               onBlur={() => handleCellBlur(item.id)}
                               className="w-12 sm:w-14 text-center sm:text-right bg-emerald-50 focus:bg-white border border-emerald-300 rounded px-1 py-0.5 font-bold text-emerald-800 outline-none focus:ring-1 focus:ring-emerald-500 text-xs"
@@ -1795,9 +1840,10 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                             <span className="text-xs font-bold text-amber-800">{threshold}</span>
                           ) : (
                             <input
-                              type="number"
-                              min="0"
-                              value={threshold}
+                              type="text"
+                              inputMode="decimal"
+                              value={threshold !== undefined ? threshold : '3'}
+                              onFocus={handleFocusToEnd}
                               onChange={(e) => handleCellChange(item.id, 'minThreshold', e.target.value)}
                               onBlur={() => handleCellBlur(item.id)}
                               className="w-11 sm:w-12 text-center bg-amber-50 border border-amber-200 rounded py-0.5 font-bold text-amber-900 outline-none text-xs"
@@ -2408,6 +2454,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                     type="text"
                     inputMode="decimal"
                     value={newItemInitialStock}
+                    onFocus={handleFocusToEnd}
                     onChange={(e) => setNewItemInitialStock(sanitizeNumericInput(e.target.value))}
                     className="w-full p-2.5 bg-zinc-50 border border-zinc-300 rounded-xl font-bold text-emerald-800 outline-none"
                   />
