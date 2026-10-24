@@ -31,6 +31,13 @@ import {
   Clock,
   History,
   HardDrive,
+  Mail,
+  Send,
+  ShieldAlert,
+  FileSpreadsheet,
+  HelpCircle,
+  CheckCircle2,
+  AlertCircle,
 } from 'lucide-react';
 
 interface AdminConfigViewProps {
@@ -39,6 +46,7 @@ interface AdminConfigViewProps {
   navItems: NavItem[];
   onUpdateNavItems: (items: NavItem[]) => void;
   onRestoreFullDatabase?: (fullState: any) => void;
+  onRestoreEmergencyInventory?: () => void;
 }
 
 export const AdminConfigView: React.FC<AdminConfigViewProps> = ({
@@ -47,6 +55,7 @@ export const AdminConfigView: React.FC<AdminConfigViewProps> = ({
   navItems,
   onUpdateNavItems,
   onRestoreFullDatabase,
+  onRestoreEmergencyInventory,
 }) => {
   // Branding state
   const [brandingForm, setBrandingForm] = useState<AppConfig>(appConfig);
@@ -65,6 +74,30 @@ export const AdminConfigView: React.FC<AdminConfigViewProps> = ({
   // Hourly Reminder test state
   const [testHourlyLoading, setTestHourlyLoading] = useState(false);
   const [testHourlyMsg, setTestHourlyMsg] = useState<string | null>(null);
+
+  // Email Backup state
+  const [emailForm, setEmailForm] = useState({
+    recipient: appConfig.emailBackupRecipient || '',
+    senderEmail: appConfig.emailBackupSenderEmail || '',
+    senderPassword: appConfig.emailBackupSenderPassword || '',
+    frequency: (appConfig.emailBackupFrequency || 'weekly') as 'weekly' | 'daily',
+    enabled: appConfig.emailBackupEnabled !== false,
+  });
+  const [showPassword, setShowPassword] = useState(false);
+  const [isSavingEmailConfig, setIsSavingEmailConfig] = useState(false);
+  const [isSendingTestEmail, setIsSendingTestEmail] = useState(false);
+  const [emailStatusMsg, setEmailStatusMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [showEmailGuide, setShowEmailGuide] = useState(false);
+
+  useEffect(() => {
+    setEmailForm({
+      recipient: appConfig.emailBackupRecipient || '',
+      senderEmail: appConfig.emailBackupSenderEmail || '',
+      senderPassword: appConfig.emailBackupSenderPassword || '',
+      frequency: (appConfig.emailBackupFrequency || 'weekly') as 'weekly' | 'daily',
+      enabled: appConfig.emailBackupEnabled !== false,
+    });
+  }, [appConfig]);
 
   // QR Install Panel state (Hiển thị ngay trong Cấu hình Menu Admin)
   const [showQrSection, setShowQrSection] = useState<boolean>(true);
@@ -140,6 +173,92 @@ export const AdminConfigView: React.FC<AdminConfigViewProps> = ({
     }
   };
 
+  const handleSaveEmailConfig = async () => {
+    try {
+      setIsSavingEmailConfig(true);
+      setEmailStatusMsg(null);
+      const res = await fetch('/api/admin/save-email-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          emailBackupEnabled: emailForm.enabled,
+          emailBackupRecipient: emailForm.recipient,
+          emailBackupSenderEmail: emailForm.senderEmail,
+          emailBackupSenderPassword: emailForm.senderPassword,
+          emailBackupFrequency: emailForm.frequency,
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setEmailStatusMsg({ type: 'success', text: 'Đã lưu cấu hình Email sao lưu định kỳ thành công!' });
+        onUpdateAppConfig({
+          ...appConfig,
+          emailBackupEnabled: emailForm.enabled,
+          emailBackupRecipient: emailForm.recipient,
+          emailBackupSenderEmail: emailForm.senderEmail,
+          emailBackupSenderPassword: emailForm.senderPassword,
+          emailBackupFrequency: emailForm.frequency,
+        });
+      } else {
+        setEmailStatusMsg({ type: 'error', text: data.error || 'Lỗi lưu cấu hình' });
+      }
+    } catch (err: any) {
+      setEmailStatusMsg({ type: 'error', text: err?.message || 'Lỗi kết nối máy chủ' });
+    } finally {
+      setIsSavingEmailConfig(false);
+      setTimeout(() => setEmailStatusMsg(null), 5000);
+    }
+  };
+
+  const handleSendTestEmailBackup = async () => {
+    if (!emailForm.recipient) {
+      setEmailStatusMsg({ type: 'error', text: 'Vui lòng nhập Email người nhận trước khi bấm Gửi Thử!' });
+      return;
+    }
+    if (!emailForm.senderEmail || !emailForm.senderPassword) {
+      setEmailStatusMsg({ type: 'error', text: 'Vui lòng nhập Gmail gửi đi và Mật khẩu ứng dụng 16 ký tự trước!' });
+      return;
+    }
+    try {
+      setIsSendingTestEmail(true);
+      setEmailStatusMsg(null);
+      const res = await fetch('/api/admin/send-email-backup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recipient: emailForm.recipient,
+          senderEmail: emailForm.senderEmail,
+          senderPassword: emailForm.senderPassword,
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setEmailStatusMsg({
+          type: 'success',
+          text: data.message || `Đã gửi bản sao lưu kèm 3 file Excel và 1 file JSON tới: ${emailForm.recipient}!`,
+        });
+        onUpdateAppConfig({
+          ...appConfig,
+          emailBackupEnabled: emailForm.enabled,
+          emailBackupRecipient: emailForm.recipient,
+          emailBackupSenderEmail: emailForm.senderEmail,
+          emailBackupSenderPassword: emailForm.senderPassword,
+          emailBackupFrequency: emailForm.frequency,
+          lastEmailBackupAt: Date.now(),
+        });
+      } else {
+        setEmailStatusMsg({
+          type: 'error',
+          text: data.error || 'Lỗi gửi email. Vui lòng kiểm tra lại Gmail gửi đi hoặc Mật khẩu ứng dụng 16 ký tự.',
+        });
+      }
+    } catch (err: any) {
+      setEmailStatusMsg({ type: 'error', text: err?.message || 'Lỗi kết nối khi gửi email sao lưu' });
+    } finally {
+      setIsSendingTestEmail(false);
+    }
+  };
+
   const fetchBackupsList = async () => {
     try {
       setLoadingBackups(true);
@@ -175,6 +294,41 @@ export const AdminConfigView: React.FC<AdminConfigViewProps> = ({
       setTimeout(() => setBackupMessage(null), 3000);
     } catch (err: any) {
       setBackupMessage('Lỗi tạo sao lưu: ' + (err?.message || ''));
+      setTimeout(() => setBackupMessage(null), 4000);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleSaveSeedData = async () => {
+    try {
+      setIsExporting(true);
+      setBackupMessage('Đang đóng gói dữ liệu khởi động gốc...');
+      const res = await fetch('/api/admin/save-seed', {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (data.ok) {
+        // Đồng thời tải file initial-data.json về máy để Admin có thể kéo lên GitHub
+        const stateRes = await fetch('/api/state');
+        const stateJson = await stateRes.json();
+        const seedPayload = stateJson?.state || {};
+        const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(seedPayload, null, 2));
+        const downloadAnchor = document.createElement('a');
+        downloadAnchor.setAttribute('href', dataStr);
+        downloadAnchor.setAttribute('download', 'initial-data.json');
+        document.body.appendChild(downloadAnchor);
+        downloadAnchor.click();
+        downloadAnchor.remove();
+
+        setBackupMessage('Đã lưu & tải initial-data.json thành công! Bạn hãy kéo file này lên Git để cố định dữ liệu.');
+        setTimeout(() => setBackupMessage(null), 5000);
+      } else {
+        setBackupMessage('Lỗi lưu: ' + (data.error || 'Thất bại'));
+        setTimeout(() => setBackupMessage(null), 4000);
+      }
+    } catch (err: any) {
+      setBackupMessage('Lỗi kết nối server: ' + (err?.message || ''));
       setTimeout(() => setBackupMessage(null), 4000);
     } finally {
       setIsExporting(false);
@@ -1284,6 +1438,65 @@ export const AdminConfigView: React.FC<AdminConfigViewProps> = ({
               />
             </label>
           </div>
+
+          {/* Box 3: Đóng gói dữ liệu khởi động gốc (initial-data.json) */}
+          <div className="p-4 rounded-xl border-2 border-amber-300 bg-amber-50/60 space-y-2.5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-amber-600" />
+                <h4 className="text-xs font-bold uppercase tracking-wider text-amber-950">
+                  Đóng Gói Khởi Động (initial-data.json)
+                </h4>
+              </div>
+              <span className="self-start sm:self-auto text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-amber-200 text-amber-900 border border-amber-300">
+                Dữ liệu gốc
+              </span>
+            </div>
+            <p className="text-xs text-amber-900/80 leading-relaxed">
+              Lưu toàn bộ dữ liệu hiện tại thành <code className="font-mono font-bold bg-amber-100 px-1 py-0.5 rounded text-amber-900">initial-data.json</code> để khi kéo lên Git, deploy Render không bị reset.
+            </p>
+            <button
+              type="button"
+              onClick={handleSaveSeedData}
+              disabled={isExporting}
+              className="w-full h-9 px-4 bg-amber-600 hover:bg-amber-500 disabled:bg-zinc-400 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition shadow-xs"
+            >
+              <Save className="w-3.5 h-3.5" />
+              <span>Lưu initial-data.json (Kéo lên Git)</span>
+            </button>
+          </div>
+
+          {/* Box 4: Phục Hồi Tồn Kho Khẩn Cấp (Bộ Nhớ Máy) */}
+          <div className="p-4 rounded-xl border border-rose-200 bg-rose-50/60 space-y-2.5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+              <div className="flex items-center gap-2">
+                <ShieldAlert className="w-4 h-4 text-rose-600" />
+                <h4 className="text-xs font-bold uppercase tracking-wider text-rose-950">
+                  Phục Hồi Tồn Kho Khẩn Cấp (Bộ Nhớ Máy)
+                </h4>
+              </div>
+              <span className="self-start sm:self-auto text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-rose-200 text-rose-900 border border-rose-300">
+                Snapshot tại máy
+              </span>
+            </div>
+            <p className="text-xs text-rose-900/80 leading-relaxed">
+              Khôi phục lại danh sách kiểm tồn từ snapshot tự động lưu trên trình duyệt máy này (khi lỡ tay xóa nhầm bảng hoặc server có sự cố).
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                if (onRestoreEmergencyInventory) {
+                  onRestoreEmergencyInventory();
+                } else {
+                  alert('Chức năng phục hồi snapshot không khả dụng');
+                }
+              }}
+              className="w-full h-9 px-4 bg-rose-700 hover:bg-rose-600 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition shadow-xs"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Phục Hồi Bảng Tồn Từ Snapshot</span>
+            </button>
+          </div>
         </div>
 
         {/* Khu vực Lịch sử Tự Động Sao Lưu trên Server */}
@@ -1384,6 +1597,216 @@ export const AdminConfigView: React.FC<AdminConfigViewProps> = ({
                 );
               })
             )}
+          </div>
+        </div>
+
+        {/* Khu vực Cấu Hình & Tự Động Sao Lưu Gửi Email Định Kỳ */}
+        <div className="pt-5 border-t border-zinc-200 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-teal-50 border border-teal-200 flex items-center justify-center text-teal-700">
+                <Mail className="w-4 h-4" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-zinc-900 flex items-center gap-2">
+                  <span>Tự Động Sao Lưu & Gửi Email Định Kỳ</span>
+                  <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-teal-100 text-teal-800">
+                    File Excel .csv &amp; JSON
+                  </span>
+                </h4>
+                <p className="text-xs text-zinc-500">
+                  Tự động gửi báo cáo tóm tắt cùng 3 file Excel chuẩn tiếng Việt về hòm thư mỗi tuần / mỗi ngày để không bao giờ sợ mất dữ liệu.
+                </p>
+              </div>
+            </div>
+
+            {appConfig.lastEmailBackupAt && (
+              <span className="text-[11px] font-semibold text-zinc-500 bg-zinc-100 px-2.5 py-1 rounded-lg self-start sm:self-auto">
+                Lần gửi gần nhất: {new Date(appConfig.lastEmailBackupAt).toLocaleString('vi-VN')}
+              </span>
+            )}
+          </div>
+
+          {emailStatusMsg && (
+            <div
+              className={`p-3 rounded-xl border flex items-center gap-2 text-xs font-semibold ${
+                emailStatusMsg.type === 'success'
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                  : 'bg-rose-50 border-rose-200 text-rose-800'
+              }`}
+            >
+              {emailStatusMsg.type === 'success' ? (
+                <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+              ) : (
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+              )}
+              <span>{emailStatusMsg.text}</span>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-zinc-50/80 p-4 rounded-xl border border-zinc-200">
+            {/* Input 1: Email người nhận */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-zinc-700 flex items-center justify-between">
+                <span>Email Nhận Bản Sao Lưu:</span>
+                <span className="text-[10px] font-normal text-zinc-400">Hòm thư của bạn</span>
+              </label>
+              <input
+                type="email"
+                value={emailForm.recipient}
+                onChange={(e) => setEmailForm({ ...emailForm, recipient: e.target.value })}
+                placeholder="ví dụ: quanlybep@gmail.com"
+                className="w-full h-9 px-3 text-xs rounded-lg border border-zinc-300 bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 font-medium"
+              />
+            </div>
+
+            {/* Input 2: Tần suất & Bật/Tắt */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-zinc-700 flex items-center justify-between">
+                <span>Lịch Gửi Tự Động:</span>
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={emailForm.enabled}
+                    onChange={(e) => setEmailForm({ ...emailForm, enabled: e.target.checked })}
+                    className="w-3.5 h-3.5 rounded text-teal-600 focus:ring-teal-500"
+                  />
+                  <span className="text-[11px] font-bold text-teal-700">Bật gửi tự động</span>
+                </label>
+              </label>
+              <select
+                value={emailForm.frequency}
+                onChange={(e) => setEmailForm({ ...emailForm, frequency: e.target.value as any })}
+                className="w-full h-9 px-3 text-xs rounded-lg border border-zinc-300 bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 font-medium"
+              >
+                <option value="weekly">Hàng tuần (Thứ Hai lúc 07:00 sáng)</option>
+                <option value="daily">Hàng ngày (Mỗi sáng lúc 07:00)</option>
+              </select>
+            </div>
+
+            {/* Input 3: Gmail gửi đi */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-zinc-700 flex items-center justify-between">
+                <span>Gmail Gửi Đi (Sender Gmail):</span>
+                <span className="text-[10px] font-normal text-zinc-400">Tài khoản Google gửi mail</span>
+              </label>
+              <input
+                type="email"
+                value={emailForm.senderEmail}
+                onChange={(e) => setEmailForm({ ...emailForm, senderEmail: e.target.value })}
+                placeholder="ví dụ: beppro.system@gmail.com"
+                className="w-full h-9 px-3 text-xs rounded-lg border border-zinc-300 bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 font-medium"
+              />
+            </div>
+
+            {/* Input 4: Mật khẩu ứng dụng 16 ký tự */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-zinc-700 flex items-center justify-between">
+                <span>Mật Khẩu Ứng Dụng (App Password):</span>
+                <button
+                  type="button"
+                  onClick={() => setShowEmailGuide(!showEmailGuide)}
+                  className="text-[11px] font-bold text-teal-700 hover:text-teal-800 flex items-center gap-1"
+                >
+                  <HelpCircle className="w-3 h-3" />
+                  <span>Cách lấy 16 chữ số?</span>
+                </button>
+              </label>
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={emailForm.senderPassword}
+                  onChange={(e) => setEmailForm({ ...emailForm, senderPassword: e.target.value })}
+                  placeholder="16 chữ số (VD: abcd efgh ijkl mnop)"
+                  className="w-full h-9 pl-3 pr-9 text-xs rounded-lg border border-zinc-300 bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 font-mono tracking-wide"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600"
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            {/* Collapsible Guide */}
+            {showEmailGuide && (
+              <div className="sm:col-span-2 p-3.5 bg-teal-50/70 border border-teal-200 rounded-xl text-xs text-teal-950 space-y-2">
+                <div className="font-bold flex items-center gap-1.5 text-teal-900">
+                  <Sparkles className="w-3.5 h-3.5 text-teal-600" />
+                  <span>Hướng dẫn lấy Mật Khẩu Ứng Dụng Google trong 1 phút:</span>
+                </div>
+                <ol className="list-decimal pl-4 space-y-1 text-[11px] text-teal-900/90 leading-relaxed">
+                  <li>
+                    Đăng nhập tài khoản Gmail gửi đi, vào trang <b>Bảo mật</b>:{' '}
+                    <a
+                      href="https://myaccount.google.com/security"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="underline font-bold text-teal-700"
+                    >
+                      myaccount.google.com/security
+                    </a>
+                  </li>
+                  <li>Bật <b>Xác minh 2 bước (2-Step Verification)</b> nếu chưa bật.</li>
+                  <li>
+                    Tìm mục <b>Mật khẩu ứng dụng (App passwords)</b> (hoặc truy cập trực tiếp:{' '}
+                    <a
+                      href="https://myaccount.google.com/apppasswords"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="underline font-bold text-teal-700"
+                    >
+                      myaccount.google.com/apppasswords
+                    </a>
+                    ).
+                  </li>
+                  <li>
+                    Đặt tên ứng dụng là <b>Bep Pro</b>, bấm <b>Tạo (Create)</b>. Google sẽ hiện 1 chuỗi <b>16 chữ cái</b> (dạng: <code className="font-mono font-bold bg-teal-100 px-1 py-0.5 rounded">abcd efgh ijkl mnop</code>). Hãy copy chuỗi này và dán vào ô bên trên.
+                  </li>
+                </ol>
+              </div>
+            )}
+
+            {/* Action buttons */}
+            <div className="sm:col-span-2 pt-2 flex flex-col sm:flex-row items-center justify-between gap-2.5 border-t border-zinc-200/80">
+              <div className="text-[11px] text-zinc-500 flex items-center gap-1.5 self-start sm:self-auto">
+                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Mỗi email sẽ kèm 3 file Excel (.csv UTF-8) đọc trực tiếp trên điện thoại + 1 file JSON khôi phục.</span>
+              </div>
+
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <button
+                  type="button"
+                  onClick={handleSaveEmailConfig}
+                  disabled={isSavingEmailConfig}
+                  className="flex-1 sm:flex-none h-8 px-4 rounded-lg text-xs font-bold bg-teal-700 hover:bg-teal-600 disabled:bg-zinc-400 text-white flex items-center justify-center gap-1.5 transition shadow-xs"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>{isSavingEmailConfig ? 'Đang lưu...' : 'Lưu Cấu Hình'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleSendTestEmailBackup}
+                  disabled={isSendingTestEmail}
+                  className="flex-1 sm:flex-none h-8 px-4 rounded-lg text-xs font-bold bg-zinc-900 hover:bg-zinc-800 disabled:bg-zinc-400 text-white flex items-center justify-center gap-1.5 transition shadow-xs"
+                >
+                  {isSendingTestEmail ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Đang gửi thử...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-3.5 h-3.5" />
+                      <span>Gửi Thử Bản Sao Lưu Ngay</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>

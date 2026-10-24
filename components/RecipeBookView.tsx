@@ -69,6 +69,7 @@ export const RecipeBookView: React.FC<RecipeBookViewProps> = ({
 
   const [editingRecipeId, setEditingRecipeId] = useState<string | null>(null);
   const [dishName, setDishName] = useState<string>('');
+  const [instructions, setInstructions] = useState<string>('');
   const [ingredients, setIngredients] = useState<RecipeIngredient[]>([
     createEmptyIngredient(),
     createEmptyIngredient(),
@@ -112,6 +113,7 @@ export const RecipeBookView: React.FC<RecipeBookViewProps> = ({
   const handleResetForm = () => {
     setEditingRecipeId(null);
     setDishName('');
+    setInstructions('');
     setIngredients([createEmptyIngredient(), createEmptyIngredient()]);
     setFormError('');
   };
@@ -120,6 +122,7 @@ export const RecipeBookView: React.FC<RecipeBookViewProps> = ({
     if (!canEditRecipe) return;
     setEditingRecipeId(recipe.id);
     setDishName(recipe.dishName);
+    setInstructions(recipe.instructions || '');
     setIngredients(
       recipe.ingredients.length > 0
         ? recipe.ingredients.map((i) => ({ ...i }))
@@ -170,6 +173,7 @@ export const RecipeBookView: React.FC<RecipeBookViewProps> = ({
       id: editingRecipeId || `recipe-${Date.now()}`,
       dishName: trimmedDish,
       ingredients: validIngredients,
+      instructions: instructions.trim() || undefined,
       createdBy: currentUser?.fullName || 'Bếp Trưởng',
       updatedAt: nowStr,
     };
@@ -347,6 +351,20 @@ export const RecipeBookView: React.FC<RecipeBookViewProps> = ({
               </div>
             </div>
 
+            {/* 3. Trường Cách Làm / Quy trình Chế Biến */}
+            <div>
+              <label className="block text-xs font-bold text-zinc-800 uppercase tracking-wider mb-1.5">
+                Cách Làm / Quy Trình Chế Biến <span className="text-zinc-400 font-normal lowercase">(không bắt buộc)</span>
+              </label>
+              <textarea
+                value={instructions}
+                onChange={(e) => setInstructions(e.target.value)}
+                placeholder="Nhập chi tiết từng bước chế biến, thời gian, nhiệt độ nấu hoặc bí quyết của bếp..."
+                rows={3}
+                className="w-full p-3 bg-zinc-50 border border-zinc-300 rounded-xl text-xs sm:text-sm text-zinc-950 placeholder:text-zinc-400 focus:bg-white focus:ring-2 focus:ring-zinc-900 outline-none resize-y transition"
+              />
+            </div>
+
             {formError && (
               <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold">
                 {formError}
@@ -500,6 +518,18 @@ export const RecipeBookView: React.FC<RecipeBookViewProps> = ({
                       </div>
                     ))}
                   </div>
+
+                  {/* Cách làm / Quy trình chế biến (Hiển thị cho cả nhân viên và quản lý) */}
+                  {recipe.instructions && (
+                    <div className="p-3 bg-amber-50/70 border-t border-amber-200/60 text-xs">
+                      <div className="font-bold text-amber-900 text-[11px] uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                        <span>📝 Cách Làm / Quy Trình:</span>
+                      </div>
+                      <p className="whitespace-pre-line text-zinc-700 leading-relaxed font-normal">
+                        {recipe.instructions}
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}

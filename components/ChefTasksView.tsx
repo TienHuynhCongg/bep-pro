@@ -22,7 +22,8 @@ interface ChefTasksViewProps {
   onDeleteTask: (id: string) => void;
   onResetTasks?: () => void;
   onClearAllTasks: () => void;
-  onLoadTaskPreset: (type: 'standard' | 'haccp' | 'bakery') => void;
+  onLoadTaskPreset: (type: 'standard' | 'haccp' | 'bakery', mode?: 'append' | 'replace') => void;
+  onRestoreEmergencyTasks?: () => void;
   staffList?: StaffUser[];
   currentUser?: StaffUser | null;
   onTriggerManager1430Check?: () => void;
@@ -37,6 +38,7 @@ export const ChefTasksView: React.FC<ChefTasksViewProps> = ({
   onResetTasks,
   onClearAllTasks,
   onLoadTaskPreset,
+  onRestoreEmergencyTasks,
   staffList = [],
   currentUser = null,
   onTriggerManager1430Check,
@@ -63,6 +65,27 @@ export const ChefTasksView: React.FC<ChefTasksViewProps> = ({
   const [inlineNewType, setInlineNewType] = useState<TaskScheduleType>('urgent_today');
   const [confirmClearAll, setConfirmClearAll] = useState(false);
   const [confirmResetAll, setConfirmResetAll] = useState(false);
+
+  // Modal xác nhận nạp mẫu việc an toàn (tránh lỡ tay làm mất việc cũ)
+  const [presetModal, setPresetModal] = useState<{
+    isOpen: boolean;
+    type: 'standard' | 'haccp';
+    title: string;
+    count: number;
+    description: string;
+  } | null>(null);
+  const [confirmReplaceChecked, setConfirmReplaceChecked] = useState(false);
+
+  const hasEmergencySnapshot = (() => {
+    try {
+      return Boolean(
+        localStorage.getItem('kitchen_tasks_emergency_snapshot') ||
+        localStorage.getItem('kitchen_admin_auto_backup_latest')
+      );
+    } catch {
+      return false;
+    }
+  })();
 
   // Lọc danh sách nhân viên đang hoạt động (online / active)
   const onlineStaffList = staffList.filter((s) => s.status === 'active');
@@ -448,28 +471,57 @@ export const ChefTasksView: React.FC<ChefTasksViewProps> = ({
               </button>
             </form>
 
-            {/* Quick Templates */}
-            <div className="pt-3 border-t border-stone-100">
-              <span className="text-xs font-bold text-stone-500 uppercase tracking-wider block mb-2">
-                Nạp nhanh mẫu đầu việc theo chuẩn:
-              </span>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => onLoadTaskPreset('standard')}
-                  className="p-2.5 bg-stone-50 hover:bg-stone-100 text-stone-800 text-xs font-semibold rounded-xl border border-stone-200 text-left transition flex items-center gap-2"
-                >
-                  <span>Bếp Tiêu Chuẩn (6 việc)</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onLoadTaskPreset('haccp')}
-                  className="p-2.5 bg-stone-50 hover:bg-stone-100 text-stone-800 text-xs font-semibold rounded-xl border border-stone-200 text-left transition flex items-center gap-2"
-                >
-                  <span>Vệ Sinh An Toàn HACCP</span>
-                </button>
+            {/* Quick Templates - Có xác nhận an toàn chống mất việc */}
+            {currentUser && (currentUser.role === 'admin' || currentUser.role === 'manager') && (
+              <div className="pt-3 border-t border-stone-100">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-bold text-stone-500 uppercase tracking-wider block">
+                    Nạp mẫu việc theo chuẩn:
+                  </span>
+                  <span className="text-[10px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full font-semibold border border-emerald-200">
+                    🛡️ Chống mất việc
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setConfirmReplaceChecked(false);
+                      setPresetModal({
+                        isOpen: true,
+                        type: 'standard',
+                        title: 'Bếp Tiêu Chuẩn',
+                        count: 6,
+                        description:
+                          'Gồm 6 việc căn bản: đo nhiệt độ tủ, sơ chế rau thịt, nấu nước dùng, bọc màng FIFO, lau bếp, khóa van gas.',
+                      });
+                    }}
+                    className="p-2.5 bg-stone-50 hover:bg-stone-100 text-stone-800 text-xs font-semibold rounded-xl border border-stone-200 text-left transition flex items-center justify-between group"
+                  >
+                    <span>Bếp Tiêu Chuẩn (6 việc)</span>
+                    <span className="text-[10px] text-stone-400 group-hover:text-stone-700 font-normal">Tùy chọn ➔</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setConfirmReplaceChecked(false);
+                      setPresetModal({
+                        isOpen: true,
+                        type: 'haccp',
+                        title: 'Vệ Sinh An Toàn HACCP',
+                        count: 6,
+                        description:
+                          'Gồm 6 việc an toàn ATTP: kiểm soát nhiệt độ đông sâu, khử khuẩn thớt màu, tem nhãn FIFO, bẫy mỡ...',
+                      });
+                    }}
+                    className="p-2.5 bg-stone-50 hover:bg-stone-100 text-stone-800 text-xs font-semibold rounded-xl border border-stone-200 text-left transition flex items-center justify-between group"
+                  >
+                    <span>Vệ Sinh An Toàn HACCP</span>
+                    <span className="text-[10px] text-stone-400 group-hover:text-stone-700 font-normal">Tùy chọn ➔</span>
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
 
@@ -486,6 +538,18 @@ export const ChefTasksView: React.FC<ChefTasksViewProps> = ({
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
+              {onRestoreEmergencyTasks && hasEmergencySnapshot && (
+                <button
+                  type="button"
+                  onClick={onRestoreEmergencyTasks}
+                  className="px-2.5 py-1.5 rounded-xl text-xs font-bold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 flex items-center gap-1 transition shadow-2xs"
+                  title="Khôi phục lại danh sách checklist đã lưu trước đó nếu lỡ tay làm mất"
+                >
+                  <RotateCcw className="w-3.5 h-3.5 text-amber-700" />
+                  <span>Phục Hồi Việc Đã Mất</span>
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={() => setShowQuickAddInline(!showQuickAddInline)}
@@ -805,6 +869,116 @@ export const ChefTasksView: React.FC<ChefTasksViewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Modal xác nhận nạp mẫu việc an toàn (Chống mất việc đã tạo) */}
+      {presetModal && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs animate-fadeIn">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-6 border border-stone-200 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0">
+                <ChefHat className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-stone-900">
+                  Nạp Mẫu: {presetModal.title}
+                </h3>
+                <p className="text-xs text-stone-500">
+                  Gồm {presetModal.count} đầu việc mẫu chuẩn nghề bếp
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-stone-600 bg-stone-50 p-3 rounded-xl border border-stone-200 leading-relaxed">
+              {presetModal.description}
+            </p>
+
+            <div className="space-y-2.5 pt-1">
+              <div className="text-xs font-bold text-stone-700">
+                Chọn cách nạp vào bảng checklist:
+              </div>
+
+              {/* Lựa chọn 1: Nạp thêm (An toàn tuyệt đối - Khuyên dùng) */}
+              <button
+                type="button"
+                onClick={() => {
+                  onLoadTaskPreset(presetModal.type, 'append');
+                  setPresetModal(null);
+                }}
+                className="w-full p-3 rounded-2xl bg-emerald-50 hover:bg-emerald-100 border-2 border-emerald-500/50 text-left transition flex items-start gap-3 group cursor-pointer"
+              >
+                <div className="w-7 h-7 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 mt-0.5">
+                  <Plus className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
+                    <span>➕ Nạp thêm vào danh sách</span>
+                    <span className="text-[10px] bg-emerald-200/80 text-emerald-900 px-1.5 py-0.2 rounded font-semibold">
+                      Khuyên Dùng
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-emerald-700 mt-0.5">
+                    Giữ nguyên toàn bộ {tasks.length} việc hiện có, chỉ bổ sung thêm các việc mẫu vào cuối bảng.
+                  </div>
+                </div>
+              </button>
+
+              {/* Lựa chọn 2: Thay thế toàn bộ (Nguy hiểm) */}
+              <div className="p-3 rounded-2xl bg-rose-50/70 border border-rose-200 space-y-2">
+                <div className="flex items-start gap-2.5">
+                  <div className="w-6 h-6 rounded-lg bg-rose-200 text-rose-800 flex items-center justify-center shrink-0 mt-0.5 text-xs font-bold">
+                    ⚠️
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-xs font-bold text-rose-950">
+                      Thay thế toàn bộ (Ghi đè)
+                    </div>
+                    <div className="text-[11px] text-rose-700 mt-0.5">
+                      Xóa toàn bộ {tasks.length} việc hiện có và chỉ giữ lại {presetModal.count} việc mẫu.
+                    </div>
+                  </div>
+                </div>
+
+                <label className="flex items-center gap-2 cursor-pointer text-xs text-rose-900 font-semibold pt-1">
+                  <input
+                    type="checkbox"
+                    checked={confirmReplaceChecked}
+                    onChange={(e) => setConfirmReplaceChecked(e.target.checked)}
+                    className="rounded text-rose-600 focus:ring-rose-500 w-4 h-4"
+                  />
+                  <span>Tôi hiểu các việc tự tạo cũ sẽ bị xóa</span>
+                </label>
+
+                <button
+                  type="button"
+                  disabled={!confirmReplaceChecked}
+                  onClick={() => {
+                    onLoadTaskPreset(presetModal.type, 'replace');
+                    setPresetModal(null);
+                  }}
+                  className={`w-full py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                    confirmReplaceChecked
+                      ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-xs cursor-pointer'
+                      : 'bg-stone-200 text-stone-400 cursor-not-allowed'
+                  }`}
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Xác nhận ghi đè toàn bộ</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="pt-2 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setPresetModal(null)}
+                className="px-4 py-2 text-xs font-bold text-stone-600 hover:bg-stone-100 rounded-xl transition"
+              >
+                Hủy bỏ
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

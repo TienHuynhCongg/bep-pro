@@ -18,6 +18,7 @@ interface HeaderNavProps {
   onDeleteNotification?: (id: string) => void;
   onClearAllNotifications?: () => void;
   serverConnected?: boolean;
+  syncStatus?: 'synced' | 'syncing' | 'offline' | 'error';
   onOpenOrderList?: () => void;
   lowStockOrdersCount?: number;
 }
@@ -36,6 +37,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
   onDeleteNotification,
   onClearAllNotifications,
   serverConnected = false,
+  syncStatus = 'synced',
   onOpenOrderList,
   lowStockOrdersCount = 0,
 }) => {
@@ -76,10 +78,20 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
                   {config.appTitle || 'KITCHEN LOG PRO'}
                 </h1>
                 <span
-                  className={`w-2 h-2 rounded-full shrink-0 ${
-                    serverConnected ? 'bg-emerald-500' : 'bg-amber-500'
+                  className={`w-2.5 h-2.5 rounded-full shrink-0 transition-all ${
+                    syncStatus === 'synced'
+                      ? 'bg-emerald-400 shadow-sm shadow-emerald-400/50'
+                      : syncStatus === 'syncing'
+                      ? 'bg-amber-400 animate-pulse'
+                      : 'bg-rose-500 animate-ping'
                   }`}
-                  title={serverConnected ? 'Đã kết nối đồng bộ trực tiếp' : 'Chế độ ngoại tuyến'}
+                  title={
+                    syncStatus === 'synced'
+                      ? 'Đã đồng bộ an toàn lên Server'
+                      : syncStatus === 'syncing'
+                      ? 'Đang lưu lên máy chủ...'
+                      : 'Chưa có mạng (Đã lưu tạm trên máy, sẽ tự động đẩy lên khi có mạng)'
+                  }
                 />
               </div>
               <p className="text-[11px] text-zinc-400 truncate hidden sm:block">
