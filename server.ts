@@ -1068,14 +1068,16 @@ export function createKitchenApiMiddleware() {
     if (Array.isArray(recipes)) dbState.recipes = recipes;
     if (Array.isArray(inventory)) dbState.inventory = inventory;
     dbState.updatedAt = Date.now();
+    dbState.isSeedReset = false;
 
     saveDb(dbState);
 
-    // Tự động sao lưu dữ liệu mỗi khi Admin thao tác
+    // Tự động sao lưu dữ liệu mỗi khi Admin thao tác hoặc khi có cập nhật tồn kho
     const isAdminAction =
       senderRole === 'admin' ||
       Boolean(appConfig || toolbarItems || staffList || deleteRequests);
-    if (isAdminAction) {
+    const hasInventoryUpdate = Array.isArray(inventory) && inventory.length > 0;
+    if (isAdminAction || hasInventoryUpdate) {
       createAutoBackup(
         dbState,
         actionReason ||
@@ -1085,6 +1087,8 @@ export function createKitchenApiMiddleware() {
             ? 'admin_menu'
             : staffList
             ? 'admin_staff'
+            : hasInventoryUpdate
+            ? 'inventory_update'
             : 'admin_action')
       );
     }

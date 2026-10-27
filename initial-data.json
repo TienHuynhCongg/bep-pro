@@ -1,5 +1,5 @@
 {
-  "updatedAt": 1792775826716,
+  "updatedAt": 1792810801946,
   "tasks": [
     {
       "title": "Nấu nước daisi",
@@ -262,6 +262,33 @@
     "emailBackupFrequency": "weekly"
   },
   "notifications": [
+    {
+      "id": "notif-1792810801946-hourly-10",
+      "actorName": "Nhắc Việc 10:00",
+      "actorRole": "manager",
+      "actionText": "thông báo còn 9 việc chưa làm",
+      "targetText": "Tiến độ: 0/9 việc",
+      "createdAtMs": 1792810801946,
+      "type": "task_urgent"
+    },
+    {
+      "id": "notif-1792807230012-hourly-9",
+      "actorName": "Nhắc Việc 9:00",
+      "actorRole": "manager",
+      "actionText": "thông báo còn 9 việc chưa làm",
+      "targetText": "Tiến độ: 0/9 việc",
+      "createdAtMs": 1792807230012,
+      "type": "task_urgent"
+    },
+    {
+      "id": "notif-1792803629132-hourly-8",
+      "actorName": "Nhắc Việc 8:00",
+      "actorRole": "manager",
+      "actionText": "thông báo còn 9 việc chưa làm",
+      "targetText": "Tiến độ: 0/9 việc",
+      "createdAtMs": 1792803629132,
+      "type": "task_urgent"
+    },
     {
       "id": "notif-1792728021796-hourly-11",
       "actorName": "Nhắc Việc 11:00",
@@ -920,22 +947,6 @@
       "createdAt": "11:02"
     },
     {
-      "id": "inv-1792660214654-55fx",
-      "stt": 1,
-      "dateStr": "22/10/2026",
-      "tableName": "Tủ Dimsum",
-      "itemName": "Mặt hàng 1 (Bấm đổi tên)",
-      "prevStock": "0",
-      "importQty": "0",
-      "stockQty": "0",
-      "wasteQty": "0",
-      "minThreshold": 3,
-      "unit": "kg",
-      "statusType": "ton",
-      "createdBy": "admin",
-      "createdAt": "16:10"
-    },
-    {
       "id": "inv-1792688753942-0-vih",
       "stt": 1,
       "dateStr": "23/10/2026",
@@ -1459,33 +1470,17 @@
       "statusType": "ton",
       "createdBy": "admin",
       "createdAt": "00:05"
-    },
-    {
-      "id": "inv-1792691241332-0-ghs",
-      "stt": 1,
-      "dateStr": "23/10/2026",
-      "tableName": "Tủ Dimsum",
-      "itemName": "Mặt hàng 1 (Bấm đổi tên)",
-      "prevStock": "0",
-      "importQty": "0",
-      "stockQty": "0",
-      "wasteQty": "0",
-      "minThreshold": 3,
-      "unit": "kg",
-      "statusType": "ton",
-      "createdBy": "admin",
-      "createdAt": "00:47"
     }
   ],
   "pushSubscriptions": [],
-  "lastHourlyReminderKey": "23/10/2026-11",
+  "lastHourlyReminderKey": "24/10/2026-10",
   "latestPushMessage": {
-    "id": "notif-1792728021796-hourly-11",
-    "title": "⏰ [11:00] Nhắc Việc: Còn 9 việc chưa làm!",
+    "id": "notif-1792810801946-hourly-10",
+    "title": "⏰ [10:00] Nhắc Việc: Còn 9 việc chưa làm!",
     "body": "Còn 9 việc chưa làm. Các bạn vào kiểm tra và xử lý nhé!",
-    "tag": "bep-pro-hourly-11",
+    "tag": "bep-pro-hourly-10",
     "urgent": true,
     "url": "/",
-    "timestamp": 1792728021796
+    "timestamp": 1792810801946
   }
 }

@@ -866,33 +866,11 @@ export default function App() {
       }
       if (Array.isArray(s.recipes)) setRecipes(s.recipes);
 
-      // 2. Đồng bộ Inventory THÔNG MINH - BẢO TOÀN 100% CÁC TỦ & MẶT HÀNG ĐÃ TẠO
+      // 2. Đồng bộ Tồn Kiểm an toàn: Server là nguồn dữ liệu chuẩn, không tự ý hồi sinh món đã xóa
       if (Array.isArray(s.inventory)) {
-        const currentLocal = inventoryRef.current || [];
-        const serverKeys = new Set(
-          s.inventory.map(
-            (i: any) => `${i.dateStr || ''}_${i.tableName || 'Tủ Mát Chính'}_${(i.itemName || '').trim().toLowerCase()}`
-          )
-        );
-
-        // Tìm các mặt hàng/tủ mà local có (ví dụ Tủ Dimsum vừa tạo ở quán) nhưng server chưa có
-        const localOnlyItems = currentLocal.filter((locItem) => {
-          const key = `${locItem.dateStr || ''}_${locItem.tableName || 'Tủ Mát Chính'}_${(locItem.itemName || '').trim().toLowerCase()}`;
-          return !serverKeys.has(key);
-        });
-
-        if (localOnlyItems.length > 0) {
-          const merged = [...s.inventory, ...localOnlyItems];
-          inventoryRef.current = merged;
-          setInventory(merged);
-          saveEmergencyInventorySnapshot(merged);
-          // Đẩy ngay phần còn thiếu lên server để server lưu trữ vĩnh viễn!
-          pushStateToServer({ inventory: merged });
-        } else {
-          inventoryRef.current = s.inventory;
-          setInventory(s.inventory);
-          saveEmergencyInventorySnapshot(s.inventory);
-        }
+        inventoryRef.current = s.inventory;
+        setInventory(s.inventory);
+        saveEmergencyInventorySnapshot(s.inventory);
       }
     };
 
@@ -904,22 +882,43 @@ export default function App() {
         const localLastEditTs = getLocalLastEditTs();
         const isAdmin = currentUserRef.current?.role === 'admin';
 
-        // CHỈ khi máy này THỰC SỰ vừa sửa đổi gần đây (mốc sửa trên máy > mốc server), máy này mới đẩy lên để phục hồi server
-        const thisDeviceHasUnpushedEdits =
-          isAdmin && localLastEditTs > 0 && localLastEditTs > serverTs + 1500;
+        const localInventory = inventoryRef.current || [];
+        const localTasks = tasksRef.current || [];
 
-        if (thisDeviceHasUnpushedEdits) {
+        // Kiểm tra xem máy chủ có vừa bị khởi động lại từ file seed gốc (Render spin-down) không
+        const isServerSeedReset = Boolean(s.isSeedReset);
+        const serverDates = new Set(
+          Array.isArray(s.inventory) ? s.inventory.map((i: any) => i.dateStr).filter(Boolean) : []
+        );
+        const localDates = new Set(localInventory.map((i) => i.dateStr).filter(Boolean));
+        const localHasExtraDates = Array.from(localDates).some((d) => !serverDates.has(d));
+        const localHasMoreInventory = localInventory.length > (s.inventory?.length || 0);
+        const localHasMoreTasks = localTasks.length > (s.tasks?.length || 0);
+
+        const localHasRicherData =
+          (localHasExtraDates || localHasMoreInventory || localHasMoreTasks) &&
+          (localInventory.length > 0 || localTasks.length > 0);
+
+        // TH1: Máy chủ vừa restart từ seed file mà thiết bị này có dữ liệu thật phong phú hơn -> Tự động khôi phục máy chủ
+        // TH2: Thiết bị này có thao tác sửa đổi gần đây chưa kịp đẩy (localLastEditTs > serverTs + 1500)
+        const shouldRestoreServer =
+          (isServerSeedReset && localHasRicherData) ||
+          (isAdmin && localLastEditTs > 0 && localLastEditTs > serverTs + 1500);
+
+        if (shouldRestoreServer) {
+          console.log('🛡️ [Auto Sync] Tự động bảo toàn và đẩy dữ liệu chuẩn từ thiết bị lên máy chủ...');
           pushStateToServer({
-            tasks: tasksRef.current,
-            logs,
-            staffList: staffListRef.current,
+            tasks: localTasks.length > 0 ? localTasks : s.tasks,
+            logs: logs.length > 0 ? logs : s.logs,
+            staffList: staffListRef.current.length > 0 ? staffListRef.current : s.staffList,
             toolbarItems: navItems,
             deleteRequests,
             notifications: notificationsRef.current,
-            recipes,
-            inventory: inventoryRef.current,
+            recipes: recipes.length > 0 ? recipes : s.recipes,
+            inventory: localInventory.length > 0 ? localInventory : s.inventory,
             appConfig,
           });
+          showToast('🛡️ Đã tự động bảo toàn và đồng bộ dữ liệu lên máy chủ!');
         } else {
           applyServerState(s);
         }
@@ -2147,17 +2146,66 @@ export default function App() {
     showToast(target ? `Đã xóa công thức: "${target.dishName}"` : 'Đã xóa công thức');
   };
 
-  // Lưu snapshot tồn kho khẩn cấp trước khi có thay đổi lớn
+  // Lưu snapshot tồn kho khẩn cấp trước khi có thay đổi lớn & lưu kho lưu trữ theo ngày
   const saveEmergencyInventorySnapshot = (currentInv: InventoryCheckItem[]) => {
     try {
       if (Array.isArray(currentInv) && currentInv.length > 0) {
-        localStorage.setItem(
-          'kitchen_inventory_emergency_snapshot',
-          JSON.stringify({
-            timestamp: Date.now(),
-            inventory: currentInv,
-          })
-        );
+        // Bảo vệ snapshot: Không để danh sách rỗng hoặc bị rút ngắn đột ngột ghi đè snapshot lớn hơn
+        const rawSnapshot = localStorage.getItem('kitchen_inventory_emergency_snapshot');
+        if (rawSnapshot) {
+          try {
+            const parsed = JSON.parse(rawSnapshot);
+            const prevInv = Array.isArray(parsed) ? parsed : parsed.inventory;
+            if (Array.isArray(prevInv) && prevInv.length > currentInv.length + 10) {
+              console.warn('Bảo vệ snapshot: Giữ lại bản snapshot đầy đủ hơn');
+            } else {
+              localStorage.setItem(
+                'kitchen_inventory_emergency_snapshot',
+                JSON.stringify({
+                  timestamp: Date.now(),
+                  inventory: currentInv,
+                })
+              );
+            }
+          } catch {
+            localStorage.setItem(
+              'kitchen_inventory_emergency_snapshot',
+              JSON.stringify({
+                timestamp: Date.now(),
+                inventory: currentInv,
+              })
+            );
+          }
+        } else {
+          localStorage.setItem(
+            'kitchen_inventory_emergency_snapshot',
+            JSON.stringify({
+              timestamp: Date.now(),
+              inventory: currentInv,
+            })
+          );
+        }
+
+        // Lưu bản lưu trữ vĩnh viễn theo ngày (archive)
+        try {
+          const rawArchive = localStorage.getItem('kitchen_inventory_daily_archive');
+          const archive: Record<string, InventoryCheckItem[]> = rawArchive ? JSON.parse(rawArchive) : {};
+          const byDate: Record<string, InventoryCheckItem[]> = {};
+          currentInv.forEach((item) => {
+            if (item.dateStr) {
+              if (!byDate[item.dateStr]) byDate[item.dateStr] = [];
+              byDate[item.dateStr].push(item);
+            }
+          });
+          Object.keys(byDate).forEach((d) => {
+            if (byDate[d].length > 0) {
+              archive[d] = byDate[d];
+            }
+          });
+          localStorage.setItem('kitchen_inventory_daily_archive', JSON.stringify(archive));
+        } catch {
+          // ignore
+        }
       }
     } catch {
       // ignore
@@ -2180,7 +2228,25 @@ export default function App() {
         }
       }
 
-      // 2. Thử từ admin auto backup
+      // 2. Thử từ kho lưu trữ theo ngày (daily archive)
+      const rawArchive = localStorage.getItem('kitchen_inventory_daily_archive');
+      if (rawArchive) {
+        try {
+          const archive: Record<string, InventoryCheckItem[]> = JSON.parse(rawArchive);
+          const allArchivedItems = Object.values(archive).flat();
+          if (allArchivedItems.length > 0) {
+            inventoryRef.current = allArchivedItems;
+            setInventory(allArchivedItems);
+            pushStateToServer({ inventory: allArchivedItems });
+            showToast(`Đã phục hồi ${allArchivedItems.length} dòng tồn kiểm từ kho lưu trữ theo ngày!`);
+            return;
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      // 3. Thử từ admin auto backup
       const rawAdminBackup = localStorage.getItem('kitchen_admin_auto_backup_latest');
       if (rawAdminBackup) {
         const parsed = JSON.parse(rawAdminBackup);

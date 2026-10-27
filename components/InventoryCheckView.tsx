@@ -167,6 +167,25 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const calendarRef = React.useRef<HTMLDivElement>(null);
 
+  // Đồng hồ chạy giây thời gian thực kiểu Windows Taskbar Calendar Flyout
+  const [liveClockTime, setLiveClockTime] = useState<string>(() => {
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+  });
+
+  useEffect(() => {
+    if (!isCalendarOpen) return;
+    const updateTime = () => {
+      const now = new Date();
+      const pad = (n: number) => String(n).padStart(2, '0');
+      setLiveClockTime(`${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`);
+    };
+    updateTime();
+    const timer = setInterval(updateTime, 1000);
+    return () => clearInterval(timer);
+  }, [isCalendarOpen]);
+
   // Parse tháng và năm đang xem trên lịch (mặc định theo selectedDate)
   const [calendarViewDate, setCalendarViewDate] = useState<Date>(() => {
     const parts = (todayStr || '').split('/');
@@ -200,9 +219,13 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
   }, [isCalendarOpen]);
 
   const currentMonthYearLabel = useMemo(() => {
-    const m = calendarViewDate.getMonth() + 1;
+    const m = calendarViewDate.getMonth();
     const y = calendarViewDate.getFullYear();
-    return `Tháng ${m < 10 ? '0' + m : m}, ${y}`;
+    const monthNamesEn = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+    return `${monthNamesEn[m]} ${y}`;
   }, [calendarViewDate]);
 
   const calendarDays = useMemo(() => {
@@ -314,8 +337,8 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
       });
     }
 
-    // Các ngày đầu tháng sau để lấp đầy 7 cột
-    const remaining = (7 - (days.length % 7)) % 7;
+    // Đảm bảo luôn đủ 42 ô (6 hàng x 7 cột) chuẩn giao diện Windows Calendar
+    const remaining = 42 - days.length;
     for (let i = 1; i <= remaining; i++) {
       const nextMonth = month === 11 ? 0 : month + 1;
       const nextYear = month === 11 ? year + 1 : year;
@@ -583,121 +606,99 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     return getLatestItemsForTable(tableName, selectedDate);
   };
 
-  // TỰ ĐỘNG BẢO TOÀN DANH MỤC CỐ ĐỊNH CHO TẤT CẢ CÁC TỦ KHI SANG NGÀY MỚI
-  // Mọi tủ đã từng tồn tại đều sẽ tự động có mặt ở ngày mới với toàn bộ mặt hàng và Tồn hôm trước = Tồn cuối hôm qua
-  const ensureAllTablesPopulatedForDate = (targetDate: string) => {
+  // CHUẨN BỊ SẴN DANH MỤC MẶT HÀNG CHO NGÀY HÔM NAY (NẠP SẴN VÀO BẢNG LOCAL, KHÔNG TỰ ĐẨY LÊN SERVER)
+  // Chỉ nạp sẵn khi ngày xem là hôm nay và hôm nay hoàn toàn chưa có bất kỳ dòng nào
+  const ensureTodayPopulatedLocally = (targetDate: string) => {
+    if (targetDate !== todayStr) return;
+    const existingForDate = localItems.filter((i) => i.dateStr === targetDate);
+    if (existingForDate.length > 0) return; // Đã có dữ liệu thì tôn trọng dữ liệu hiện tại, không can thiệp
+
     let nextAll = [...localItems];
     let hasChanges = false;
 
     for (const tableName of allKnownTables) {
-      const currentRows = nextAll.filter(
-        (i) => i.dateStr === targetDate && (i.tableName || DEFAULT_TABLE_NAME) === tableName
-      );
-
-      const isOnlyDummy =
-        currentRows.length === 1 && currentRows[0].itemName.includes('Mặt hàng 1');
-
-      // Nếu tủ này chưa có mặt hàng nào hoặc chỉ có mỗi 1 dòng mẫu "Mặt hàng 1"
-      if (currentRows.length === 0 || isOnlyDummy) {
-        const baseItems = getLatestItemsForTable(tableName, targetDate).filter(
-          (i) => !i.itemName.includes('Mặt hàng 1')
-        );
-
-        if (baseItems.length > 0) {
-          // Xóa dòng mẫu nếu có
-          if (isOnlyDummy) {
-            nextAll = nextAll.filter(
-              (i) => !(i.dateStr === targetDate && (i.tableName || DEFAULT_TABLE_NAME) === tableName)
-            );
-          }
-
-          const clonedRows: InventoryCheckItem[] = baseItems.map((item, idx) => {
-            const prevEndingStock = parseFloat(item.stockQty) || 0;
-            return {
-              id: `inv-${Date.now()}-${tableName}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
-              stt: item.stt || idx + 1,
-              dateStr: targetDate,
-              tableName: tableName || DEFAULT_TABLE_NAME,
-              itemName: item.itemName,
-              prevStock: String(prevEndingStock), // Tồn hôm trước tự động lấy từ Tồn cuối ngày trước
-              importQty: '0',                     // Nhập mới = 0
-              wasteQty: '0',                      // Hủy = 0
-              stockQty: String(prevEndingStock),  // Tồn hiện tại bắt đầu bằng Tồn hôm trước
-              minThreshold: item.minThreshold ?? 0,
-              unit: item.unit || 'kg',
-              statusType: 'ton',
-              isManualStock: false,
-              createdBy: currentUser?.fullName || 'Hệ thống tự động',
-              createdAt: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
-            };
-          });
-
-          nextAll = [...nextAll, ...clonedRows];
-          hasChanges = true;
-        }
-      }
-    }
-
-    if (hasChanges) {
-      setLocalItems(nextAll);
-      if (onSaveDailyTable) {
-        onSaveDailyTable(targetDate, nextAll);
-      }
-    }
-  };
-
-  // TỰ ĐỘNG NẠP MẶT HÀNG TỦ NGAY KHI CHỌN TỦ (100% Tự động, không cần bấm sao chép)
-  useEffect(() => {
-    const isOnlyDummy =
-      rowsForSelectedDateAndTable.length === 1 &&
-      rowsForSelectedDateAndTable[0].itemName.includes('Mặt hàng 1');
-
-    if (rowsForSelectedDateAndTable.length === 0 || isOnlyDummy) {
-      const prevItems = getLatestItemsForTable(selectedTable, selectedDate).filter(
+      const baseItems = getLatestItemsForTable(tableName, targetDate).filter(
         (i) => !i.itemName.includes('Mặt hàng 1')
       );
-      if (prevItems.length > 0) {
-        const otherItems = localItems.filter(
-          (i) => !(i.dateStr === selectedDate && (i.tableName || DEFAULT_TABLE_NAME) === selectedTable)
-        );
-        const cloned = prevItems.map((item, idx) => {
-          const prevEnding = parseFloat(item.stockQty) || 0;
+
+      if (baseItems.length > 0) {
+        const clonedRows: InventoryCheckItem[] = baseItems.map((item, idx) => {
+          const prevEndingStock = parseFloat(item.stockQty) || 0;
           return {
-            id: `inv-${Date.now()}-${selectedTable}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
+            id: `inv-${Date.now()}-${tableName}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
             stt: item.stt || idx + 1,
-            dateStr: selectedDate,
-            tableName: selectedTable,
+            dateStr: targetDate,
+            tableName: tableName || DEFAULT_TABLE_NAME,
             itemName: item.itemName,
-            prevStock: String(prevEnding),
-            importQty: '0',
-            stockQty: String(prevEnding),
-            wasteQty: '0',
+            prevStock: String(prevEndingStock), // Tồn hôm trước tự động lấy từ Tồn cuối ngày trước
+            importQty: '0',                     // Nhập mới = 0
+            wasteQty: '0',                      // Bán ra / Hủy = 0
+            stockQty: String(prevEndingStock),  // Tồn hiện tại bắt đầu bằng Tồn hôm trước
             minThreshold: item.minThreshold ?? 0,
             unit: item.unit || 'kg',
-            statusType: 'ton' as const,
+            statusType: 'ton',
             isManualStock: false,
             createdBy: currentUser?.fullName || 'Hệ thống tự động',
             createdAt: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
           };
         });
 
-        const nextAll = [...otherItems, ...cloned];
-        setLocalItems(nextAll);
-        if (onSaveDailyTable) {
-          onSaveDailyTable(selectedDate, nextAll);
-        }
+        nextAll = [...nextAll, ...clonedRows];
+        hasChanges = true;
       }
     }
-  }, [selectedDate, selectedTable, rowsForSelectedDateAndTable.length, localItems.length]);
 
-  // Tự động kiểm tra và khởi tạo danh mục cố định cho mọi tủ ngay khi mở app hoặc đổi ngày
+    if (hasChanges) {
+      // Chỉ cập nhật hiển thị trên máy để nhân viên kiểm kê, KHÔNG gọi onSaveDailyTable ở đây
+      // để không tạo thông báo ảo hoặc ghi đè server khi chưa có người bấm Lưu
+      setLocalItems(nextAll);
+    }
+  };
+
+  // Khi mở ngày hôm nay mà chưa từng kiểm kê, chuẩn bị sẵn danh mục quen thuộc vào local state
   useEffect(() => {
-    ensureAllTablesPopulatedForDate(selectedDate);
-  }, [selectedDate, allKnownTables.length]);
+    ensureTodayPopulatedLocally(selectedDate);
+  }, [selectedDate]);
 
-  // Nạp nhanh các mặt hàng của tủ này từ ngày hôm trước
+  // Nạp nhanh các mặt hàng của tủ này từ ngày hôm trước (Thao tác do người dùng chủ động bấm)
   const handleCopyTableFromPreviousDay = (tableName: string) => {
-    ensureAllTablesPopulatedForDate(selectedDate);
+    const targetTable = tableName || selectedTable || DEFAULT_TABLE_NAME;
+    const prevItems = getLatestItemsForTable(targetTable, selectedDate).filter(
+      (i) => !i.itemName.includes('Mặt hàng 1')
+    );
+    if (prevItems.length === 0) {
+      alert(`Không tìm thấy danh mục của tủ "${targetTable}" từ các ngày trước để sao chép!`);
+      return;
+    }
+    const otherItems = localItems.filter(
+      (i) => !(i.dateStr === selectedDate && (i.tableName || DEFAULT_TABLE_NAME) === targetTable)
+    );
+    const cloned = prevItems.map((item, idx) => {
+      const prevEnding = parseFloat(item.stockQty) || 0;
+      return {
+        id: `inv-${Date.now()}-${targetTable}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
+        stt: item.stt || idx + 1,
+        dateStr: selectedDate,
+        tableName: targetTable,
+        itemName: item.itemName,
+        prevStock: String(prevEnding),
+        importQty: '0',
+        stockQty: String(prevEnding),
+        wasteQty: '0',
+        minThreshold: item.minThreshold ?? 0,
+        unit: item.unit || 'kg',
+        statusType: 'ton' as const,
+        isManualStock: false,
+        createdBy: currentUser?.fullName || 'Người kiểm',
+        createdAt: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+      };
+    });
+
+    const nextAll = [...otherItems, ...cloned];
+    setLocalItems(nextAll);
+    if (onSaveDailyTable) {
+      onSaveDailyTable(selectedDate, nextAll);
+    }
     setJustSavedBanner(true);
     setTimeout(() => setJustSavedBanner(false), 2500);
   };
@@ -740,7 +741,6 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
   // Đổi ngày đang xem
   const handleSelectDate = (date: string) => {
     setSelectedDate(date);
-    ensureAllTablesPopulatedForDate(date);
   };
 
   // Cập nhật ô trong bảng theo công thức:
@@ -928,34 +928,19 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
         createdAt: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
       }));
     } else {
-      // Tạo một mặt hàng mẫu để bắt đầu nhập
-      newItemsToAppend = [
-        {
-          id: `inv-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          stt: 1,
-          dateStr: selectedDate,
-          tableName: trimmed,
-          itemName: 'Mặt hàng 1 (Bấm đổi tên)',
-          prevStock: '0',
-          importQty: '0',
-          stockQty: '0',
-          wasteQty: '0',
-          minThreshold: 3,
-          unit: 'kg',
-          statusType: 'ton',
-          createdBy: currentUser?.fullName || 'Người tạo',
-          createdAt: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
-        },
-      ];
+      // Bắt đầu với bảng trống, không tạo mặt hàng mẫu rác
+      newItemsToAppend = [];
     }
 
     const nextAll = [...localItems, ...newItemsToAppend];
     setLocalItems(nextAll);
     setSelectedTable(trimmed);
-    if (onSaveDailyTable) {
-      onSaveDailyTable(selectedDate, nextAll);
-    } else {
-      newItemsToAppend.forEach((item) => onSaveItem(item, false));
+    if (newItemsToAppend.length > 0) {
+      if (onSaveDailyTable) {
+        onSaveDailyTable(selectedDate, nextAll);
+      } else {
+        newItemsToAppend.forEach((item) => onSaveItem(item, false));
+      }
     }
 
     setNewTableNameInput('');
@@ -1906,47 +1891,63 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                 />
               </button>
 
-              {/* Popup Bảng Ô Lịch Ngày Trong Tháng */}
+              {/* Popup Bảng Ô Lịch Kiểu Windows Calendar Flyout */}
               {isCalendarOpen && (
-                <div className="absolute left-0 mt-2 z-50 bg-white rounded-2xl shadow-2xl border border-zinc-200 p-3.5 w-72 sm:w-80 text-zinc-900 animate-in fade-in zoom-in-95 duration-150">
-                  {/* Header tháng và nút chuyển tháng */}
-                  <div className="flex items-center justify-between pb-2.5 mb-2 border-b border-zinc-100">
-                    <button
-                      type="button"
-                      onClick={handlePrevMonth}
-                      className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-zinc-100 text-zinc-600 transition"
-                      title="Tháng trước"
-                    >
-                      <ChevronLeft className="w-4 h-4" />
-                    </button>
-                    <div className="text-center font-bold text-xs sm:text-sm text-zinc-900">
-                      {currentMonthYearLabel}
+                <div className="absolute left-0 mt-2 z-50 bg-[#1f1f1f] text-white rounded-2xl shadow-2xl border border-zinc-700/80 p-4 w-[310px] sm:w-[335px] select-none animate-in fade-in zoom-in-95 duration-150 font-sans">
+                  {/* 1. Đồng Hồ Chạy Giây Kiểu Windows Taskbar */}
+                  <div className="pb-3 mb-3 border-b border-zinc-800">
+                    <div className="text-3xl sm:text-4xl font-light tracking-tight text-white font-mono leading-none">
+                      {liveClockTime}
                     </div>
                     <button
                       type="button"
-                      onClick={handleNextMonth}
-                      className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-zinc-100 text-zinc-600 transition"
-                      title="Tháng sau"
+                      onClick={handlePickToday}
+                      className="text-xs sm:text-sm font-medium text-sky-400 hover:text-sky-300 transition mt-1.5 text-left flex items-center gap-2"
+                      title="Bấm để quay về ngày hôm nay"
                     >
-                      <ChevronRight className="w-4 h-4" />
+                      <span>{selectedDate === todayStr ? todayStr : `${selectedDate} (Hôm nay: ${todayStr})`}</span>
                     </button>
                   </div>
 
-                  {/* Hàng tên thứ trong tuần */}
-                  <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-bold text-zinc-400 mb-1.5">
-                    <div>T2</div>
-                    <div>T3</div>
-                    <div>T4</div>
-                    <div>T5</div>
-                    <div>T6</div>
-                    <div>T7</div>
-                    <div className="text-rose-500">CN</div>
+                  {/* 2. Tiêu đề Tháng Năm và 2 nút mũi tên ^ và v */}
+                  <div className="flex items-center justify-between pb-2">
+                    <div className="font-semibold text-sm sm:text-base text-zinc-100 flex items-center gap-1.5">
+                      <span>{currentMonthYearLabel}</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={handlePrevMonth}
+                        className="w-7 h-7 flex items-center justify-center rounded hover:bg-zinc-800 text-zinc-300 hover:text-white transition"
+                        title="Tháng trước"
+                      >
+                        <ChevronUp className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleNextMonth}
+                        className="w-7 h-7 flex items-center justify-center rounded hover:bg-zinc-800 text-zinc-300 hover:text-white transition"
+                        title="Tháng sau"
+                      >
+                        <ChevronDown className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
 
-                  {/* Lưới các ô ngày trong tháng */}
+                  {/* 3. Hàng Thứ trong tuần: Mo Tu We Th Fr Sa Su (Chuẩn ảnh Windows) */}
+                  <div className="grid grid-cols-7 gap-1 text-center text-xs font-semibold text-zinc-400 mb-1.5">
+                    <div title="Thứ 2">Mo</div>
+                    <div title="Thứ 3">Tu</div>
+                    <div title="Thứ 4">We</div>
+                    <div title="Thứ 5">Th</div>
+                    <div title="Thứ 6">Fr</div>
+                    <div title="Thứ 7">Sa</div>
+                    <div title="Chủ Nhật" className="text-zinc-300">Su</div>
+                  </div>
+
+                  {/* 4. Lưới 42 ô ngày (6 hàng x 7 cột chuẩn Windows) */}
                   <div className="grid grid-cols-7 gap-1 text-center">
                     {calendarDays.map((cell, idx) => {
-                      const isSunday = idx % 7 === 6;
                       return (
                         <button
                           key={`${cell.dateStr}-${idx}`}
@@ -1955,24 +1956,22 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                             handleSelectDate(cell.dateStr);
                             setIsCalendarOpen(false);
                           }}
-                          className={`h-8 rounded-lg flex flex-col items-center justify-center text-xs transition relative group ${
+                          className={`h-9 rounded-sm flex flex-col items-center justify-center text-xs sm:text-sm transition relative group ${
                             cell.isSelected
-                              ? 'bg-emerald-600 text-white font-extrabold shadow-sm scale-105'
+                              ? 'bg-[#0078d4] text-white font-bold border-2 border-[#0099ff] shadow-md z-10'
                               : cell.isToday
-                              ? 'border-2 border-emerald-500 font-bold text-emerald-700 bg-emerald-50/50 hover:bg-emerald-100/60'
+                              ? 'border border-sky-400 text-sky-400 font-bold hover:bg-zinc-800'
                               : cell.isCurrentMonth
-                              ? isSunday
-                                ? 'text-rose-600 hover:bg-rose-50 font-semibold'
-                                : 'text-zinc-800 hover:bg-zinc-100 font-medium'
-                              : 'text-zinc-300 hover:bg-zinc-50'
+                              ? 'text-zinc-100 hover:bg-zinc-800 hover:text-white font-normal'
+                              : 'text-zinc-600 hover:bg-zinc-800/60 hover:text-zinc-400'
                           }`}
                         >
                           <span className="leading-none">{cell.day}</span>
                           {/* Chấm đánh dấu ngày có dữ liệu kiểm tồn */}
                           {cell.hasData && (
                             <span
-                              className={`w-1 h-1 rounded-full mt-0.5 ${
-                                cell.isSelected ? 'bg-white' : 'bg-emerald-500'
+                              className={`w-1 h-1 rounded-full absolute bottom-1 ${
+                                cell.isSelected ? 'bg-white' : 'bg-emerald-400'
                               }`}
                               title="Ngày có dữ liệu kiểm kho"
                             />
@@ -1982,16 +1981,16 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                     })}
                   </div>
 
-                  {/* Chân lịch: Chú thích & Nút nhảy về Hôm Nay */}
-                  <div className="flex items-center justify-between pt-2.5 mt-2 border-t border-zinc-100 text-[11px]">
-                    <div className="flex items-center gap-1.5 text-zinc-500">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
-                      <span>Ngày có dữ liệu</span>
+                  {/* 5. Chân lịch: Chú thích & Nút nhảy về Hôm Nay */}
+                  <div className="flex items-center justify-between pt-3 mt-3 border-t border-zinc-800 text-xs">
+                    <div className="flex items-center gap-1.5 text-zinc-400 text-[11px]">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
+                      <span>Đã có dữ liệu tồn</span>
                     </div>
                     <button
                       type="button"
                       onClick={handlePickToday}
-                      className="px-2.5 py-1 rounded-lg text-emerald-700 hover:bg-emerald-50 font-bold transition text-[11px]"
+                      className="px-2.5 py-1 rounded text-sky-400 hover:text-sky-300 hover:bg-zinc-800 font-semibold transition text-xs flex items-center gap-1"
                     >
                       Hôm nay
                     </button>
@@ -2273,20 +2272,32 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
               {filteredRows.length === 0 ? (
                 <tr>
                   <td colSpan={isAdmin ? 10 : 8} className="py-10 px-4 text-center">
-                    <div className="max-w-md mx-auto space-y-2.5">
-                      <p className="text-zinc-400 text-xs">
-                        Tủ <strong>&ldquo;{selectedTable}&rdquo;</strong> chưa có mặt hàng nào.
+                    <div className="max-w-md mx-auto space-y-3">
+                      <p className="text-zinc-500 text-xs font-medium">
+                        Tủ <strong>&ldquo;{selectedTable}&rdquo;</strong> chưa có mặt hàng nào trong ngày {selectedDate}.
                       </p>
-                      {isAdmin && (
-                        <button
-                          type="button"
-                          onClick={() => setIsAddItemModalOpen(true)}
-                          className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 mx-auto shadow-xs"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                          <span>Thêm mặt hàng mới vào tủ này</span>
-                        </button>
-                      )}
+                      <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                        {getLatestItemsForTable(selectedTable, selectedDate).length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => handleCopyTableFromPreviousDay(selectedTable)}
+                            className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-xs"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                            <span>Lấy danh mục từ ngày gần nhất</span>
+                          </button>
+                        )}
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => setIsAddItemModalOpen(true)}
+                            className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-xs"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>Thêm mặt hàng mới</span>
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </td>
                 </tr>

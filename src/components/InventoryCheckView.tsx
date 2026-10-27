@@ -19,6 +19,8 @@ import {
   Copy,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
+  ChevronRight,
   GripVertical,
   Eye,
   Edit2,
@@ -161,6 +163,224 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     return Array.from(set);
   }, [items, todayStr]);
 
+  // Calendar dropdown state (chọn ô ngày trong tháng khi xổ xuống)
+  const [isCalendarOpen, setIsCalendarOpen] = useState(false);
+  const calendarRef = React.useRef<HTMLDivElement>(null);
+
+  // Parse tháng và năm đang xem trên lịch (mặc định theo selectedDate)
+  const [calendarViewDate, setCalendarViewDate] = useState<Date>(() => {
+    const parts = (todayStr || '').split('/');
+    if (parts.length === 3) {
+      return new Date(parseInt(parts[2], 10), parseInt(parts[1], 10) - 1, 1);
+    }
+    return new Date();
+  });
+
+  // Khi selectedDate thay đổi, đồng bộ tháng hiển thị trên lịch
+  useEffect(() => {
+    const parts = (selectedDate || '').split('/');
+    if (parts.length === 3) {
+      setCalendarViewDate(new Date(parseInt(parts[2], 10), parseInt(parts[1], 10) - 1, 1));
+    }
+  }, [selectedDate]);
+
+  // Click outside listener để tự động đóng dropdown lịch
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (calendarRef.current && !calendarRef.current.contains(event.target as Node)) {
+        setIsCalendarOpen(false);
+      }
+    };
+    if (isCalendarOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isCalendarOpen]);
+
+  const currentMonthYearLabel = useMemo(() => {
+    const m = calendarViewDate.getMonth() + 1;
+    const y = calendarViewDate.getFullYear();
+    return `Tháng ${m < 10 ? '0' + m : m}, ${y}`;
+  }, [calendarViewDate]);
+
+  const calendarDays = useMemo(() => {
+    const year = calendarViewDate.getFullYear();
+    const month = calendarViewDate.getMonth();
+
+    // Ngày đầu tiên trong tháng rơi vào thứ mấy (0: CN, 1: T2... 6: T7)
+    const firstDay = new Date(year, month, 1).getDay();
+    // Quy đổi về tuần bắt đầu từ Thứ 2 (0 = T2, ..., 6 = CN)
+    const startDayOffset = firstDay === 0 ? 6 : firstDay - 1;
+
+    const totalDaysInMonth = new Date(year, month + 1, 0).getDate();
+    const totalDaysInPrevMonth = new Date(year, month, 0).getDate();
+
+    const days: Array<{
+      day: number;
+      month: number;
+      year: number;
+      isCurrentMonth: boolean;
+      dateStr: string;
+      hasData: boolean;
+      isToday: boolean;
+      isSelected: boolean;
+    }> = [];
+
+    // Các ngày cuối tháng trước làm padding
+    for (let i = startDayOffset - 1; i >= 0; i--) {
+      const d = totalDaysInPrevMonth - i;
+      const prevMonth = month === 0 ? 11 : month - 1;
+      const prevYear = month === 0 ? year - 1 : year;
+      const matchedExisting = existingDates.find((ed) => {
+        const parts = ed.split('/');
+        return (
+          parseInt(parts[0], 10) === d &&
+          parseInt(parts[1], 10) === prevMonth + 1 &&
+          parseInt(parts[2], 10) === prevYear
+        );
+      });
+      const todayParts = todayStr.split('/');
+      const isDayToday =
+        parseInt(todayParts[0], 10) === d &&
+        parseInt(todayParts[1], 10) === prevMonth + 1 &&
+        parseInt(todayParts[2], 10) === prevYear;
+
+      const dateStr =
+        matchedExisting ||
+        (isDayToday
+          ? todayStr
+          : `${String(d).padStart(2, '0')}/${String(prevMonth + 1).padStart(2, '0')}/${prevYear}`);
+
+      const selParts = selectedDate.split('/');
+      const isDaySelected =
+        selectedDate === dateStr ||
+        (parseInt(selParts[0], 10) === d &&
+          parseInt(selParts[1], 10) === prevMonth + 1 &&
+          parseInt(selParts[2], 10) === prevYear);
+
+      days.push({
+        day: d,
+        month: prevMonth,
+        year: prevYear,
+        isCurrentMonth: false,
+        dateStr,
+        hasData: Boolean(matchedExisting),
+        isToday: isDayToday,
+        isSelected: isDaySelected,
+      });
+    }
+
+    // Các ngày trong tháng này
+    for (let d = 1; d <= totalDaysInMonth; d++) {
+      const matchedExisting = existingDates.find((ed) => {
+        const parts = ed.split('/');
+        return (
+          parseInt(parts[0], 10) === d &&
+          parseInt(parts[1], 10) === month + 1 &&
+          parseInt(parts[2], 10) === year
+        );
+      });
+
+      const todayParts = todayStr.split('/');
+      const isDayToday =
+        parseInt(todayParts[0], 10) === d &&
+        parseInt(todayParts[1], 10) === month + 1 &&
+        parseInt(todayParts[2], 10) === year;
+
+      const dateStr =
+        matchedExisting ||
+        (isDayToday
+          ? todayStr
+          : `${String(d).padStart(2, '0')}/${String(month + 1).padStart(2, '0')}/${year}`);
+
+      const selParts = selectedDate.split('/');
+      const isDaySelected =
+        selectedDate === dateStr ||
+        (parseInt(selParts[0], 10) === d &&
+          parseInt(selParts[1], 10) === month + 1 &&
+          parseInt(selParts[2], 10) === year);
+
+      days.push({
+        day: d,
+        month,
+        year,
+        isCurrentMonth: true,
+        dateStr,
+        hasData: Boolean(matchedExisting),
+        isToday: isDayToday,
+        isSelected: isDaySelected,
+      });
+    }
+
+    // Các ngày đầu tháng sau để lấp đầy 7 cột
+    const remaining = (7 - (days.length % 7)) % 7;
+    for (let i = 1; i <= remaining; i++) {
+      const nextMonth = month === 11 ? 0 : month + 1;
+      const nextYear = month === 11 ? year + 1 : year;
+      const matchedExisting = existingDates.find((ed) => {
+        const parts = ed.split('/');
+        return (
+          parseInt(parts[0], 10) === i &&
+          parseInt(parts[1], 10) === nextMonth + 1 &&
+          parseInt(parts[2], 10) === nextYear
+        );
+      });
+      const todayParts = todayStr.split('/');
+      const isDayToday =
+        parseInt(todayParts[0], 10) === i &&
+        parseInt(todayParts[1], 10) === nextMonth + 1 &&
+        parseInt(todayParts[2], 10) === nextYear;
+
+      const dateStr =
+        matchedExisting ||
+        (isDayToday
+          ? todayStr
+          : `${String(i).padStart(2, '0')}/${String(nextMonth + 1).padStart(2, '0')}/${nextYear}`);
+
+      const selParts = selectedDate.split('/');
+      const isDaySelected =
+        selectedDate === dateStr ||
+        (parseInt(selParts[0], 10) === i &&
+          parseInt(selParts[1], 10) === nextMonth + 1 &&
+          parseInt(selParts[2], 10) === nextYear);
+
+      days.push({
+        day: i,
+        month: nextMonth,
+        year: nextYear,
+        isCurrentMonth: false,
+        dateStr,
+        hasData: Boolean(matchedExisting),
+        isToday: isDayToday,
+        isSelected: isDaySelected,
+      });
+    }
+
+    return days;
+  }, [calendarViewDate, existingDates, selectedDate, todayStr]);
+
+  const handlePrevMonth = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setCalendarViewDate((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+  };
+
+  const handleNextMonth = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setCalendarViewDate((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+  };
+
+  const handlePickToday = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    handleSelectDate(todayStr);
+    const todayParts = todayStr.split('/');
+    if (todayParts.length === 3) {
+      setCalendarViewDate(new Date(parseInt(todayParts[2], 10), parseInt(todayParts[1], 10) - 1, 1));
+    }
+    setIsCalendarOpen(false);
+  };
+
   // Local working copy để nhập liệu mượt mà
   const [localItems, setLocalItems] = useState<InventoryCheckItem[]>(items);
   useEffect(() => {
@@ -171,8 +391,8 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [justSavedBanner, setJustSavedBanner] = useState<boolean>(false);
 
-  // 2 Chế độ hiển thị: 'view' (Chỉ xem gọn gàng cho điện thoại) vs 'edit' (Chỉnh sửa số liệu)
-  const [tableMode, setTableMode] = useState<'view' | 'edit'>('edit');
+  // 2 Chế độ hiển thị: 'view' (Chỉ xem gọn gàng cho điện thoại - mặc định) vs 'edit' (Chỉnh sửa số liệu)
+  const [tableMode, setTableMode] = useState<'view' | 'edit'>('view');
 
   // Kéo thả đổi vị trí mặt hàng
   const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
@@ -363,121 +583,99 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     return getLatestItemsForTable(tableName, selectedDate);
   };
 
-  // TỰ ĐỘNG BẢO TOÀN DANH MỤC CỐ ĐỊNH CHO TẤT CẢ CÁC TỦ KHI SANG NGÀY MỚI
-  // Mọi tủ đã từng tồn tại đều sẽ tự động có mặt ở ngày mới với toàn bộ mặt hàng và Tồn hôm trước = Tồn cuối hôm qua
-  const ensureAllTablesPopulatedForDate = (targetDate: string) => {
+  // CHUẨN BỊ SẴN DANH MỤC MẶT HÀNG CHO NGÀY HÔM NAY (NẠP SẴN VÀO BẢNG LOCAL, KHÔNG TỰ ĐẨY LÊN SERVER)
+  // Chỉ nạp sẵn khi ngày xem là hôm nay và hôm nay hoàn toàn chưa có bất kỳ dòng nào
+  const ensureTodayPopulatedLocally = (targetDate: string) => {
+    if (targetDate !== todayStr) return;
+    const existingForDate = localItems.filter((i) => i.dateStr === targetDate);
+    if (existingForDate.length > 0) return; // Đã có dữ liệu thì tôn trọng dữ liệu hiện tại, không can thiệp
+
     let nextAll = [...localItems];
     let hasChanges = false;
 
     for (const tableName of allKnownTables) {
-      const currentRows = nextAll.filter(
-        (i) => i.dateStr === targetDate && (i.tableName || DEFAULT_TABLE_NAME) === tableName
-      );
-
-      const isOnlyDummy =
-        currentRows.length === 1 && currentRows[0].itemName.includes('Mặt hàng 1');
-
-      // Nếu tủ này chưa có mặt hàng nào hoặc chỉ có mỗi 1 dòng mẫu "Mặt hàng 1"
-      if (currentRows.length === 0 || isOnlyDummy) {
-        const baseItems = getLatestItemsForTable(tableName, targetDate).filter(
-          (i) => !i.itemName.includes('Mặt hàng 1')
-        );
-
-        if (baseItems.length > 0) {
-          // Xóa dòng mẫu nếu có
-          if (isOnlyDummy) {
-            nextAll = nextAll.filter(
-              (i) => !(i.dateStr === targetDate && (i.tableName || DEFAULT_TABLE_NAME) === tableName)
-            );
-          }
-
-          const clonedRows: InventoryCheckItem[] = baseItems.map((item, idx) => {
-            const prevEndingStock = parseFloat(item.stockQty) || 0;
-            return {
-              id: `inv-${Date.now()}-${tableName}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
-              stt: item.stt || idx + 1,
-              dateStr: targetDate,
-              tableName: tableName || DEFAULT_TABLE_NAME,
-              itemName: item.itemName,
-              prevStock: String(prevEndingStock), // Tồn hôm trước tự động lấy từ Tồn cuối ngày trước
-              importQty: '0',                     // Nhập mới = 0
-              wasteQty: '0',                      // Hủy = 0
-              stockQty: String(prevEndingStock),  // Tồn hiện tại bắt đầu bằng Tồn hôm trước
-              minThreshold: item.minThreshold ?? 0,
-              unit: item.unit || 'kg',
-              statusType: 'ton',
-              isManualStock: false,
-              createdBy: currentUser?.fullName || 'Hệ thống tự động',
-              createdAt: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
-            };
-          });
-
-          nextAll = [...nextAll, ...clonedRows];
-          hasChanges = true;
-        }
-      }
-    }
-
-    if (hasChanges) {
-      setLocalItems(nextAll);
-      if (onSaveDailyTable) {
-        onSaveDailyTable(targetDate, nextAll);
-      }
-    }
-  };
-
-  // TỰ ĐỘNG NẠP MẶT HÀNG TỦ NGAY KHI CHỌN TỦ (100% Tự động, không cần bấm sao chép)
-  useEffect(() => {
-    const isOnlyDummy =
-      rowsForSelectedDateAndTable.length === 1 &&
-      rowsForSelectedDateAndTable[0].itemName.includes('Mặt hàng 1');
-
-    if (rowsForSelectedDateAndTable.length === 0 || isOnlyDummy) {
-      const prevItems = getLatestItemsForTable(selectedTable, selectedDate).filter(
+      const baseItems = getLatestItemsForTable(tableName, targetDate).filter(
         (i) => !i.itemName.includes('Mặt hàng 1')
       );
-      if (prevItems.length > 0) {
-        const otherItems = localItems.filter(
-          (i) => !(i.dateStr === selectedDate && (i.tableName || DEFAULT_TABLE_NAME) === selectedTable)
-        );
-        const cloned = prevItems.map((item, idx) => {
-          const prevEnding = parseFloat(item.stockQty) || 0;
+
+      if (baseItems.length > 0) {
+        const clonedRows: InventoryCheckItem[] = baseItems.map((item, idx) => {
+          const prevEndingStock = parseFloat(item.stockQty) || 0;
           return {
-            id: `inv-${Date.now()}-${selectedTable}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
+            id: `inv-${Date.now()}-${tableName}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
             stt: item.stt || idx + 1,
-            dateStr: selectedDate,
-            tableName: selectedTable,
+            dateStr: targetDate,
+            tableName: tableName || DEFAULT_TABLE_NAME,
             itemName: item.itemName,
-            prevStock: String(prevEnding),
-            importQty: '0',
-            stockQty: String(prevEnding),
-            wasteQty: '0',
+            prevStock: String(prevEndingStock), // Tồn hôm trước tự động lấy từ Tồn cuối ngày trước
+            importQty: '0',                     // Nhập mới = 0
+            wasteQty: '0',                      // Bán ra / Hủy = 0
+            stockQty: String(prevEndingStock),  // Tồn hiện tại bắt đầu bằng Tồn hôm trước
             minThreshold: item.minThreshold ?? 0,
             unit: item.unit || 'kg',
-            statusType: 'ton' as const,
+            statusType: 'ton',
             isManualStock: false,
             createdBy: currentUser?.fullName || 'Hệ thống tự động',
             createdAt: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
           };
         });
 
-        const nextAll = [...otherItems, ...cloned];
-        setLocalItems(nextAll);
-        if (onSaveDailyTable) {
-          onSaveDailyTable(selectedDate, nextAll);
-        }
+        nextAll = [...nextAll, ...clonedRows];
+        hasChanges = true;
       }
     }
-  }, [selectedDate, selectedTable, rowsForSelectedDateAndTable.length, localItems.length]);
 
-  // Tự động kiểm tra và khởi tạo danh mục cố định cho mọi tủ ngay khi mở app hoặc đổi ngày
+    if (hasChanges) {
+      // Chỉ cập nhật hiển thị trên máy để nhân viên kiểm kê, KHÔNG gọi onSaveDailyTable ở đây
+      // để không tạo thông báo ảo hoặc ghi đè server khi chưa có người bấm Lưu
+      setLocalItems(nextAll);
+    }
+  };
+
+  // Khi mở ngày hôm nay mà chưa từng kiểm kê, chuẩn bị sẵn danh mục quen thuộc vào local state
   useEffect(() => {
-    ensureAllTablesPopulatedForDate(selectedDate);
-  }, [selectedDate, allKnownTables.length]);
+    ensureTodayPopulatedLocally(selectedDate);
+  }, [selectedDate]);
 
-  // Nạp nhanh các mặt hàng của tủ này từ ngày hôm trước
+  // Nạp nhanh các mặt hàng của tủ này từ ngày hôm trước (Thao tác do người dùng chủ động bấm)
   const handleCopyTableFromPreviousDay = (tableName: string) => {
-    ensureAllTablesPopulatedForDate(selectedDate);
+    const targetTable = tableName || selectedTable || DEFAULT_TABLE_NAME;
+    const prevItems = getLatestItemsForTable(targetTable, selectedDate).filter(
+      (i) => !i.itemName.includes('Mặt hàng 1')
+    );
+    if (prevItems.length === 0) {
+      alert(`Không tìm thấy danh mục của tủ "${targetTable}" từ các ngày trước để sao chép!`);
+      return;
+    }
+    const otherItems = localItems.filter(
+      (i) => !(i.dateStr === selectedDate && (i.tableName || DEFAULT_TABLE_NAME) === targetTable)
+    );
+    const cloned = prevItems.map((item, idx) => {
+      const prevEnding = parseFloat(item.stockQty) || 0;
+      return {
+        id: `inv-${Date.now()}-${targetTable}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
+        stt: item.stt || idx + 1,
+        dateStr: selectedDate,
+        tableName: targetTable,
+        itemName: item.itemName,
+        prevStock: String(prevEnding),
+        importQty: '0',
+        stockQty: String(prevEnding),
+        wasteQty: '0',
+        minThreshold: item.minThreshold ?? 0,
+        unit: item.unit || 'kg',
+        statusType: 'ton' as const,
+        isManualStock: false,
+        createdBy: currentUser?.fullName || 'Người kiểm',
+        createdAt: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+      };
+    });
+
+    const nextAll = [...otherItems, ...cloned];
+    setLocalItems(nextAll);
+    if (onSaveDailyTable) {
+      onSaveDailyTable(selectedDate, nextAll);
+    }
     setJustSavedBanner(true);
     setTimeout(() => setJustSavedBanner(false), 2500);
   };
@@ -520,7 +718,6 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
   // Đổi ngày đang xem
   const handleSelectDate = (date: string) => {
     setSelectedDate(date);
-    ensureAllTablesPopulatedForDate(date);
   };
 
   // Cập nhật ô trong bảng theo công thức:
@@ -708,34 +905,19 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
         createdAt: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
       }));
     } else {
-      // Tạo một mặt hàng mẫu để bắt đầu nhập
-      newItemsToAppend = [
-        {
-          id: `inv-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          stt: 1,
-          dateStr: selectedDate,
-          tableName: trimmed,
-          itemName: 'Mặt hàng 1 (Bấm đổi tên)',
-          prevStock: '0',
-          importQty: '0',
-          stockQty: '0',
-          wasteQty: '0',
-          minThreshold: 3,
-          unit: 'kg',
-          statusType: 'ton',
-          createdBy: currentUser?.fullName || 'Người tạo',
-          createdAt: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
-        },
-      ];
+      // Bắt đầu với bảng trống, không tạo mặt hàng mẫu rác
+      newItemsToAppend = [];
     }
 
     const nextAll = [...localItems, ...newItemsToAppend];
     setLocalItems(nextAll);
     setSelectedTable(trimmed);
-    if (onSaveDailyTable) {
-      onSaveDailyTable(selectedDate, nextAll);
-    } else {
-      newItemsToAppend.forEach((item) => onSaveItem(item, false));
+    if (newItemsToAppend.length > 0) {
+      if (onSaveDailyTable) {
+        onSaveDailyTable(selectedDate, nextAll);
+      } else {
+        newItemsToAppend.forEach((item) => onSaveItem(item, false));
+      }
     }
 
     setNewTableNameInput('');
@@ -1283,7 +1465,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     if (orderCabinetFilter === 'all') {
       content += `(Khu vực: Tổng Hợp Toàn Bộ Các Tủ)\n`;
     } else if (orderCabinetFilter === 'custom') {
-      content += `(Khu vực: Hàng Đặt Cố Định)\n`;
+      content += `(Khu vực: Hàng Đặt Chợ)\n`;
     } else {
       content += `(Khu vực: ${orderCabinetFilter})\n`;
     }
@@ -1331,7 +1513,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     if (orderCabinetFilter === 'all' || orderCabinetFilter === 'custom') {
       const selectedCustom = customOrders.filter((c) => orderSelection[`custom_${c.id}`] !== false);
       if (selectedCustom.length > 0) {
-        content += `[HÀNG ĐẶT CỐ ĐỊNH] (${selectedCustom.length} mặt hàng)\n`;
+        content += `[HÀNG ĐẶT CHỢ] (${selectedCustom.length} mặt hàng)\n`;
         content += `STT  | Tên Mặt Hàng                  | Số Lượng Đặt | Đơn Vị\n`;
         content += `-----+-------------------------------+--------------+-------\n`;
         selectedCustom.forEach((c, idx) => {
@@ -1341,7 +1523,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
             qty: c.defaultQty,
             unit: c.unit,
           };
-          const sttStr = `CD-${idx + 1}`.padEnd(4);
+          const sttStr = `DC-${idx + 1}`.padEnd(4);
           const nameStr = c.name.slice(0, 29).padEnd(29);
           const qtyStr = String(orderData.qty).padEnd(12);
           content += `${sttStr} | ${nameStr} | ${qtyStr} | ${orderData.unit}\n`;
@@ -1420,7 +1602,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
       const selectedCustom = customOrders.filter((c) => orderSelection[`custom_${c.id}`] !== false);
       if (selectedCustom.length > 0) {
         sections.push({
-          title: `HÀNG ĐẶT CỐ ĐỊNH (${selectedCustom.length} món)`,
+          title: `HÀNG ĐẶT CHỢ (${selectedCustom.length} món)`,
           items: selectedCustom.map((c, idx) => {
             const keyId = `custom_${c.id}`;
             const orderData = orderQuantities[keyId] || {
@@ -1428,9 +1610,9 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
               unit: c.unit,
             };
             return {
-              stt: `CD-${idx + 1}`,
+              stt: `DC-${idx + 1}`,
               name: c.name,
-              stock: 'Cố định',
+              stock: 'Đặt chợ',
               qty: orderData.qty,
               unit: orderData.unit,
               isCustom: true,
@@ -1667,20 +1849,117 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
 
           {/* Action Toolbar */}
           <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
-            {/* Chọn Ngày */}
-            <div className="flex items-center bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-1 text-xs">
-              <Calendar className="w-3.5 h-3.5 text-zinc-400 mr-1.5" />
-              <select
-                value={selectedDate}
-                onChange={(e) => handleSelectDate(e.target.value)}
-                className="bg-transparent text-white text-xs font-semibold outline-none cursor-pointer pr-1"
+            {/* Chọn Ngày dạng Ô Lịch Tháng */}
+            <div className="relative" ref={calendarRef}>
+              <button
+                type="button"
+                onClick={() => setIsCalendarOpen(!isCalendarOpen)}
+                className="h-8 flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 hover:border-zinc-500 rounded-xl px-3 text-xs text-white transition shadow-xs select-none"
+                title="Bấm để chọn ô ngày trong tháng"
               >
-                {existingDates.map((d) => (
-                  <option key={d} value={d} className="bg-zinc-900 text-white">
-                    {d === todayStr ? `Hôm nay (${d})` : `Ngày ${d}`}
-                  </option>
-                ))}
-              </select>
+                <Calendar className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <span className="font-bold">
+                  {selectedDate === todayStr ? `Hôm nay (${selectedDate})` : `Ngày ${selectedDate}`}
+                </span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 text-zinc-400 transition-transform duration-200 ${
+                    isCalendarOpen ? 'rotate-180 text-white' : ''
+                  }`}
+                />
+              </button>
+
+              {/* Popup Bảng Ô Lịch Ngày Trong Tháng */}
+              {isCalendarOpen && (
+                <div className="absolute left-0 mt-2 z-50 bg-white rounded-2xl shadow-2xl border border-zinc-200 p-3.5 w-72 sm:w-80 text-zinc-900 animate-in fade-in zoom-in-95 duration-150">
+                  {/* Header tháng và nút chuyển tháng */}
+                  <div className="flex items-center justify-between pb-2.5 mb-2 border-b border-zinc-100">
+                    <button
+                      type="button"
+                      onClick={handlePrevMonth}
+                      className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-zinc-100 text-zinc-600 transition"
+                      title="Tháng trước"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <div className="text-center font-bold text-xs sm:text-sm text-zinc-900">
+                      {currentMonthYearLabel}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleNextMonth}
+                      className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-zinc-100 text-zinc-600 transition"
+                      title="Tháng sau"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Hàng tên thứ trong tuần */}
+                  <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-bold text-zinc-400 mb-1.5">
+                    <div>T2</div>
+                    <div>T3</div>
+                    <div>T4</div>
+                    <div>T5</div>
+                    <div>T6</div>
+                    <div>T7</div>
+                    <div className="text-rose-500">CN</div>
+                  </div>
+
+                  {/* Lưới các ô ngày trong tháng */}
+                  <div className="grid grid-cols-7 gap-1 text-center">
+                    {calendarDays.map((cell, idx) => {
+                      const isSunday = idx % 7 === 6;
+                      return (
+                        <button
+                          key={`${cell.dateStr}-${idx}`}
+                          type="button"
+                          onClick={() => {
+                            handleSelectDate(cell.dateStr);
+                            setIsCalendarOpen(false);
+                          }}
+                          className={`h-8 rounded-lg flex flex-col items-center justify-center text-xs transition relative group ${
+                            cell.isSelected
+                              ? 'bg-emerald-600 text-white font-extrabold shadow-sm scale-105'
+                              : cell.isToday
+                              ? 'border-2 border-emerald-500 font-bold text-emerald-700 bg-emerald-50/50 hover:bg-emerald-100/60'
+                              : cell.isCurrentMonth
+                              ? isSunday
+                                ? 'text-rose-600 hover:bg-rose-50 font-semibold'
+                                : 'text-zinc-800 hover:bg-zinc-100 font-medium'
+                              : 'text-zinc-300 hover:bg-zinc-50'
+                          }`}
+                        >
+                          <span className="leading-none">{cell.day}</span>
+                          {/* Chấm đánh dấu ngày có dữ liệu kiểm tồn */}
+                          {cell.hasData && (
+                            <span
+                              className={`w-1 h-1 rounded-full mt-0.5 ${
+                                cell.isSelected ? 'bg-white' : 'bg-emerald-500'
+                              }`}
+                              title="Ngày có dữ liệu kiểm kho"
+                            />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Chân lịch: Chú thích & Nút nhảy về Hôm Nay */}
+                  <div className="flex items-center justify-between pt-2.5 mt-2 border-t border-zinc-100 text-[11px]">
+                    <div className="flex items-center gap-1.5 text-zinc-500">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
+                      <span>Ngày có dữ liệu</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handlePickToday}
+                      className="px-2.5 py-1 rounded-lg text-emerald-700 hover:bg-emerald-50 font-bold transition text-[11px]"
+                    >
+                      Hôm nay
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Nút Danh Sách Đặt Hàng */}
@@ -1956,20 +2235,32 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
               {filteredRows.length === 0 ? (
                 <tr>
                   <td colSpan={isAdmin ? 10 : 8} className="py-10 px-4 text-center">
-                    <div className="max-w-md mx-auto space-y-2.5">
-                      <p className="text-zinc-400 text-xs">
-                        Tủ <strong>&ldquo;{selectedTable}&rdquo;</strong> chưa có mặt hàng nào.
+                    <div className="max-w-md mx-auto space-y-3">
+                      <p className="text-zinc-500 text-xs font-medium">
+                        Tủ <strong>&ldquo;{selectedTable}&rdquo;</strong> chưa có mặt hàng nào trong ngày {selectedDate}.
                       </p>
-                      {isAdmin && (
-                        <button
-                          type="button"
-                          onClick={() => setIsAddItemModalOpen(true)}
-                          className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 mx-auto shadow-xs"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                          <span>Thêm mặt hàng mới vào tủ này</span>
-                        </button>
-                      )}
+                      <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                        {getLatestItemsForTable(selectedTable, selectedDate).length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => handleCopyTableFromPreviousDay(selectedTable)}
+                            className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-xs"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                            <span>Lấy danh mục từ ngày gần nhất</span>
+                          </button>
+                        )}
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => setIsAddItemModalOpen(true)}
+                            className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-xs"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>Thêm mặt hàng mới</span>
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </td>
                 </tr>
@@ -2368,7 +2659,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                     Danh Sách Mặt Hàng Cần Đặt Hàng
                   </h3>
                   <p className="text-[11px] text-zinc-500">
-                    Tổng hợp các mặt hàng dưới ngưỡng tồn và hàng đặt cố định để gửi nhà cung cấp.
+                    Tổng hợp các mặt hàng dưới ngưỡng tồn và hàng đặt chợ để gửi nhà cung cấp.
                   </p>
                 </div>
               </div>
@@ -2381,7 +2672,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                     className="h-8 px-3 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow-xs transition"
                   >
                     <Plus className="w-3.5 h-3.5" />
-                    <span>Thêm Hàng Cố Định</span>
+                    <span>Thêm Hàng Đặt Chợ</span>
                   </button>
                 )}
                 <button
@@ -2447,7 +2738,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                       : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
                   }`}
                 >
-                  <span>Hàng Cố Định</span>
+                  <span>Hàng Đặt Chợ</span>
                   <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${
                     orderCabinetFilter === 'custom' ? 'bg-indigo-700 text-white' : 'bg-zinc-200 text-zinc-700'
                   }`}>
@@ -2622,7 +2913,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                               <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2">
                                   <span className="font-bold text-indigo-950 text-xs">
-                                    📦 Hàng Đặt Cố Định
+                                    🛒 Hàng Đặt Chợ
                                   </span>
                                   <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-200">
                                     {customOrders.length} mặt hàng
@@ -2643,7 +2934,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                                   className="text-[11px] text-indigo-700 hover:text-indigo-900 font-bold"
                                 >
                                   {customOrders.every((c) => orderSelection[`custom_${c.id}`] !== false)
-                                    ? 'Bỏ chọn hàng cố định'
+                                    ? 'Bỏ chọn hàng đặt chợ'
                                     : 'Chọn tất cả'}
                                 </button>
                               </div>
@@ -2724,7 +3015,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                                       type="button"
                                       onClick={() => handleDeleteCustomOrder(customItem.id)}
                                       className="text-zinc-400 hover:text-rose-600 p-1 rounded"
-                                      title="Xóa hàng cố định"
+                                      title="Xóa hàng đặt chợ"
                                     >
                                       <Trash2 className="w-3.5 h-3.5" />
                                     </button>
@@ -2839,13 +3130,13 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                     </>
                   )}
 
-                  {/* Chế độ Lọc Riêng Hàng Cố Định */}
+                  {/* Chế độ Lọc Riêng Hàng Đặt Chợ */}
                   {orderCabinetFilter === 'custom' && (
                     <>
                       {customOrders.length === 0 ? (
                         <tr>
                           <td colSpan={isAdmin ? 7 : 6} className="py-8 text-center text-zinc-400">
-                            Chưa có mặt hàng đặt cố định nào.
+                            Chưa có mặt hàng đặt chợ nào. Bấm "+ Thêm Hàng Đặt Chợ" ở trên để thêm.
                           </td>
                         </tr>
                       ) : (
@@ -2877,13 +3168,13 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                                 />
                               </td>
                               <td className="py-2 px-3 text-center text-indigo-600 font-mono font-bold">
-                                CD-{cIdx + 1}
+                                DC-{cIdx + 1}
                               </td>
                               <td className="py-2 px-3 font-medium text-zinc-900">
                                 {customItem.name}
                               </td>
                               <td className="py-2 px-3 text-right italic text-zinc-400">
-                                Cố định
+                                Đặt chợ
                               </td>
                               <td className="py-2 px-3 text-right">
                                 <input
@@ -2924,7 +3215,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                                     type="button"
                                     onClick={() => handleDeleteCustomOrder(customItem.id)}
                                     className="text-zinc-400 hover:text-rose-600 p-1 rounded"
-                                    title="Xóa hàng cố định"
+                                    title="Xóa hàng đặt chợ"
                                   >
                                     <Trash2 className="w-3.5 h-3.5" />
                                   </button>
@@ -2942,7 +3233,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
 
             <div className="flex flex-col sm:flex-row justify-between items-center gap-2 pt-3 border-t border-zinc-100">
               <span className="text-xs text-zinc-500 font-semibold">
-                Đang xem: {orderCabinetFilter === 'all' ? 'Tất cả các tủ' : orderCabinetFilter === 'custom' ? 'Hàng cố định' : `Tủ ${orderCabinetFilter}`} • Tổng {lowStockCount + customOrders.length} mặt hàng
+                Đang xem: {orderCabinetFilter === 'all' ? 'Tất cả các tủ' : orderCabinetFilter === 'custom' ? 'Hàng đặt chợ' : `Tủ ${orderCabinetFilter}`} • Tổng {lowStockCount + customOrders.length} mặt hàng
               </span>
 
               <div className="flex flex-wrap items-center gap-2">
@@ -3175,14 +3466,14 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
         </div>
       )}
 
-      {/* Modal: Thêm Hàng Đặt Cố Định (Admin) */}
+      {/* Modal: Thêm Hàng Đặt Chợ (Admin) */}
       {isAddCustomOrderModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-zinc-200 space-y-4">
             <div className="flex justify-between items-center pb-3 border-b border-zinc-100">
               <h3 className="text-base font-bold text-zinc-950 flex items-center gap-2">
                 <Plus className="w-4 h-4 text-indigo-600" />
-                <span>Thêm Hàng Đặt Cố Định</span>
+                <span>Thêm Hàng Đặt Chợ</span>
               </h3>
               <button
                 type="button"
@@ -3196,12 +3487,12 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
             <form onSubmit={handleAddCustomOrderSubmit} className="space-y-3 text-xs">
               <div>
                 <label className="block text-zinc-600 font-bold mb-1">
-                  Tên Mặt Hàng Đặt <span className="text-rose-500">*</span>
+                  Tên Mặt Hàng Đặt Chợ <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="text"
                   required
-                  placeholder="Ví dụ: Nước rửa chén, Khăn giấy rút..."
+                  placeholder="Ví dụ: Rau thơm, Hành lá, Gia vị chợ, Nước rửa chén..."
                   value={newCustomName}
                   onChange={(e) => setNewCustomName(e.target.value)}
                   className="w-full p-2.5 bg-zinc-50 border border-zinc-300 rounded-xl font-semibold outline-none"
@@ -3248,7 +3539,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                   type="submit"
                   className="px-4 py-2 font-bold bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl shadow-xs"
                 >
-                  Lưu Vào Danh Sách
+                  Lưu Vào Hàng Đặt Chợ
                 </button>
               </div>
             </form>
