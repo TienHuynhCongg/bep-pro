@@ -66,6 +66,7 @@ export interface InventoryCheckItem {
   unit: string;          // Đơn vị (kg, g, ml, phần, bịch...)
   statusType?: 'ton' | 'huy' | 'both'; // Tồn / Hủy / Cả hai
   isManualStock?: boolean;             // Người dùng đã nhập tay tồn kho (ưu tiên hơn công thức)
+  manualBaseStock?: number;            // Mốc tồn cơ sở khi nhập tay để tự động trừ bán ra
   createdBy?: string;
   createdAt?: string;
 }

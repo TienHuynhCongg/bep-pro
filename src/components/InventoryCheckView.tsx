@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { InventoryCheckItem, StaffUser, KitchenRecipe, CustomOrderItem } from '../types.ts';
 import { DEFAULT_CUSTOM_ORDERS } from '../defaultData.ts';
 import {
@@ -26,6 +26,7 @@ import {
   Edit2,
   Camera,
   RotateCcw,
+  Undo2,
 } from 'lucide-react';
 
 interface InventoryCheckViewProps {
@@ -167,6 +168,25 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const calendarRef = React.useRef<HTMLDivElement>(null);
 
+  // Đồng hồ chạy giây thời gian thực kiểu Windows Taskbar Calendar Flyout
+  const [liveClockTime, setLiveClockTime] = useState<string>(() => {
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+  });
+
+  useEffect(() => {
+    if (!isCalendarOpen) return;
+    const updateTime = () => {
+      const now = new Date();
+      const pad = (n: number) => String(n).padStart(2, '0');
+      setLiveClockTime(`${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`);
+    };
+    updateTime();
+    const timer = setInterval(updateTime, 1000);
+    return () => clearInterval(timer);
+  }, [isCalendarOpen]);
+
   // Parse tháng và năm đang xem trên lịch (mặc định theo selectedDate)
   const [calendarViewDate, setCalendarViewDate] = useState<Date>(() => {
     const parts = (todayStr || '').split('/');
@@ -200,9 +220,13 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
   }, [isCalendarOpen]);
 
   const currentMonthYearLabel = useMemo(() => {
-    const m = calendarViewDate.getMonth() + 1;
+    const m = calendarViewDate.getMonth();
     const y = calendarViewDate.getFullYear();
-    return `Tháng ${m < 10 ? '0' + m : m}, ${y}`;
+    const monthNamesEn = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+    return `${monthNamesEn[m]} ${y}`;
   }, [calendarViewDate]);
 
   const calendarDays = useMemo(() => {
@@ -314,8 +338,8 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
       });
     }
 
-    // Các ngày đầu tháng sau để lấp đầy 7 cột
-    const remaining = (7 - (days.length % 7)) % 7;
+    // Đảm bảo luôn đủ 42 ô (6 hàng x 7 cột) chuẩn giao diện Windows Calendar
+    const remaining = 42 - days.length;
     for (let i = 1; i <= remaining; i++) {
       const nextMonth = month === 11 ? 0 : month + 1;
       const nextYear = month === 11 ? year + 1 : year;
@@ -546,6 +570,125 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     );
   }, [localItems, selectedDate, selectedTable]);
 
+  // Định danh duy nhất cho bảng/tủ đang chọn theo ngày
+  const currentTableKey = `${selectedDate}___${selectedTable || DEFAULT_TABLE_NAME}`;
+
+  // Ngăn xếp hoàn tác (Undo) theo từng bảng riêng biệt: Record<tableKey, InventoryCheckItem[][]>
+  // Chỉ áp dụng cho bảng đang chọn, không làm ảnh hưởng đến bất kỳ bảng hay ngày nào khác
+  const [undoStack, setUndoStack] = useState<Record<string, InventoryCheckItem[][]>>({});
+  const [undoToast, setUndoToast] = useState<string | null>(null);
+
+  // Ref lưu snapshot của bảng hiện tại ngay tại thời điểm bắt đầu click/focus vào ô để sửa
+  const snapshotBeforeEditRef = useRef<{
+    tableKey: string;
+    rows: InventoryCheckItem[];
+  } | null>(null);
+
+  // Ref lưu ô đang sửa gần nhất để gom các ký tự gõ liên tiếp thành 1 bước hoàn tác duy nhất
+  const activeEditingCellRef = useRef<string | null>(null);
+
+  // Hàm đẩy trạng thái hiện tại của bảng đang chọn vào lịch sử Undo
+  const pushUndoSnapshot = (targetTableKey?: string) => {
+    const tableKey = targetTableKey || currentTableKey;
+    const curTableRows = localItems
+      .filter((i) => i.dateStr === selectedDate && (i.tableName || DEFAULT_TABLE_NAME) === (selectedTable || DEFAULT_TABLE_NAME))
+      .map((r) => ({ ...r }));
+
+    if (curTableRows.length === 0) return;
+
+    setUndoStack((prev) => {
+      const list = prev[tableKey] || [];
+      const last = list[list.length - 1];
+      if (last && JSON.stringify(last) === JSON.stringify(curTableRows)) {
+        return prev;
+      }
+      return {
+        ...prev,
+        [tableKey]: [...list, curTableRows].slice(-30), // Giữ tối đa 30 bước hoàn tác cho mỗi bảng
+      };
+    });
+  };
+
+  // Số bước hoàn tác hiện có của bảng đang chọn
+  const currentTableUndoList = undoStack[currentTableKey] || [];
+  const undoCount = currentTableUndoList.length;
+  const canUndo = undoCount > 0;
+
+  // Thực hiện hoàn tác (Undo): CHỈ khôi phục số liệu cho bảng đang chọn
+  const handleUndo = () => {
+    // Blur ô input đang focus để tránh ghi đè dữ liệu cũ
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    activeEditingCellRef.current = null;
+    snapshotBeforeEditRef.current = null;
+
+    setUndoStack((prev) => {
+      const stack = prev[currentTableKey] || [];
+      if (stack.length === 0) return prev;
+
+      const previousRows = stack[stack.length - 1];
+      const newStack = stack.slice(0, -1);
+
+      // Thay thế CHỈ các dòng thuộc bảng đang chọn, giữ nguyên 100% các bảng và ngày khác!
+      setLocalItems((currentAll) => {
+        const otherItems = currentAll.filter(
+          (i) => !(i.dateStr === selectedDate && (i.tableName || DEFAULT_TABLE_NAME) === selectedTable)
+        );
+        const restored = [...otherItems, ...previousRows.map((r) => ({ ...r }))];
+
+        if (onSaveDailyTable) {
+          onSaveDailyTable(selectedDate, restored);
+        } else {
+          previousRows.forEach((r) => onSaveItem(r, true));
+        }
+
+        return restored;
+      });
+
+      setUndoToast(`Đã hoàn tác 1 bước trên "${selectedTable || DEFAULT_TABLE_NAME}" (còn ${newStack.length} bước)`);
+      setTimeout(() => setUndoToast(null), 2500);
+
+      return {
+        ...prev,
+        [currentTableKey]: newStack,
+      };
+    });
+  };
+
+  // Phím tắt Ctrl+Z hoặc Cmd+Z để hoàn tác nhanh bảng đang chọn
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) {
+        if (isAddTableModalOpen || isOrderListModalOpen || isVoucherModalOpen) {
+          return;
+        }
+        if (canUndo) {
+          e.preventDefault();
+          handleUndo();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [canUndo, currentTableKey, isAddTableModalOpen, isOrderListModalOpen, isVoucherModalOpen]);
+
+  // Ghi nhận bắt đầu click/chạm vào ô số liệu
+  const handleCellFocus = (itemId: string, field: string, e?: React.FocusEvent<HTMLInputElement>) => {
+    if (e) {
+      handleFocusToEnd(e);
+    }
+    const curTableRows = localItems
+      .filter((i) => i.dateStr === selectedDate && (i.tableName || DEFAULT_TABLE_NAME) === selectedTable)
+      .map((r) => ({ ...r }));
+
+    snapshotBeforeEditRef.current = {
+      tableKey: currentTableKey,
+      rows: curTableRows,
+    };
+    activeEditingCellRef.current = `${itemId}_${field}`;
+  };
+
   // Tất cả các dòng của ngày đang chọn (trên mọi tủ)
   const allRowsForSelectedDate = useMemo(() => {
     return localItems.filter((i) => i.dateStr === selectedDate);
@@ -650,6 +793,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     const otherItems = localItems.filter(
       (i) => !(i.dateStr === selectedDate && (i.tableName || DEFAULT_TABLE_NAME) === targetTable)
     );
+    pushUndoSnapshot();
     const cloned = prevItems.map((item, idx) => {
       const prevEnding = parseFloat(item.stockQty) || 0;
       return {
@@ -722,11 +866,36 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
 
   // Cập nhật ô trong bảng theo công thức:
   // HÀNG TỒN = NHẬP VÀO + TỒN HÔM TRƯỚC - BÁN RA
+  // Nếu người dùng nhập tồn trước và nhập bán ra sau: Tồn = Mốc Tồn - Bán Ra (tự động tính mới, không khóa cứng số tồn)
   const handleCellChange = (
     id: string,
     field: 'itemName' | 'importQty' | 'stockQty' | 'wasteQty' | 'unit' | 'minThreshold' | 'stt',
     rawValue: any
   ) => {
+    // Đẩy snapshot vào undoStack ở lần gõ đầu tiên của ô này
+    const cellKey = `${id}_${field}`;
+    if (
+      snapshotBeforeEditRef.current &&
+      snapshotBeforeEditRef.current.tableKey === currentTableKey
+    ) {
+      const snapRows = snapshotBeforeEditRef.current.rows;
+      setUndoStack((prev) => {
+        const list = prev[currentTableKey] || [];
+        const last = list[list.length - 1];
+        if (last && JSON.stringify(last) === JSON.stringify(snapRows)) {
+          return prev;
+        }
+        return {
+          ...prev,
+          [currentTableKey]: [...list, snapRows].slice(-30),
+        };
+      });
+      snapshotBeforeEditRef.current = null;
+    } else if (activeEditingCellRef.current !== cellKey) {
+      pushUndoSnapshot();
+      activeEditingCellRef.current = cellKey;
+    }
+
     setLocalItems((prev) =>
       prev.map((row) => {
         if (row.id !== id) return row;
@@ -738,15 +907,26 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
         if (field === 'importQty') {
           const formatted = formatNumericString(String(rawValue));
           const importNum = parseFloat(formatted) || 0;
+          const oldImportNum = parseFloat(row.importQty || '0') || 0;
           const wasteNum = parseFloat(row.wasteQty || '0') || 0;
           nextRow = {
             ...nextRow,
             prevStock: String(prevStockNum),
             importQty: formatted,
           };
-          // Độ ưu tiên của công thức xếp SAU việc nhập thủ công của users:
-          // Chỉ tự động tính tồn nếu user CHƯA từng nhập tay số tồn cho dòng này
-          if (!row.isManualStock) {
+          if (row.isManualStock) {
+            // Khi có nhập thêm hàng trên dòng đã nhập tay:
+            // Cộng chênh lệch nhập vào mốc tồn gốc
+            const currentBase =
+              row.manualBaseStock !== undefined
+                ? row.manualBaseStock
+                : (parseFloat(row.stockQty || '0') || 0) + wasteNum;
+            const deltaImport = importNum - oldImportNum;
+            const newBase = Math.max(0, currentBase + deltaImport);
+            nextRow.manualBaseStock = newBase;
+            const calculatedStock = Math.max(Math.round((newBase - wasteNum) * 1000) / 1000, 0);
+            nextRow.stockQty = String(calculatedStock);
+          } else {
             const calculatedStock = Math.max(
               Math.round((importNum + prevStockNum - wasteNum) * 1000) / 1000,
               0
@@ -762,23 +942,37 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
             prevStock: String(prevStockNum),
             wasteQty: formatted,
           };
-          // Độ ưu tiên của công thức xếp SAU việc nhập thủ công của users:
-          if (!row.isManualStock) {
-            const calculatedStock = Math.max(
+          // Tự động tính mới tồn kho khi thay đổi Bán ra:
+          // Nếu đã nhập Tồn trước đó (hoặc có manualBaseStock), lấy mốc tồn cơ sở trừ đi Bán ra mới -> không bị khóa nhập!
+          let calculatedStock: number;
+          if (row.manualBaseStock !== undefined) {
+            calculatedStock = Math.max(Math.round((row.manualBaseStock - wasteNum) * 1000) / 1000, 0);
+          } else if (row.isManualStock) {
+            const currentStockNum = parseFloat(row.stockQty || '0') || 0;
+            const oldWasteNum = parseFloat(row.wasteQty || '0') || 0;
+            const base = currentStockNum + oldWasteNum;
+            nextRow.manualBaseStock = base;
+            calculatedStock = Math.max(Math.round((base - wasteNum) * 1000) / 1000, 0);
+          } else {
+            calculatedStock = Math.max(
               Math.round((importNum + prevStockNum - wasteNum) * 1000) / 1000,
               0
             );
-            nextRow.stockQty = String(calculatedStock);
           }
+          nextRow.stockQty = String(calculatedStock);
         } else if (field === 'stockQty') {
           const formatted = formatNumericString(String(rawValue));
-          // Khi user nhập thủ công vào cột Tồn: Ưu tiên tuyệt đối giá trị user nhập!
-          // KHÔNG ép đổi ngược lại cột Nhập
+          const enteredStockNum = parseFloat(formatted) || 0;
+          const currentWasteNum = parseFloat(row.wasteQty || '0') || 0;
+          // Khi user nhập thủ công vào cột Tồn:
+          // Ghi nhận mốc tồn gốc (base stock = Tồn đã nhập + Bán ra hiện tại)
+          // để nếu lát sau nhập Bán ra (ví dụ 3) thì Tồn sẽ tự động tính = 10 - 3 = 7
           nextRow = {
             ...nextRow,
             prevStock: String(prevStockNum),
             stockQty: formatted,
-            isManualStock: true, // Đánh dấu đã nhập thủ công
+            isManualStock: true,
+            manualBaseStock: enteredStockNum + currentWasteNum,
           };
         } else if (field === 'minThreshold') {
           const formatted = formatNumericString(String(rawValue));
@@ -827,6 +1021,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     const targetIndex = curIndex + direction;
     if (targetIndex < 0 || targetIndex >= sorted.length) return;
 
+    pushUndoSnapshot();
     const [moved] = sorted.splice(curIndex, 1);
     sorted.splice(targetIndex, 0, moved);
     const updatedWithStt = sorted.map((item, idx) => ({
@@ -853,6 +1048,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     const targetIndex = sorted.findIndex((i) => i.id === toId);
     if (curIndex === -1 || targetIndex === -1) return;
 
+    pushUndoSnapshot();
     const [moved] = sorted.splice(curIndex, 1);
     sorted.splice(targetIndex, 0, moved);
     const updatedWithStt = sorted.map((item, idx) => ({
@@ -963,6 +1159,8 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
 
   // Khi rời ô (onBlur), chuẩn hóa các số: tự động bỏ số 0 ở đầu (05 -> 5), loại bỏ dấu chấm ở cuối nếu gõ dở và lưu ngầm
   const handleCellBlur = (id: string) => {
+    activeEditingCellRef.current = null;
+    snapshotBeforeEditRef.current = null;
     setLocalItems((prev) =>
       prev.map((r) => {
         if (r.id !== id) return r;
@@ -971,11 +1169,17 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
           const formatted = formatNumericString(String(val)).replace(/\.+$/, '');
           return formatted === '' ? '0' : formatted;
         };
+        const cleanStock = cleanNumber(r.stockQty) || '0';
+        const cleanWaste = cleanNumber(r.wasteQty) || '0';
+        const cleanImport = cleanNumber(r.importQty) || '0';
         const updatedRow: InventoryCheckItem = {
           ...r,
-          importQty: cleanNumber(r.importQty) || '0',
-          wasteQty: cleanNumber(r.wasteQty) || '0',
-          stockQty: cleanNumber(r.stockQty) || '0',
+          importQty: cleanImport,
+          wasteQty: cleanWaste,
+          stockQty: cleanStock,
+          manualBaseStock: r.isManualStock
+            ? (parseFloat(cleanStock) || 0) + (parseFloat(cleanWaste) || 0)
+            : r.manualBaseStock,
         };
         onSaveItem(updatedRow, true);
         return updatedRow;
@@ -1084,6 +1288,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
       return;
     }
 
+    pushUndoSnapshot();
     const initStockNum = parseFloat(newItemInitialStock) || 0;
     const newRow: InventoryCheckItem = {
       id: `inv-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
@@ -1117,6 +1322,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
       return;
     }
     if (!confirm(`Bạn có chắc muốn xóa mặt hàng "${name}" khỏi bảng?`)) return;
+    pushUndoSnapshot();
     const next = localItems.filter((i) => i.id !== id);
     setLocalItems(next);
     onDeleteItem(id);
@@ -1868,47 +2074,63 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                 />
               </button>
 
-              {/* Popup Bảng Ô Lịch Ngày Trong Tháng */}
+              {/* Popup Bảng Ô Lịch Kiểu Windows Calendar Flyout */}
               {isCalendarOpen && (
-                <div className="absolute left-0 mt-2 z-50 bg-white rounded-2xl shadow-2xl border border-zinc-200 p-3.5 w-72 sm:w-80 text-zinc-900 animate-in fade-in zoom-in-95 duration-150">
-                  {/* Header tháng và nút chuyển tháng */}
-                  <div className="flex items-center justify-between pb-2.5 mb-2 border-b border-zinc-100">
-                    <button
-                      type="button"
-                      onClick={handlePrevMonth}
-                      className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-zinc-100 text-zinc-600 transition"
-                      title="Tháng trước"
-                    >
-                      <ChevronLeft className="w-4 h-4" />
-                    </button>
-                    <div className="text-center font-bold text-xs sm:text-sm text-zinc-900">
-                      {currentMonthYearLabel}
+                <div className="absolute left-0 mt-2 z-50 bg-[#1f1f1f] text-white rounded-2xl shadow-2xl border border-zinc-700/80 p-4 w-[310px] sm:w-[335px] select-none animate-in fade-in zoom-in-95 duration-150 font-sans">
+                  {/* 1. Đồng Hồ Chạy Giây Kiểu Windows Taskbar */}
+                  <div className="pb-3 mb-3 border-b border-zinc-800">
+                    <div className="text-3xl sm:text-4xl font-light tracking-tight text-white font-mono leading-none">
+                      {liveClockTime}
                     </div>
                     <button
                       type="button"
-                      onClick={handleNextMonth}
-                      className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-zinc-100 text-zinc-600 transition"
-                      title="Tháng sau"
+                      onClick={handlePickToday}
+                      className="text-xs sm:text-sm font-medium text-sky-400 hover:text-sky-300 transition mt-1.5 text-left flex items-center gap-2"
+                      title="Bấm để quay về ngày hôm nay"
                     >
-                      <ChevronRight className="w-4 h-4" />
+                      <span>{selectedDate === todayStr ? todayStr : `${selectedDate} (Hôm nay: ${todayStr})`}</span>
                     </button>
                   </div>
 
-                  {/* Hàng tên thứ trong tuần */}
-                  <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-bold text-zinc-400 mb-1.5">
-                    <div>T2</div>
-                    <div>T3</div>
-                    <div>T4</div>
-                    <div>T5</div>
-                    <div>T6</div>
-                    <div>T7</div>
-                    <div className="text-rose-500">CN</div>
+                  {/* 2. Tiêu đề Tháng Năm và 2 nút mũi tên ^ và v */}
+                  <div className="flex items-center justify-between pb-2">
+                    <div className="font-semibold text-sm sm:text-base text-zinc-100 flex items-center gap-1.5">
+                      <span>{currentMonthYearLabel}</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={handlePrevMonth}
+                        className="w-7 h-7 flex items-center justify-center rounded hover:bg-zinc-800 text-zinc-300 hover:text-white transition"
+                        title="Tháng trước"
+                      >
+                        <ChevronUp className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleNextMonth}
+                        className="w-7 h-7 flex items-center justify-center rounded hover:bg-zinc-800 text-zinc-300 hover:text-white transition"
+                        title="Tháng sau"
+                      >
+                        <ChevronDown className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
 
-                  {/* Lưới các ô ngày trong tháng */}
+                  {/* 3. Hàng Thứ trong tuần: Mo Tu We Th Fr Sa Su (Chuẩn ảnh Windows) */}
+                  <div className="grid grid-cols-7 gap-1 text-center text-xs font-semibold text-zinc-400 mb-1.5">
+                    <div title="Thứ 2">Mo</div>
+                    <div title="Thứ 3">Tu</div>
+                    <div title="Thứ 4">We</div>
+                    <div title="Thứ 5">Th</div>
+                    <div title="Thứ 6">Fr</div>
+                    <div title="Thứ 7">Sa</div>
+                    <div title="Chủ Nhật" className="text-zinc-300">Su</div>
+                  </div>
+
+                  {/* 4. Lưới 42 ô ngày (6 hàng x 7 cột chuẩn Windows) */}
                   <div className="grid grid-cols-7 gap-1 text-center">
                     {calendarDays.map((cell, idx) => {
-                      const isSunday = idx % 7 === 6;
                       return (
                         <button
                           key={`${cell.dateStr}-${idx}`}
@@ -1917,24 +2139,22 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                             handleSelectDate(cell.dateStr);
                             setIsCalendarOpen(false);
                           }}
-                          className={`h-8 rounded-lg flex flex-col items-center justify-center text-xs transition relative group ${
+                          className={`h-9 rounded-sm flex flex-col items-center justify-center text-xs sm:text-sm transition relative group ${
                             cell.isSelected
-                              ? 'bg-emerald-600 text-white font-extrabold shadow-sm scale-105'
+                              ? 'bg-[#0078d4] text-white font-bold border-2 border-[#0099ff] shadow-md z-10'
                               : cell.isToday
-                              ? 'border-2 border-emerald-500 font-bold text-emerald-700 bg-emerald-50/50 hover:bg-emerald-100/60'
+                              ? 'border border-sky-400 text-sky-400 font-bold hover:bg-zinc-800'
                               : cell.isCurrentMonth
-                              ? isSunday
-                                ? 'text-rose-600 hover:bg-rose-50 font-semibold'
-                                : 'text-zinc-800 hover:bg-zinc-100 font-medium'
-                              : 'text-zinc-300 hover:bg-zinc-50'
+                              ? 'text-zinc-100 hover:bg-zinc-800 hover:text-white font-normal'
+                              : 'text-zinc-600 hover:bg-zinc-800/60 hover:text-zinc-400'
                           }`}
                         >
                           <span className="leading-none">{cell.day}</span>
                           {/* Chấm đánh dấu ngày có dữ liệu kiểm tồn */}
                           {cell.hasData && (
                             <span
-                              className={`w-1 h-1 rounded-full mt-0.5 ${
-                                cell.isSelected ? 'bg-white' : 'bg-emerald-500'
+                              className={`w-1 h-1 rounded-full absolute bottom-1 ${
+                                cell.isSelected ? 'bg-white' : 'bg-emerald-400'
                               }`}
                               title="Ngày có dữ liệu kiểm kho"
                             />
@@ -1944,16 +2164,16 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                     })}
                   </div>
 
-                  {/* Chân lịch: Chú thích & Nút nhảy về Hôm Nay */}
-                  <div className="flex items-center justify-between pt-2.5 mt-2 border-t border-zinc-100 text-[11px]">
-                    <div className="flex items-center gap-1.5 text-zinc-500">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
-                      <span>Ngày có dữ liệu</span>
+                  {/* 5. Chân lịch: Chú thích & Nút nhảy về Hôm Nay */}
+                  <div className="flex items-center justify-between pt-3 mt-3 border-t border-zinc-800 text-xs">
+                    <div className="flex items-center gap-1.5 text-zinc-400 text-[11px]">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
+                      <span>Đã có dữ liệu tồn</span>
                     </div>
                     <button
                       type="button"
                       onClick={handlePickToday}
-                      className="px-2.5 py-1 rounded-lg text-emerald-700 hover:bg-emerald-50 font-bold transition text-[11px]"
+                      className="px-2.5 py-1 rounded text-sky-400 hover:text-sky-300 hover:bg-zinc-800 font-semibold transition text-xs flex items-center gap-1"
                     >
                       Hôm nay
                     </button>
@@ -2036,6 +2256,16 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
         <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 font-bold flex items-center gap-2 animate-fadeIn">
           <Check className="w-4 h-4 text-emerald-600" />
           <span>Đã lưu bảng tồn kho ngày {selectedDate} thành công!</span>
+        </div>
+      )}
+
+      {/* Thông báo Hoàn tác Undo */}
+      {undoToast && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 px-4 py-2.5 bg-zinc-950/95 text-white text-xs font-semibold rounded-2xl shadow-2xl backdrop-blur-md border border-zinc-700/80 animate-in fade-in slide-in-from-bottom-2">
+          <div className="w-6 h-6 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold">
+            <Undo2 className="w-3.5 h-3.5" />
+          </div>
+          <span>{undoToast}</span>
         </div>
       )}
 
@@ -2157,8 +2387,33 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
             </button>
           </div>
 
+          {/* Nút Hoàn Tác (Undo) - Chỉ áp dụng cho bảng đang chọn */}
+          <button
+            type="button"
+            onClick={handleUndo}
+            disabled={!canUndo}
+            className={`h-8 px-2.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition select-none shrink-0 ${
+              canUndo
+                ? 'bg-white hover:bg-amber-50/80 border-zinc-200 hover:border-amber-300 text-zinc-800 hover:text-amber-900 shadow-2xs active:scale-95 cursor-pointer'
+                : 'bg-zinc-100/70 border-zinc-200 text-zinc-300 cursor-not-allowed'
+            }`}
+            title={
+              canUndo
+                ? `Hoàn tác thao tác trước trên bảng ${selectedTable || DEFAULT_TABLE_NAME} (Phím tắt Ctrl+Z) - Có ${undoCount} bước hoàn tác`
+                : `Chưa có thao tác nào để hoàn tác trên bảng ${selectedTable || DEFAULT_TABLE_NAME}`
+            }
+          >
+            <Undo2 className={`w-3.5 h-3.5 ${canUndo ? 'text-amber-600' : 'text-zinc-300'}`} />
+            <span>Hoàn tác</span>
+            {canUndo && (
+              <span className="min-w-4 h-4 px-1 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold flex items-center justify-center">
+                {undoCount}
+              </span>
+            )}
+          </button>
+
           <span className="hidden xl:inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-zinc-50 text-zinc-600 text-[11px] font-mono border border-zinc-200">
-            Công thức: <strong>Tồn = Nhập + Tồn Trước - Bán Ra</strong> (Ưu tiên nhập tay)
+            Công thức: <strong>Tồn = Nhập + Tồn Trước - Bán Ra</strong> (Nhập tồn trước, bán ra sau tự động trừ tồn)
           </span>
         </div>
 
@@ -2333,7 +2588,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                               type="text"
                               inputMode="numeric"
                               value={item.stt !== undefined ? item.stt : idx + 1}
-                              onFocus={handleFocusToEnd}
+                              onFocus={(e) => handleCellFocus(item.id, 'stt', e)}
                               onChange={(e) => handleCellChange(item.id, 'stt', e.target.value)}
                               onBlur={() => handleCellBlur(item.id)}
                               className="w-8 text-center bg-zinc-100 border border-zinc-200 rounded py-0.5 font-bold outline-none text-xs"
@@ -2351,6 +2606,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                             <input
                               type="text"
                               value={item.itemName}
+                              onFocus={(e) => handleCellFocus(item.id, 'itemName', e)}
                               onChange={(e) => handleCellChange(item.id, 'itemName', e.target.value)}
                               onBlur={() => handleCellBlur(item.id)}
                               className="font-bold text-zinc-900 bg-transparent border-b border-dashed border-zinc-300 focus:border-emerald-600 outline-none w-full py-0.5 text-xs"
@@ -2384,7 +2640,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                             type="text"
                             inputMode="decimal"
                             value={item.importQty !== undefined ? item.importQty : '0'}
-                            onFocus={handleFocusToEnd}
+                            onFocus={(e) => handleCellFocus(item.id, 'importQty', e)}
                             onChange={(e) => handleCellChange(item.id, 'importQty', e.target.value)}
                             onBlur={() => handleCellBlur(item.id)}
                             className="w-12 sm:w-14 text-center sm:text-right bg-zinc-50 focus:bg-white border border-zinc-200 rounded px-1 py-0.5 font-bold text-indigo-700 outline-none focus:ring-1 focus:ring-indigo-500 text-xs"
@@ -2401,7 +2657,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                             type="text"
                             inputMode="decimal"
                             value={item.wasteQty !== undefined ? item.wasteQty : '0'}
-                            onFocus={handleFocusToEnd}
+                            onFocus={(e) => handleCellFocus(item.id, 'wasteQty', e)}
                             onChange={(e) => handleCellChange(item.id, 'wasteQty', e.target.value)}
                             onBlur={() => handleCellBlur(item.id)}
                             className="w-11 sm:w-13 text-center sm:text-right bg-rose-50/60 focus:bg-white border border-rose-200 focus:border-rose-400 rounded px-1 py-0.5 font-semibold text-rose-700 outline-none text-xs"
@@ -2425,7 +2681,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                               type="text"
                               inputMode="decimal"
                               value={item.stockQty !== undefined ? item.stockQty : '0'}
-                              onFocus={handleFocusToEnd}
+                              onFocus={(e) => handleCellFocus(item.id, 'stockQty', e)}
                               onChange={(e) => handleCellChange(item.id, 'stockQty', e.target.value)}
                               onBlur={() => handleCellBlur(item.id)}
                               className="w-12 sm:w-14 text-center sm:text-right bg-emerald-50 focus:bg-white border border-emerald-300 rounded px-1 py-0.5 font-bold text-emerald-800 outline-none focus:ring-1 focus:ring-emerald-500 text-xs"
@@ -2441,7 +2697,11 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                         ) : (
                           <select
                             value={item.unit || 'kg'}
-                            onChange={(e) => handleCellChange(item.id, 'unit', e.target.value)}
+                            onFocus={() => handleCellFocus(item.id, 'unit')}
+                            onChange={(e) => {
+                              pushUndoSnapshot();
+                              handleCellChange(item.id, 'unit', e.target.value);
+                            }}
                             onBlur={() => handleCellBlur(item.id)}
                             className="bg-zinc-50 border border-zinc-200 rounded px-1 py-0.5 text-xs outline-none"
                           >
@@ -2476,8 +2736,8 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                             <input
                               type="text"
                               inputMode="decimal"
-                              value={threshold !== undefined ? threshold : '3'}
-                              onFocus={handleFocusToEnd}
+                              value={threshold !== undefined ? threshold : '0'}
+                              onFocus={(e) => handleCellFocus(item.id, 'minThreshold', e)}
                               onChange={(e) => handleCellChange(item.id, 'minThreshold', e.target.value)}
                               onBlur={() => handleCellBlur(item.id)}
                               className="w-11 sm:w-12 text-center bg-amber-50 border border-amber-200 rounded py-0.5 font-bold text-amber-900 outline-none text-xs"
