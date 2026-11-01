@@ -1664,12 +1664,12 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     }, 'image/png');
   };
 
-  // Xuất file text Danh Sách Đặt Hàng (Phân nhóm theo từng tủ gọn gàng)
-  const exportOrderListToText = () => {
+  // Xuất file text Danh Sách Đặt Hàng (Phân nhóm theo từng tủ gọn gàng, hiển thị Tồn Còn Lại, gom chung các bảng)
+  const exportOrderListToText = (exportAll: boolean = true) => {
     let content = `==============================================\n`;
     content += `DANH SÁCH ĐẶT HÀNG NGÀY ${selectedDate}\n`;
-    if (orderCabinetFilter === 'all') {
-      content += `(Khu vực: Tổng Hợp Toàn Bộ Các Tủ)\n`;
+    if (exportAll || orderCabinetFilter === 'all') {
+      content += `(Khu vực: Tổng Hợp Toàn Bộ Các Tủ Cần Đặt)\n`;
     } else if (orderCabinetFilter === 'custom') {
       content += `(Khu vực: Hàng Đặt Chợ)\n`;
     } else {
@@ -1680,59 +1680,47 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
 
     let totalSelected = 0;
 
-    if (orderCabinetFilter !== 'custom') {
-      const cabinetsToExport = orderCabinetFilter === 'all'
-        ? Array.from(new Set(allRowsForSelectedDate.map((i) => (i.tableName || DEFAULT_TABLE_NAME).trim())))
-        : [orderCabinetFilter];
+    const cabinetsToExport = exportAll || orderCabinetFilter === 'all'
+      ? Array.from(new Set(allRowsForSelectedDate.map((i) => (i.tableName || DEFAULT_TABLE_NAME).trim())))
+      : orderCabinetFilter === 'custom'
+      ? []
+      : [orderCabinetFilter];
 
-      cabinetsToExport.forEach((cabName) => {
-        const cabItems = allRowsForSelectedDate.filter(
-          (i) => (i.tableName || DEFAULT_TABLE_NAME).trim() === cabName &&
-                 (parseFloat(i.stockQty) || 0) <= (i.minThreshold ?? 0)
-        );
+    cabinetsToExport.forEach((cabName) => {
+      const cabItems = allRowsForSelectedDate.filter(
+        (i) => (i.tableName || DEFAULT_TABLE_NAME).trim() === cabName &&
+               (parseFloat(i.stockQty) || 0) <= (i.minThreshold ?? 0)
+      );
 
-        const selectedInCab = cabItems.filter((i) => orderSelection[`inv_${i.id}`] !== false);
-        if (selectedInCab.length > 0) {
-          content += `[KHU VỰC: ${cabName.toUpperCase()}] (${selectedInCab.length} mặt hàng)\n`;
-          content += `STT  | Tên Mặt Hàng                  | Tồn Hiện Tại | Số Đặt | Đơn Vị\n`;
-          content += `-----+-------------------------------+--------------+--------+-------\n`;
-          selectedInCab.forEach((item, idx) => {
-            totalSelected++;
-            const keyId = `inv_${item.id}`;
-            const threshold = item.minThreshold ?? 0;
-            const currentStock = parseFloat(item.stockQty) || 0;
-            const orderData = orderQuantities[keyId] || {
-              qty: Math.max(1, threshold * 2 - currentStock),
-              unit: item.unit || 'Kg',
-            };
-            const sttStr = String(item.stt || idx + 1).padEnd(4);
-            const nameStr = item.itemName.slice(0, 29).padEnd(29);
-            const stockStr = String(item.stockQty).padEnd(12);
-            const qtyStr = String(orderData.qty).padEnd(6);
-            content += `${sttStr} | ${nameStr} | ${stockStr} | ${qtyStr} | ${orderData.unit}\n`;
-          });
-          content += `\n`;
-        }
-      });
-    }
+      const selectedInCab = cabItems.filter((i) => orderSelection[`inv_${i.id}`] !== false);
+      if (selectedInCab.length > 0) {
+        content += `[KHU VỰC: ${cabName.toUpperCase()}] (${selectedInCab.length} mặt hàng)\n`;
+        content += `STT  | Tên Mặt Hàng                  | Tồn Còn Lại  | Đơn Vị\n`;
+        content += `-----+-------------------------------+--------------+-------\n`;
+        selectedInCab.forEach((item, idx) => {
+          totalSelected++;
+          const currentStock = parseFloat(item.stockQty) || 0;
+          const sttStr = String(item.stt || idx + 1).padEnd(4);
+          const nameStr = item.itemName.slice(0, 29).padEnd(29);
+          const stockStr = String(currentStock).padEnd(12);
+          content += `${sttStr} | ${nameStr} | ${stockStr} | ${item.unit || 'phần'}\n`;
+        });
+        content += `\n`;
+      }
+    });
 
-    if (orderCabinetFilter === 'all' || orderCabinetFilter === 'custom') {
+    if (exportAll || orderCabinetFilter === 'all' || orderCabinetFilter === 'custom') {
       const selectedCustom = customOrders.filter((c) => orderSelection[`custom_${c.id}`] !== false);
       if (selectedCustom.length > 0) {
         content += `[HÀNG ĐẶT CHỢ] (${selectedCustom.length} mặt hàng)\n`;
-        content += `STT  | Tên Mặt Hàng                  | Số Lượng Đặt | Đơn Vị\n`;
+        content += `STT  | Tên Mặt Hàng                  | Tồn Còn Lại  | Đơn Vị\n`;
         content += `-----+-------------------------------+--------------+-------\n`;
         selectedCustom.forEach((c, idx) => {
           totalSelected++;
-          const keyId = `custom_${c.id}`;
-          const orderData = orderQuantities[keyId] || {
-            qty: c.defaultQty,
-            unit: c.unit,
-          };
           const sttStr = `DC-${idx + 1}`.padEnd(4);
           const nameStr = c.name.slice(0, 29).padEnd(29);
-          const qtyStr = String(orderData.qty).padEnd(12);
-          content += `${sttStr} | ${nameStr} | ${qtyStr} | ${orderData.unit}\n`;
+          const stockStr = 'Đặt chợ'.padEnd(12);
+          content += `${sttStr} | ${nameStr} | ${stockStr} | ${c.unit}\n`;
         });
         content += `\n`;
       }
@@ -1748,7 +1736,9 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     const a = document.createElement('a');
     a.href = url;
     const safeDate = selectedDate.replace(/\//g, '-');
-    const safeFilter = orderCabinetFilter.replace(/[^a-zA-Z0-9_\u00C0-\u024F\u1EA0-\u1EF9]/g, '_');
+    const safeFilter = exportAll || orderCabinetFilter === 'all'
+      ? 'TatCaCacTu'
+      : orderCabinetFilter.replace(/[^a-zA-Z0-9_\u00C0-\u024F\u1EA0-\u1EF9]/g, '_');
     a.download = `DanhSachDatHang_${safeDate}_${safeFilter}.txt`;
     document.body.appendChild(a);
     a.click();
@@ -1756,74 +1746,59 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     URL.revokeObjectURL(url);
   };
 
-  // Xuất file ảnh PNG Danh Sách Đặt Hàng (Gọn gàng, ít khoảng trống thừa, chia theo tủ sắc nét để gửi Zalo)
-  const exportOrderListToImage = () => {
+  // Xuất file ảnh PNG Danh Sách Đặt Hàng (Gọn gàng, chỉ hiển thị Tồn Còn Lại, không cần số lượng, gom chung tất cả các bảng vào 1 lần xuất file)
+  const exportOrderListToImage = (exportAll: boolean = true) => {
     type ExportOrderItem = {
       stt: string;
       name: string;
       stock: string;
-      qty: number;
       unit: string;
       isCustom?: boolean;
     };
 
     const sections: Array<{ title: string; items: ExportOrderItem[] }> = [];
 
-    if (orderCabinetFilter !== 'custom') {
-      const cabinetsToExport = orderCabinetFilter === 'all'
-        ? Array.from(new Set(allRowsForSelectedDate.map((i) => (i.tableName || DEFAULT_TABLE_NAME).trim())))
-        : [orderCabinetFilter];
+    // Danh sách tủ cần xuất: Nếu exportAll = true hoặc đang chọn tab 'all' thì gom TẤT CẢ các tủ trong ngày
+    const cabinetsToExport = exportAll || orderCabinetFilter === 'all'
+      ? Array.from(new Set(allRowsForSelectedDate.map((i) => (i.tableName || DEFAULT_TABLE_NAME).trim())))
+      : orderCabinetFilter === 'custom'
+      ? []
+      : [orderCabinetFilter];
 
-      cabinetsToExport.forEach((cabName) => {
-        const cabItems = allRowsForSelectedDate.filter(
-          (i) => (i.tableName || DEFAULT_TABLE_NAME).trim() === cabName &&
-                 (parseFloat(i.stockQty) || 0) <= (i.minThreshold ?? 0)
-        );
-        const selected = cabItems.filter((i) => orderSelection[`inv_${i.id}`] !== false);
-        if (selected.length > 0) {
-          sections.push({
-            title: `KHU VỰC: ${cabName.toUpperCase()} (${selected.length} món)`,
-            items: selected.map((item, idx) => {
-              const keyId = `inv_${item.id}`;
-              const threshold = item.minThreshold ?? 0;
-              const currentStock = parseFloat(item.stockQty) || 0;
-              const orderData = orderQuantities[keyId] || {
-                qty: Math.max(1, threshold * 2 - currentStock),
-                unit: item.unit || 'phần',
-              };
-              return {
-                stt: String(item.stt || idx + 1),
-                name: item.itemName,
-                stock: String(currentStock),
-                qty: orderData.qty,
-                unit: orderData.unit,
-              };
-            }),
-          });
-        }
-      });
-    }
+    cabinetsToExport.forEach((cabName) => {
+      const cabItems = allRowsForSelectedDate.filter(
+        (i) => (i.tableName || DEFAULT_TABLE_NAME).trim() === cabName &&
+               (parseFloat(i.stockQty) || 0) <= (i.minThreshold ?? 0)
+      );
+      const selected = cabItems.filter((i) => orderSelection[`inv_${i.id}`] !== false);
+      if (selected.length > 0) {
+        sections.push({
+          title: `KHU VỰC: ${cabName.toUpperCase()} (${selected.length} món)`,
+          items: selected.map((item, idx) => {
+            const currentStock = parseFloat(item.stockQty) || 0;
+            return {
+              stt: String(item.stt || idx + 1),
+              name: item.itemName,
+              stock: String(currentStock),
+              unit: item.unit || 'phần',
+            };
+          }),
+        });
+      }
+    });
 
-    if (orderCabinetFilter === 'all' || orderCabinetFilter === 'custom') {
+    if (exportAll || orderCabinetFilter === 'all' || orderCabinetFilter === 'custom') {
       const selectedCustom = customOrders.filter((c) => orderSelection[`custom_${c.id}`] !== false);
       if (selectedCustom.length > 0) {
         sections.push({
           title: `HÀNG ĐẶT CHỢ (${selectedCustom.length} món)`,
-          items: selectedCustom.map((c, idx) => {
-            const keyId = `custom_${c.id}`;
-            const orderData = orderQuantities[keyId] || {
-              qty: c.defaultQty,
-              unit: c.unit,
-            };
-            return {
-              stt: `DC-${idx + 1}`,
-              name: c.name,
-              stock: 'Đặt chợ',
-              qty: orderData.qty,
-              unit: orderData.unit,
-              isCustom: true,
-            };
-          }),
+          items: selectedCustom.map((c, idx) => ({
+            stt: `DC-${idx + 1}`,
+            name: c.name,
+            stock: 'Đặt chợ',
+            unit: c.unit,
+            isCustom: true,
+          })),
         });
       }
     }
@@ -1835,7 +1810,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     }
 
     const scale = 2;
-    const canvasWidth = 520; // Rất gọn, vừa vặn khung ảnh di động Zalo
+    const canvasWidth = 500; // Rất gọn, vừa vặn khung ảnh di động Zalo
     const headerHeight = 56;
     const sectionBarHeight = 22;
     const tableHeaderHeight = 24;
@@ -1881,17 +1856,17 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     ctx.textAlign = 'left';
     ctx.fillText('KITCHEN LOG PRO • ĐƠN ĐẶT HÀNG BẾP', 12, 18);
 
-    ctx.font = 'bold 15px "Segoe UI", Roboto, sans-serif';
+    ctx.font = 'bold 14.5px "Segoe UI", Roboto, sans-serif';
     ctx.fillStyle = '#ffffff';
-    const subTitle = orderCabinetFilter === 'all'
-      ? 'DANH SÁCH CẦN ĐẶT HÀNG (TẤT CẢ CÁC TỦ)'
-      : `ĐẶT HÀNG: ${orderCabinetFilter.toUpperCase()}`;
+    const subTitle = (exportAll || orderCabinetFilter === 'all')
+      ? `DANH SÁCH ĐẶT HÀNG TỔNG HỢP (${sections.length} BẢNG/TỦ)`
+      : `ĐẶT HÀNG: ${sections[0]?.title?.replace(/^KHU VỰC: /, '').replace(/ \(\d+ món\)$/, '') || 'DANH SÁCH ĐẶT HÀNG'}`;
     ctx.fillText(subTitle, 12, 36);
 
     ctx.font = '500 10px "Segoe UI", Roboto, sans-serif';
     ctx.fillStyle = '#94a3b8';
     const nowTimeStr = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-    ctx.fillText(`Ngày: ${selectedDate} • ${currentUser?.fullName || 'Bếp'} • ${nowTimeStr}`, 12, 49);
+    ctx.fillText(`Ngày: ${selectedDate} • Người lập: ${currentUser?.fullName || 'Bếp'} • ${nowTimeStr}`, 12, 49);
 
     const badgeText = `${totalItemsCount} MẶT HÀNG`;
     ctx.font = 'bold 10px "Segoe UI", Roboto, sans-serif';
@@ -1920,20 +1895,19 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
       ctx.fillText(`▶ ${sec.title}`, 16, currentY + 15);
       currentY += sectionBarHeight + 2;
 
-      // Table Header của Tủ
+      // Table Header của Tủ: Chỉ gồm STT, TÊN MẶT HÀNG, TỒN CÒN LẠI, ĐVT (Bỏ cột Số Lượng Đặt)
       ctx.fillStyle = '#f1f5f9';
       ctx.fillRect(10, currentY, canvasWidth - 20, tableHeaderHeight);
 
       ctx.font = 'bold 9.5px "Segoe UI", Roboto, sans-serif';
       ctx.fillStyle = '#475569';
       ctx.textAlign = 'center';
-      ctx.fillText('STT', 26, currentY + 16);
+      ctx.fillText('STT', 28, currentY + 16);
       ctx.textAlign = 'left';
-      ctx.fillText('TÊN MẶT HÀNG', 52, currentY + 16);
+      ctx.fillText('TÊN MẶT HÀNG', 56, currentY + 16);
       ctx.textAlign = 'center';
-      ctx.fillText('TỒN', 325, currentY + 16);
-      ctx.fillText('SỐ ĐẶT', 395, currentY + 16);
-      ctx.fillText('ĐƠN VỊ', 465, currentY + 16);
+      ctx.fillText('TỒN CÒN LẠI', 400, currentY + 16);
+      ctx.fillText('ĐVT', 465, currentY + 16);
 
       currentY += tableHeaderHeight;
 
@@ -1949,39 +1923,56 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
         ctx.lineTo(canvasWidth - 10, currentY + rowHeight);
         ctx.stroke();
 
+        // 1. STT
         ctx.textAlign = 'center';
         ctx.font = row.isCustom ? 'bold 9.5px monospace' : 'bold 10px monospace';
         ctx.fillStyle = row.isCustom ? '#4f46e5' : '#64748b';
-        ctx.fillText(row.stt, 26, currentY + 17);
+        ctx.fillText(row.stt, 28, currentY + 17);
 
+        // 2. Tên mặt hàng (không gian rộng rãi lên đến 310px, hiển thị trọn vẹn)
         ctx.textAlign = 'left';
         ctx.font = 'bold 11px "Segoe UI", Roboto, sans-serif';
         ctx.fillStyle = '#0f172a';
         let displayName = row.name;
-        if (ctx.measureText(displayName).width > 230) {
-          while (ctx.measureText(displayName + '...').width > 230 && displayName.length > 0) {
+        const maxNameWidth = 310;
+        if (ctx.measureText(displayName).width > maxNameWidth) {
+          while (ctx.measureText(displayName + '...').width > maxNameWidth && displayName.length > 0) {
             displayName = displayName.slice(0, -1);
           }
           displayName += '...';
         }
-        ctx.fillText(displayName, 52, currentY + 17);
+        ctx.fillText(displayName, 56, currentY + 17);
 
-        ctx.textAlign = 'center';
-        ctx.font = '600 11px "Segoe UI", Roboto, sans-serif';
-        ctx.fillStyle = row.isCustom ? '#94a3b8' : '#e11d48';
-        ctx.fillText(row.stock, 325, currentY + 17);
+        // 3. Tồn còn lại (nổi bật, sắc nét, không cần cột số đặt)
+        if (row.isCustom) {
+          ctx.fillStyle = '#eef2ff';
+          ctx.beginPath();
+          safeRoundRect(370, currentY + 3, 60, 20, 4);
+          ctx.fill();
+          ctx.strokeStyle = '#c7d2fe';
+          ctx.lineWidth = 0.6;
+          ctx.stroke();
 
-        // Khung số đặt
-        ctx.fillStyle = '#fef3c7';
-        ctx.beginPath();
-        safeRoundRect(375, currentY + 3, 40, 20, 4);
-        ctx.fill();
+          ctx.textAlign = 'center';
+          ctx.font = 'bold 10px "Segoe UI", Roboto, sans-serif';
+          ctx.fillStyle = '#4338ca';
+          ctx.fillText('Đặt chợ', 400, currentY + 16.5);
+        } else {
+          ctx.fillStyle = '#fff1f2';
+          ctx.beginPath();
+          safeRoundRect(374, currentY + 3, 52, 20, 4);
+          ctx.fill();
+          ctx.strokeStyle = '#fecdd3';
+          ctx.lineWidth = 0.6;
+          ctx.stroke();
 
-        ctx.textAlign = 'center';
-        ctx.font = 'bold 12px "Segoe UI", Roboto, sans-serif';
-        ctx.fillStyle = '#b45309';
-        ctx.fillText(String(row.qty), 395, currentY + 17);
+          ctx.textAlign = 'center';
+          ctx.font = 'bold 12px "Segoe UI", Roboto, sans-serif';
+          ctx.fillStyle = '#e11d48';
+          ctx.fillText(row.stock, 400, currentY + 17);
+        }
 
+        // 4. Đơn vị tính (ĐVT)
         ctx.textAlign = 'center';
         ctx.font = '600 10.5px "Segoe UI", Roboto, sans-serif';
         ctx.fillStyle = '#334155';
@@ -2014,7 +2005,9 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
       const a = document.createElement('a');
       a.href = url;
       const safeDate = selectedDate.replace(/\//g, '-');
-      const safeFilter = orderCabinetFilter.replace(/[^a-zA-Z0-9_\u00C0-\u024F\u1EA0-\u1EF9]/g, '_');
+      const safeFilter = exportAll || orderCabinetFilter === 'all'
+        ? 'TatCaCacTu'
+        : orderCabinetFilter.replace(/[^a-zA-Z0-9_\u00C0-\u024F\u1EA0-\u1EF9]/g, '_');
       a.download = `DanhSachDatHang_${safeDate}_${safeFilter}.png`;
       document.body.appendChild(a);
       a.click();
@@ -3497,19 +3490,35 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
               </span>
 
               <div className="flex flex-wrap items-center gap-2">
+                {/* Nút chính: Xuất Ảnh PNG gom chung tất cả các bảng/tủ và hàng đặt chợ */}
                 <button
                   type="button"
-                  onClick={exportOrderListToImage}
+                  onClick={() => exportOrderListToImage(true)}
                   className="px-4 py-2 text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl transition flex items-center gap-1.5 shadow-xs active:scale-95"
-                  title="Xuất ảnh danh sách đặt hàng đẹp mắt, gọn gàng để gửi Zalo"
+                  title="Xuất ảnh PNG gộp chung tất cả các bảng/tủ và hàng đặt chợ vào 1 lần xuất file (gửi Zalo)"
                 >
                   <Camera className="w-3.5 h-3.5" />
-                  <span>Xuất Ảnh PNG (Gửi Zalo)</span>
+                  <span>Xuất Ảnh PNG (Gộp Tất Cả Tủ)</span>
                 </button>
+
+                {/* Nếu đang lọc riêng 1 tủ hoặc hàng chợ: cung cấp thêm nút chỉ xuất riêng tủ đó */}
+                {orderCabinetFilter !== 'all' && (
+                  <button
+                    type="button"
+                    onClick={() => exportOrderListToImage(false)}
+                    className="px-3 py-2 text-xs font-bold bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-xl transition flex items-center gap-1.5 shadow-xs active:scale-95"
+                    title={`Chỉ xuất ảnh riêng tủ ${orderCabinetFilter}`}
+                  >
+                    <Camera className="w-3.5 h-3.5 text-zinc-400" />
+                    <span>Chỉ xuất riêng {orderCabinetFilter === 'custom' ? 'Hàng Chợ' : orderCabinetFilter}</span>
+                  </button>
+                )}
+
                 <button
                   type="button"
-                  onClick={exportOrderListToText}
-                  className="px-4 py-2 text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white rounded-xl transition flex items-center gap-1.5 shadow-xs active:scale-95"
+                  onClick={() => exportOrderListToText(true)}
+                  className="px-3.5 py-2 text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white rounded-xl transition flex items-center gap-1.5 shadow-xs active:scale-95"
+                  title="Xuất danh sách đặt hàng gộp các tủ thành file .txt"
                 >
                   <FileDown className="w-3.5 h-3.5" />
                   <span>Xuất File Text</span>
