@@ -85,25 +85,8 @@ interface RecipeIngredientMap {
   [dishName: string]: Array<{ item: string; qty: number }>;
 }
 
-const DEFAULT_RECIPE_MAPPING: RecipeIngredientMap = {
-  'Cá hồi sốt teri': [{ item: 'Cá hồi phi lê', qty: 1 }],
-  'Cơm tấm sườn bì chả': [
-    { item: 'Sườn heo', qty: 1 },
-    { item: 'Trứng vịt', qty: 1 },
-  ],
-  'Bò lúc lắc': [
-    { item: 'Thịt bò phi lê', qty: 1 },
-    { item: 'Ớt chuông', qty: 1 },
-  ],
-  'Mì ý sốt bò bằm': [
-    { item: 'Thịt bò xay', qty: 1 },
-    { item: 'Sợi mì ý', qty: 1 },
-  ],
-  'Salad cá ngừ': [
-    { item: 'Cá ngừ hộp', qty: 1 },
-    { item: 'Xà lách', qty: 1 },
-  ],
-};
+// Danh mục công thức để rỗng, chỉ lấy từ các món người dùng tự tạo thủ công
+const DEFAULT_RECIPE_MAPPING: RecipeIngredientMap = {};
 
 function sanitizeNumericInput(raw: string): string {
   const normalized = String(raw).replace(/,/g, '.');
@@ -441,15 +424,14 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     }
   };
 
-  // Recipe Mapping cho Kiểm Phiếu Nhanh
+  // Recipe Mapping cho Kiểm Phiếu Nhanh (chỉ lấy từ danh mục công thức thực tế của người dùng)
   const [recipeMap, setRecipeMap] = useState<RecipeIngredientMap>(() => {
     try {
-      const saved = localStorage.getItem('kitchen_inventory_voucher_recipe_map_v1');
-      if (saved) return JSON.parse(saved);
+      localStorage.removeItem('kitchen_inventory_voucher_recipe_map_v1');
     } catch {
       // ignore
     }
-    const combined: RecipeIngredientMap = { ...DEFAULT_RECIPE_MAPPING };
+    const combined: RecipeIngredientMap = {};
     if (Array.isArray(recipes)) {
       recipes.forEach((r) => {
         if (r.dishName && Array.isArray(r.ingredients) && r.ingredients.length > 0) {
@@ -462,6 +444,22 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     }
     return combined;
   });
+
+  // Tự động đồng bộ recipeMap khi recipes prop cập nhật từ người dùng
+  useEffect(() => {
+    const combined: RecipeIngredientMap = {};
+    if (Array.isArray(recipes)) {
+      recipes.forEach((r) => {
+        if (r.dishName && Array.isArray(r.ingredients) && r.ingredients.length > 0) {
+          combined[r.dishName] = r.ingredients.map((ing) => ({
+            item: ing.name,
+            qty: parseFloat(ing.quantity) || 1,
+          }));
+        }
+      });
+    }
+    setRecipeMap(combined);
+  }, [recipes]);
 
   // Modals state
   const [isVoucherModalOpen, setIsVoucherModalOpen] = useState(false);
@@ -476,14 +474,8 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     onCloseOrderListModal?.();
   };
 
-  // Voucher rows state: Mặc định số lượng mỗi phiếu bằng 0 thay vì 1
-  const [voucherRows, setVoucherRows] = useState<VoucherItemRow[]>(() => {
-    const dishes = Object.keys(recipeMap);
-    if (dishes.length > 0) {
-      return dishes.map((dish) => ({ dish, quantity: 0 }));
-    }
-    return [{ dish: 'Cá hồi sốt teri', quantity: 0 }];
-  });
+  // Voucher rows state: Mặc định rỗng, người dùng bấm "+ Thêm Món" để tự thêm thủ công
+  const [voucherRows, setVoucherRows] = useState<VoucherItemRow[]>([]);
 
   // Order List selections & custom quantities
   const [orderSelection, setOrderSelection] = useState<Record<string, boolean>>({});
@@ -1386,10 +1378,14 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     setIsOrderListModalOpen(true);
   };
 
-  // Kiểm Phiếu Nhanh: Thêm dòng món (mặc định số lượng = 0)
+  // Kiểm Phiếu Nhanh: Thêm dòng món do người dùng tự chọn thủ công (mặc định số lượng = 0)
   const addVoucherRow = () => {
     const availableDishes = Object.keys(recipeMap);
-    const defaultDish = availableDishes[0] || 'Cá hồi sốt teri';
+    if (availableDishes.length === 0) {
+      alert('Chưa có công thức món ăn nào! Vui lòng vào mục "Công Thức" để thêm món ăn và định lượng nguyên liệu trước.');
+      return;
+    }
+    const defaultDish = availableDishes[0];
     setVoucherRows([...voucherRows, { dish: defaultDish, quantity: 0 }]);
   };
 
@@ -2884,7 +2880,18 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                 </div>
               </div>
 
-              {voucherRows.map((row, idx) => {
+              {voucherRows.length === 0 ? (
+                <div className="py-10 px-4 text-center border-2 border-dashed border-zinc-200 rounded-2xl space-y-2 bg-zinc-50/50">
+                  <Receipt className="w-8 h-8 text-zinc-300 mx-auto" />
+                  <p className="text-xs font-bold text-zinc-700">
+                    Chưa có món nào trong phiếu kiểm
+                  </p>
+                  <p className="text-[11px] text-zinc-400 max-w-sm mx-auto">
+                    Bấm nút <strong>&ldquo;+ Thêm Món&rdquo;</strong> ở trên để tự chọn các món đã bán trong ca cần trừ kho.
+                  </p>
+                </div>
+              ) : (
+                voucherRows.map((row, idx) => {
                 const ingredients = recipeMap[row.dish] || [];
 
                 return (
@@ -2996,7 +3003,8 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                     )}
                   </div>
                 );
-              })}
+              })
+            )}
             </div>
 
             <div className="flex justify-between items-center gap-2 pt-3 border-t border-zinc-100 flex-wrap">
