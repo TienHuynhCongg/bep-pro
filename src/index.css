@@ -37,7 +37,7 @@ body,
 
 /* Safe area cho thanh Home Indicator dưới đáy iPhone */
 .pb-safe-bottom {
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-bottom: 0px;
 }
 
 @media (min-width: 768px) {

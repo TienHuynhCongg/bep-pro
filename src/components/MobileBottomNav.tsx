@@ -34,9 +34,9 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
 
   return (
     <>
-      {/* Fixed Bottom Frame inside App Shell (Không bao giờ đè lên nội dung bên trên) */}
-      <nav className="md:hidden shrink-0 z-30 bg-white border-t border-zinc-200 pb-safe-bottom select-none">
-        <div className="grid grid-flow-col auto-cols-fr items-center h-14 px-1">
+      {/* Fixed Bottom Frame inside App Shell (Hạ sát viền đáy màn hình) */}
+      <nav className="md:hidden shrink-0 z-30 bg-white border-t border-zinc-200 select-none">
+        <div className="grid grid-flow-col auto-cols-fr items-center h-13 px-1">
           {primaryItems.map((item) => {
             const isActive = activeTabId === item.id;
 
@@ -63,7 +63,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
                   onSelectTab(item.id);
                   setShowMoreSheet(false);
                 }}
-                className={`relative flex flex-col items-center justify-center h-full py-1 transition-colors active:scale-95 touch-manipulation select-none min-w-0 ${
+                className={`relative flex flex-col items-center justify-center h-full py-0.5 transition-colors active:scale-95 touch-manipulation select-none min-w-0 ${
                   isActive ? 'text-zinc-950' : 'text-zinc-400 hover:text-zinc-700'
                 }`}
               >
@@ -89,7 +89,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
             <button
               type="button"
               onClick={() => setShowMoreSheet(true)}
-              className={`relative flex flex-col items-center justify-center h-full py-1 transition-colors active:scale-95 touch-manipulation select-none min-w-0 ${
+              className={`relative flex flex-col items-center justify-center h-full py-0.5 transition-colors active:scale-95 touch-manipulation select-none min-w-0 ${
                 isOverflowActive || showMoreSheet ? 'text-zinc-950' : 'text-zinc-400'
               }`}
             >
@@ -105,7 +105,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
         <div className="md:hidden fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex flex-col justify-end">
           <div className="fixed inset-0" onClick={() => setShowMoreSheet(false)} />
 
-          <div className="relative bg-white rounded-t-3xl p-5 space-y-4 shadow-2xl z-10 pb-safe-bottom">
+          <div className="relative bg-white rounded-t-3xl p-5 space-y-4 shadow-2xl z-10 pb-6">
             <div className="w-10 h-1 bg-zinc-200 rounded-full mx-auto -mt-1 mb-1" />
             <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
               <span className="text-xs font-bold text-zinc-900 uppercase tracking-wider">
