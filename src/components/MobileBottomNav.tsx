@@ -36,20 +36,20 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
     <>
       {/* Fixed Bottom Frame inside App Shell (Hạ sát viền đáy màn hình) */}
       <nav className="md:hidden shrink-0 z-30 bg-white border-t border-zinc-200 select-none">
-        <div className="grid grid-flow-col auto-cols-fr items-center h-13 px-1">
+        <div className="grid grid-flow-col auto-cols-fr items-center h-11 px-1">
           {primaryItems.map((item) => {
             const isActive = activeTabId === item.id;
 
             let badge: React.ReactNode = null;
             if (item.targetType === 'checklist' && pendingTasksCount > 0) {
               badge = (
-                <span className="absolute -top-1 -right-2 min-w-[16px] h-4 px-1 bg-rose-600 text-white font-bold text-[9px] rounded-full flex items-center justify-center ring-2 ring-white">
+                <span className="absolute -top-1 -right-2 min-w-[15px] h-3.5 px-0.5 bg-rose-600 text-white font-bold text-[8.5px] rounded-full flex items-center justify-center ring-2 ring-white">
                   {pendingTasksCount}
                 </span>
               );
             } else if (item.targetType === 'history' && totalLogsCount > 0) {
               badge = (
-                <span className="absolute -top-1 -right-2 min-w-[16px] h-4 px-1 bg-zinc-800 text-white font-bold text-[9px] rounded-full flex items-center justify-center ring-2 ring-white">
+                <span className="absolute -top-1 -right-2 min-w-[15px] h-3.5 px-0.5 bg-zinc-800 text-white font-bold text-[8.5px] rounded-full flex items-center justify-center ring-2 ring-white">
                   {totalLogsCount}
                 </span>
               );
@@ -63,19 +63,19 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
                   onSelectTab(item.id);
                   setShowMoreSheet(false);
                 }}
-                className={`relative flex flex-col items-center justify-center h-full py-0.5 transition-colors active:scale-95 touch-manipulation select-none min-w-0 ${
+                className={`relative flex flex-col items-center justify-end h-full pb-1 pt-0.5 transition-colors active:scale-95 touch-manipulation select-none min-w-0 ${
                   isActive ? 'text-zinc-950' : 'text-zinc-400 hover:text-zinc-700'
                 }`}
               >
                 <div className="relative">
                   <DynamicIcon
                     name={item.iconName}
-                    className={`w-5 h-5 ${isActive ? 'text-zinc-950 stroke-[2.25]' : 'text-zinc-400'}`}
+                    className={`w-4.5 h-4.5 ${isActive ? 'text-zinc-950 stroke-[2.25]' : 'text-zinc-400'}`}
                   />
                   {badge}
                 </div>
                 <span
-                  className={`text-[10px] mt-0.5 truncate max-w-[68px] leading-tight ${
+                  className={`text-[9.5px] mt-0.5 truncate max-w-[68px] leading-tight ${
                     isActive ? 'text-zinc-950 font-bold' : 'text-zinc-500 font-medium'
                   }`}
                 >
@@ -89,12 +89,12 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
             <button
               type="button"
               onClick={() => setShowMoreSheet(true)}
-              className={`relative flex flex-col items-center justify-center h-full py-0.5 transition-colors active:scale-95 touch-manipulation select-none min-w-0 ${
+              className={`relative flex flex-col items-center justify-end h-full pb-1 pt-0.5 transition-colors active:scale-95 touch-manipulation select-none min-w-0 ${
                 isOverflowActive || showMoreSheet ? 'text-zinc-950' : 'text-zinc-400'
               }`}
             >
-              <Menu className="w-5 h-5" />
-              <span className="text-[10px] mt-0.5 font-semibold leading-tight">Menu</span>
+              <Menu className="w-4.5 h-4.5" />
+              <span className="text-[9.5px] mt-0.5 font-semibold leading-tight">Menu</span>
             </button>
           )}
         </div>
