@@ -76,17 +76,21 @@ const ORDER_UNITS = [
   'Quả',
 ];
 
-interface VoucherItemRow {
-  dish: string;
-  quantity: number;
+// Cấu trúc Phiếu Kiểm Tự Do (không phụ thuộc công thức món)
+interface CustomVoucherIngredient {
+  id: string;
+  itemName: string;     // Tên nguyên liệu chọn từ bảng kiểm tồn
+  tableName?: string;   // Tủ chứa nguyên liệu
+  qtyPerVoucher: number;// Định lượng tiêu hao cho 1 phiếu (mặc định 1)
+  unit?: string;        // Đơn vị tính
 }
 
-interface RecipeIngredientMap {
-  [dishName: string]: Array<{ item: string; qty: number }>;
+interface CustomVoucher {
+  id: string;
+  voucherName: string;  // Tên phiếu do người dùng tự đặt
+  quantity: number;     // Số phiếu đếm được trong ca (mặc định 0, có nút +1, -1)
+  ingredients: CustomVoucherIngredient[]; // Danh sách nguyên liệu gắn trên phiếu này
 }
-
-// Danh mục công thức để rỗng, chỉ lấy từ các món người dùng tự tạo thủ công
-const DEFAULT_RECIPE_MAPPING: RecipeIngredientMap = {};
 
 function sanitizeNumericInput(raw: string): string {
   const normalized = String(raw).replace(/,/g, '.');
@@ -424,42 +428,36 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     }
   };
 
-  // Recipe Mapping cho Kiểm Phiếu Nhanh (chỉ lấy từ danh mục công thức thực tế của người dùng)
-  const [recipeMap, setRecipeMap] = useState<RecipeIngredientMap>(() => {
+  // Danh sách Phiếu Kiểm Tự Do (không phụ thuộc công thức món)
+  const [customVouchers, setCustomVouchers] = useState<CustomVoucher[]>(() => {
     try {
-      localStorage.removeItem('kitchen_inventory_voucher_recipe_map_v1');
+      const saved = localStorage.getItem('kitchen_inventory_custom_vouchers_v2');
+      if (saved) return JSON.parse(saved);
     } catch {
       // ignore
     }
-    const combined: RecipeIngredientMap = {};
-    if (Array.isArray(recipes)) {
-      recipes.forEach((r) => {
-        if (r.dishName && Array.isArray(r.ingredients) && r.ingredients.length > 0) {
-          combined[r.dishName] = r.ingredients.map((ing) => ({
-            item: ing.name,
-            qty: parseFloat(ing.quantity) || 1,
-          }));
-        }
-      });
-    }
-    return combined;
+    return [];
   });
 
-  // Tự động đồng bộ recipeMap khi recipes prop cập nhật từ người dùng
-  useEffect(() => {
-    const combined: RecipeIngredientMap = {};
-    if (Array.isArray(recipes)) {
-      recipes.forEach((r) => {
-        if (r.dishName && Array.isArray(r.ingredients) && r.ingredients.length > 0) {
-          combined[r.dishName] = r.ingredients.map((ing) => ({
-            item: ing.name,
-            qty: parseFloat(ing.quantity) || 1,
-          }));
-        }
-      });
+  // Tên phiếu mới đang gõ
+  const [newVoucherNameInput, setNewVoucherNameInput] = useState<string>('');
+
+  // ID phiếu đang mở hộp xổ chọn nguyên liệu có tìm kiếm
+  const [activeAddingVoucherId, setActiveAddingVoucherId] = useState<string | null>(null);
+
+  // Từ khóa tìm kiếm nhanh nguyên liệu trong bảng kiểm
+  const [ingredientSearchQuery, setIngredientSearchQuery] = useState<string>('');
+
+  // Lưu cấu hình các phiếu (tên phiếu & nguyên liệu) vào localStorage
+  const saveCustomVouchersToStorage = (list: CustomVoucher[]) => {
+    try {
+      // Lưu lại với quantity = 0 để mỗi lần mở modal là đếm mới
+      const toSave = list.map((v) => ({ ...v, quantity: 0 }));
+      localStorage.setItem('kitchen_inventory_custom_vouchers_v2', JSON.stringify(toSave));
+    } catch {
+      // ignore
     }
-    setRecipeMap(combined);
-  }, [recipes]);
+  };
 
   // Modals state
   const [isVoucherModalOpen, setIsVoucherModalOpen] = useState(false);
@@ -473,9 +471,6 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     setIsOrderListModalOpen(false);
     onCloseOrderListModal?.();
   };
-
-  // Voucher rows state: Mặc định rỗng, người dùng bấm "+ Thêm Món" để tự thêm thủ công
-  const [voucherRows, setVoucherRows] = useState<VoucherItemRow[]>([]);
 
   // Order List selections & custom quantities
   const [orderSelection, setOrderSelection] = useState<Record<string, boolean>>({});
@@ -1378,48 +1373,184 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     setIsOrderListModalOpen(true);
   };
 
-  // Kiểm Phiếu Nhanh: Thêm dòng món do người dùng tự chọn thủ công (mặc định số lượng = 0)
-  const addVoucherRow = () => {
-    const availableDishes = Object.keys(recipeMap);
-    if (availableDishes.length === 0) {
-      alert('Chưa có công thức món ăn nào! Vui lòng vào mục "Công Thức" để thêm món ăn và định lượng nguyên liệu trước.');
+  // Danh sách các mặt hàng nguyên liệu duy nhất có trong bảng kiểm tồn hôm nay (hoặc kho tồn)
+  const availableInventoryItems = useMemo(() => {
+    const seen = new Set<string>();
+    const list: Array<{ itemName: string; tableName: string; unit: string; currentStock: string }> = [];
+
+    // Ưu tiên các mặt hàng trong ngày đang chọn
+    allRowsForSelectedDate.forEach((item) => {
+      const key = `${item.itemName.trim().toLowerCase()}___${(item.tableName || DEFAULT_TABLE_NAME).trim().toLowerCase()}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        list.push({
+          itemName: item.itemName,
+          tableName: item.tableName || DEFAULT_TABLE_NAME,
+          unit: item.unit || 'phần',
+          currentStock: item.stockQty || '0',
+        });
+      }
+    });
+
+    // Bổ sung các mặt hàng khác trong kho nếu ngày đang xem chưa có
+    localItems.forEach((item) => {
+      const key = `${item.itemName.trim().toLowerCase()}___${(item.tableName || DEFAULT_TABLE_NAME).trim().toLowerCase()}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        list.push({
+          itemName: item.itemName,
+          tableName: item.tableName || DEFAULT_TABLE_NAME,
+          unit: item.unit || 'phần',
+          currentStock: item.stockQty || '0',
+        });
+      }
+    });
+
+    return list.sort((a, b) => a.itemName.localeCompare(b.itemName, 'vi'));
+  }, [allRowsForSelectedDate, localItems]);
+
+  // Tạo phiếu kiểm mới với tên do người dùng tự đặt
+  const handleCreateNewVoucher = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const name = newVoucherNameInput.trim();
+    if (!name) {
+      alert('Vui lòng nhập tên phiếu (ví dụ: Phiếu Lẩu Thái, Combo 1, Cơm Gà...)');
       return;
     }
-    const defaultDish = availableDishes[0];
-    setVoucherRows([...voucherRows, { dish: defaultDish, quantity: 0 }]);
+    const newVoucher: CustomVoucher = {
+      id: `vouch-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      voucherName: name,
+      quantity: 0,
+      ingredients: [],
+    };
+    const nextList = [...customVouchers, newVoucher];
+    setCustomVouchers(nextList);
+    saveCustomVouchersToStorage(nextList);
+    setNewVoucherNameInput('');
+    setActiveAddingVoucherId(newVoucher.id);
+    setIngredientSearchQuery('');
   };
 
-  const removeVoucherRow = (index: number) => {
-    setVoucherRows(voucherRows.filter((_, i) => i !== index));
+  // Xóa một phiếu
+  const handleDeleteVoucher = (voucherId: string) => {
+    const nextList = customVouchers.filter((v) => v.id !== voucherId);
+    setCustomVouchers(nextList);
+    saveCustomVouchersToStorage(nextList);
+    if (activeAddingVoucherId === voucherId) {
+      setActiveAddingVoucherId(null);
+    }
+  };
+
+  // Thêm nguyên liệu từ bảng kiểm vào 1 phiếu
+  const handleAddIngredientToVoucher = (
+    voucherId: string,
+    rawItem: { itemName: string; tableName: string; unit: string }
+  ) => {
+    const nextList = customVouchers.map((v) => {
+      if (v.id !== voucherId) return v;
+      // Tránh trùng nguyên liệu trong cùng 1 phiếu
+      const isExist = v.ingredients.some(
+        (ing) =>
+          ing.itemName.trim().toLowerCase() === rawItem.itemName.trim().toLowerCase() &&
+          (ing.tableName || DEFAULT_TABLE_NAME).trim().toLowerCase() === (rawItem.tableName || DEFAULT_TABLE_NAME).trim().toLowerCase()
+      );
+      if (isExist) return v;
+
+      return {
+        ...v,
+        ingredients: [
+          ...v.ingredients,
+          {
+            id: `ing-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            itemName: rawItem.itemName,
+            tableName: rawItem.tableName,
+            qtyPerVoucher: 1, // Mặc định tiêu hao 1 trên mỗi phiếu
+            unit: rawItem.unit,
+          },
+        ],
+      };
+    });
+    setCustomVouchers(nextList);
+    saveCustomVouchersToStorage(nextList);
+  };
+
+  // Xóa 1 nguyên liệu khỏi phiếu
+  const handleRemoveIngredientFromVoucher = (voucherId: string, ingredientId: string) => {
+    const nextList = customVouchers.map((v) => {
+      if (v.id !== voucherId) return v;
+      return {
+        ...v,
+        ingredients: v.ingredients.filter((ing) => ing.id !== ingredientId),
+      };
+    });
+    setCustomVouchers(nextList);
+    saveCustomVouchersToStorage(nextList);
+  };
+
+  // Cập nhật định lượng tiêu hao của nguyên liệu trong phiếu
+  const handleUpdateIngredientQtyPerVoucher = (voucherId: string, ingredientId: string, qtyStr: string) => {
+    const cleaned = formatNumericString(qtyStr);
+    const val = cleaned === '' ? 0 : parseFloat(cleaned) || 0;
+    const nextList = customVouchers.map((v) => {
+      if (v.id !== voucherId) return v;
+      return {
+        ...v,
+        ingredients: v.ingredients.map((ing) => (ing.id === ingredientId ? { ...ing, qtyPerVoucher: val } : ing)),
+      };
+    });
+    setCustomVouchers(nextList);
+    saveCustomVouchersToStorage(nextList);
+  };
+
+  // Tăng/giảm số phiếu bán ra (+1, -1) hoặc nhập số
+  const handleUpdateVoucherQuantity = (voucherId: string, deltaOrValue: number, isAbsolute: boolean = false) => {
+    setCustomVouchers((prev) =>
+      prev.map((v) => {
+        if (v.id !== voucherId) return v;
+        const nextQty = isAbsolute
+          ? Math.max(0, deltaOrValue)
+          : Math.max(0, (v.quantity || 0) + deltaOrValue);
+        return { ...v, quantity: nextQty };
+      })
+    );
   };
 
   // Áp dụng kiểm phiếu vào tồn kho: Tự ghi số lượng hàng sử dụng vào ô Bán Ra để tính theo công thức cài sẵn
   // Sau đó reset toàn bộ phiếu đã kiểm về 0 để tránh bấm trừ 2 lần
   const applyVoucherToInventory = () => {
     // 1. Kiểm tra xem có phiếu nào được nhập số lượng > 0 hay không
-    const totalQty = voucherRows.reduce((sum, r) => sum + (r.quantity || 0), 0);
+    const totalQty = customVouchers.reduce((sum, v) => sum + (v.quantity || 0), 0);
     if (totalQty <= 0) {
-      alert('Vui lòng nhập số lượng phiếu bán ra (lớn hơn 0) trước khi áp dụng vào tồn kho!');
+      alert('Vui lòng đếm số lượng phiếu bán ra (lớn hơn 0) trước khi áp dụng vào tồn kho!');
       return;
     }
 
     // 2. Tính tổng định lượng nguyên liệu tiêu thụ từ tất cả các phiếu đã bán
-    const deductionMap: Record<string, number> = {};
-    voucherRows.forEach((row) => {
-      const q = Math.max(0, row.quantity || 0);
-      if (q <= 0) return;
-      const ingredients = recipeMap[row.dish] || [];
-      ingredients.forEach((ing) => {
-        const key = ing.item.trim().toLowerCase();
-        deductionMap[key] = (deductionMap[key] || 0) + (ing.qty || 0) * q;
+    const deductionMap: Record<string, { totalUsed: number; tableName?: string; unit?: string }> = {};
+    let totalIngredientsDeducted = 0;
+
+    customVouchers.forEach((v) => {
+      const vQty = Math.max(0, v.quantity || 0);
+      if (vQty <= 0) return;
+      v.ingredients.forEach((ing) => {
+        const key = ing.itemName.trim().toLowerCase();
+        const used = (ing.qtyPerVoucher || 1) * vQty;
+        if (used > 0) {
+          totalIngredientsDeducted++;
+          if (!deductionMap[key]) {
+            deductionMap[key] = { totalUsed: 0, tableName: ing.tableName, unit: ing.unit };
+          }
+          deductionMap[key].totalUsed += used;
+        }
       });
     });
 
-    const usedKeys = Object.keys(deductionMap);
-    if (usedKeys.length === 0) {
-      alert('Các món đã chọn chưa có định lượng nguyên liệu trong công thức!');
+    if (totalIngredientsDeducted === 0) {
+      alert('Các phiếu đang đếm chưa có nguyên liệu nào! Vui lòng bấm "+ Thêm nguyên liệu" vào phiếu trước khi áp dụng.');
       return;
     }
+
+    const usedKeys = Object.keys(deductionMap);
 
     // Lưu snapshot vào lịch sử hoàn tác Undo trước khi áp dụng
     pushUndoSnapshot();
@@ -1429,18 +1560,33 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
       if (item.dateStr !== selectedDate) return item;
       const itemKey = item.itemName.trim().toLowerCase();
 
-      // So khớp tên nguyên liệu: chính xác hoặc chứa nhau
-      let used = deductionMap[itemKey] || 0;
-      if (used <= 0) {
+      // So khớp tên nguyên liệu
+      let usedInfo = deductionMap[itemKey];
+      if (!usedInfo) {
         const matchedKey = usedKeys.find(
           (k) => k === itemKey || itemKey.includes(k) || k.includes(itemKey)
         );
         if (matchedKey) {
-          used = deductionMap[matchedKey] || 0;
+          usedInfo = deductionMap[matchedKey];
         }
       }
 
-      if (used <= 0) return item;
+      if (!usedInfo || usedInfo.totalUsed <= 0) return item;
+
+      // Nếu phiếu có gán tủ cụ thể và không trùng tủ này thì bỏ qua
+      if (
+        usedInfo.tableName &&
+        item.tableName &&
+        usedInfo.tableName.trim().toLowerCase() !== item.tableName.trim().toLowerCase()
+      ) {
+        const hasExactTableMatch = localItems.some(
+          (r) =>
+            r.dateStr === selectedDate &&
+            r.itemName.trim().toLowerCase() === itemKey &&
+            (r.tableName || DEFAULT_TABLE_NAME).trim().toLowerCase() === usedInfo.tableName!.trim().toLowerCase()
+        );
+        if (hasExactTableMatch) return item;
+      }
 
       affectedCount++;
       const prevStockNum = parseFloat(item.prevStock || '0') || getPreviousDayStock(item.dateStr, item.itemName, item.tableName);
@@ -1448,7 +1594,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
       const currentWaste = parseFloat(item.wasteQty || '0') || 0;
 
       // 1. Tự ghi số lượng hàng sử dụng cộng dồn vào ô Bán Ra (wasteQty)
-      const newWaste = Math.round((currentWaste + used) * 1000) / 1000;
+      const newWaste = Math.round((currentWaste + usedInfo.totalUsed) * 1000) / 1000;
 
       // 2. Tính Tồn kho mới (stockQty) theo đúng công thức đã cài sẵn
       let calculatedStock: number;
@@ -1478,7 +1624,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     });
 
     if (affectedCount === 0) {
-      alert('Không tìm thấy mặt hàng nguyên liệu nào trong bảng kiểm tồn hôm nay khớp với công thức món đã bán!');
+      alert('Không tìm thấy mặt hàng nguyên liệu nào trong bảng kiểm tồn hôm nay khớp với nguyên liệu đã chọn trên phiếu!');
       return;
     }
 
@@ -1488,9 +1634,10 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     }
 
     // 3. Set toàn bộ phiếu đã kiểm về 0 (tránh bấm trừ 2 lần vào kiểm tồn)
-    setVoucherRows((prev) => prev.map((r) => ({ ...r, quantity: 0 })));
+    setCustomVouchers((prev) => prev.map((v) => ({ ...v, quantity: 0 })));
 
     setIsVoucherModalOpen(false);
+    setActiveAddingVoucherId(null);
     setJustSavedBanner(true);
     setTimeout(() => setJustSavedBanner(false), 2500);
   };
@@ -2827,205 +2974,375 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
 
       {/* Modal: Kiểm Phiếu Nhanh (VoucherModal) */}
       {isVoucherModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-2xl w-full p-5 sm:p-6 shadow-2xl border border-zinc-200 max-h-[90vh] flex flex-col space-y-4">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-3xl max-w-3xl w-full p-4 sm:p-6 shadow-2xl border border-zinc-200 max-h-[92vh] flex flex-col space-y-4">
+            {/* Header */}
             <div className="flex justify-between items-center pb-3 border-b border-zinc-100">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center font-bold">
-                  <Receipt className="w-4 h-4" />
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-2xl bg-emerald-50 text-emerald-700 flex items-center justify-center font-bold shadow-2xs">
+                  <Receipt className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-zinc-950">Kiểm Phiếu Bán Hàng</h3>
+                  <h3 className="text-base font-bold text-zinc-950 flex items-center gap-2">
+                    <span>Kiểm Phiếu Bán Hàng</span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold border border-emerald-200">
+                      Tự Do
+                    </span>
+                  </h3>
                   <p className="text-xs text-zinc-500">
-                    Chọn các món đã bán trong ca để hệ thống tự động trừ nguyên liệu tồn kho.
+                    Đếm số phiếu bán ra để tự ghi vào ô Bán Ra và tính nhanh tồn kho (không phụ thuộc công thức).
                   </p>
                 </div>
               </div>
               <button
                 type="button"
-                onClick={() => setIsVoucherModalOpen(false)}
-                className="text-zinc-400 hover:text-zinc-700 p-1 rounded-xl"
+                onClick={() => {
+                  setIsVoucherModalOpen(false);
+                  setActiveAddingVoucherId(null);
+                }}
+                className="text-zinc-400 hover:text-zinc-700 p-1.5 rounded-xl hover:bg-zinc-100 transition"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto space-y-3 pr-1">
-              <div className="flex justify-between items-center flex-wrap gap-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold uppercase tracking-wider text-zinc-600">
-                    Danh sách món bán
-                  </span>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-200">
-                    Tổng: {voucherRows.reduce((sum, r) => sum + (r.quantity || 0), 0)} phiếu
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => setVoucherRows((prev) => prev.map((r) => ({ ...r, quantity: 0 })))}
-                    className="px-2.5 py-1 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-lg text-xs font-semibold transition"
-                    title="Đặt lại toàn bộ số phiếu về 0"
-                  >
-                    Đặt về 0
-                  </button>
-                  <button
-                    type="button"
-                    onClick={addVoucherRow}
-                    className="px-2.5 py-1 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 rounded-lg text-xs font-bold transition flex items-center gap-1"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Thêm Món</span>
-                  </button>
-                </div>
+            {/* Thanh tạo phiếu mới */}
+            <form onSubmit={handleCreateNewVoucher} className="flex items-center gap-2 bg-zinc-50 p-2.5 rounded-2xl border border-zinc-200">
+              <div className="relative flex-1">
+                <input
+                  type="text"
+                  value={newVoucherNameInput}
+                  onChange={(e) => setNewVoucherNameInput(e.target.value)}
+                  placeholder="Nhập tên phiếu mới (VD: Phiếu Lẩu Thái, Combo Gà, Cơm Sườn...)"
+                  className="w-full pl-3 pr-3 py-2 bg-white border border-zinc-200 rounded-xl text-xs font-medium text-zinc-900 outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition"
+                />
               </div>
+              <button
+                type="submit"
+                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs shrink-0 active:scale-95 cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Thêm Phiếu</span>
+              </button>
+            </form>
 
-              {voucherRows.length === 0 ? (
-                <div className="py-10 px-4 text-center border-2 border-dashed border-zinc-200 rounded-2xl space-y-2 bg-zinc-50/50">
-                  <Receipt className="w-8 h-8 text-zinc-300 mx-auto" />
-                  <p className="text-xs font-bold text-zinc-700">
-                    Chưa có món nào trong phiếu kiểm
+            {/* Thanh thống kê & thao tác nhanh */}
+            <div className="flex justify-between items-center flex-wrap gap-2 px-1">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold uppercase tracking-wider text-zinc-600">
+                  Danh sách phiếu kiểm
+                </span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                  Tổng: {customVouchers.reduce((sum, v) => sum + (v.quantity || 0), 0)} phiếu
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setCustomVouchers((prev) => prev.map((v) => ({ ...v, quantity: 0 })))}
+                  className="px-2.5 py-1 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-lg text-xs font-semibold transition active:scale-95"
+                  title="Đặt lại toàn bộ số phiếu về 0"
+                >
+                  Đặt tất cả về 0
+                </button>
+              </div>
+            </div>
+
+            {/* Danh sách phiếu kiểm */}
+            <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+              {customVouchers.length === 0 ? (
+                <div className="py-12 px-4 text-center border-2 border-dashed border-zinc-200 rounded-2xl space-y-2 bg-zinc-50/50">
+                  <Receipt className="w-10 h-10 text-zinc-300 mx-auto" />
+                  <p className="text-sm font-bold text-zinc-700">
+                    Chưa có phiếu kiểm nào
                   </p>
-                  <p className="text-[11px] text-zinc-400 max-w-sm mx-auto">
-                    Bấm nút <strong>&ldquo;+ Thêm Món&rdquo;</strong> ở trên để tự chọn các món đã bán trong ca cần trừ kho.
+                  <p className="text-xs text-zinc-400 max-w-md mx-auto">
+                    Hãy nhập tên phiếu vào ô trên (ví dụ: &ldquo;Phiếu Lẩu Thái&rdquo;) rồi bấm <strong>&ldquo;+ Thêm Phiếu&rdquo;</strong> để bắt đầu gắn nguyên liệu cần trừ kho.
                   </p>
                 </div>
               ) : (
-                voucherRows.map((row, idx) => {
-                const ingredients = recipeMap[row.dish] || [];
+                customVouchers.map((voucher) => {
+                  const isAddingIngredient = activeAddingVoucherId === voucher.id;
+                  const vQty = voucher.quantity || 0;
 
-                return (
-                  <div
-                    key={idx}
-                    className="p-3 bg-zinc-50 rounded-2xl border border-zinc-200 space-y-2 text-xs"
-                  >
-                    <div className="flex items-center gap-2.5 flex-wrap sm:flex-nowrap">
-                      <div className="flex-1 min-w-[180px]">
-                        <label className="text-[10px] font-bold uppercase text-zinc-500 block mb-0.5">
-                          Tên Món
-                        </label>
-                        <select
-                          value={row.dish}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setVoucherRows((prev) =>
-                              prev.map((r, i) => (i === idx ? { ...r, dish: val } : r))
-                            );
-                          }}
-                          className="w-full p-2 bg-white border border-zinc-200 rounded-xl text-xs font-semibold outline-none"
-                        >
-                          {Object.keys(recipeMap).map((dish) => (
-                            <option key={dish} value={dish}>
-                              {dish}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
+                  // Lọc nguyên liệu trong bảng kiểm theo từ khóa tìm kiếm
+                  const filteredAvailable = availableInventoryItems.filter((item) => {
+                    if (!ingredientSearchQuery.trim()) return true;
+                    const q = ingredientSearchQuery.toLowerCase();
+                    return (
+                      item.itemName.toLowerCase().includes(q) ||
+                      (item.tableName && item.tableName.toLowerCase().includes(q))
+                    );
+                  });
 
-                      {/* Cụm đếm phiếu nhanh: nút -1, ô số lượng, nút +1 */}
-                      <div className="shrink-0">
-                        <label className="text-[10px] font-bold uppercase text-zinc-500 block mb-0.5 text-center">
-                          Số Phiếu Bán
-                        </label>
-                        <div className="inline-flex items-center gap-1 bg-white p-1 rounded-2xl border border-zinc-200 shadow-2xs">
+                  return (
+                    <div
+                      key={voucher.id}
+                      className="p-3.5 bg-zinc-50 rounded-2xl border border-zinc-200 space-y-2.5 text-xs transition hover:border-zinc-300"
+                    >
+                      {/* Dòng tiêu đề phiếu + cụm đếm phiếu nhanh */}
+                      <div className="flex items-center justify-between gap-3 flex-wrap sm:flex-nowrap">
+                        <div className="flex items-center gap-2 min-w-[160px] flex-1">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                          <h4 className="font-extrabold text-sm text-zinc-900 tracking-tight">
+                            {voucher.voucherName}
+                          </h4>
+                          <span className="text-[10px] text-zinc-400 font-medium">
+                            ({voucher.ingredients.length} nguyên liệu)
+                          </span>
+                        </div>
+
+                        {/* Cụm đếm phiếu nhanh: -1, input, +1 */}
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider hidden sm:inline">
+                            Số phiếu:
+                          </span>
+                          <div className="inline-flex items-center gap-1 bg-white p-1 rounded-2xl border border-zinc-200 shadow-2xs">
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateVoucherQuantity(voucher.id, -1)}
+                              className="w-8 h-8 rounded-xl bg-zinc-100 hover:bg-zinc-200 active:bg-zinc-300 text-zinc-800 font-black flex items-center justify-center text-xs transition active:scale-95 cursor-pointer"
+                              title="Giảm 1 phiếu"
+                            >
+                              -1
+                            </button>
+
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              value={voucher.quantity !== undefined ? voucher.quantity : 0}
+                              onFocus={handleFocusToEnd}
+                              onChange={(e) => {
+                                const cleaned = e.target.value.replace(/[^0-9]/g, '');
+                                const val = cleaned === '' ? 0 : parseInt(cleaned, 10);
+                                handleUpdateVoucherQuantity(voucher.id, val, true);
+                              }}
+                              className="w-12 h-8 text-center bg-zinc-50 border border-zinc-200 rounded-lg text-sm font-black text-zinc-900 outline-none focus:ring-1 focus:ring-emerald-500"
+                            />
+
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateVoucherQuantity(voucher.id, 1)}
+                              className="w-8 h-8 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-black flex items-center justify-center text-xs transition active:scale-95 shadow-2xs cursor-pointer"
+                              title="Tăng 1 phiếu"
+                            >
+                              +1
+                            </button>
+                          </div>
+
                           <button
                             type="button"
                             onClick={() => {
-                              setVoucherRows((prev) =>
-                                prev.map((r, i) =>
-                                  i === idx
-                                    ? { ...r, quantity: Math.max(0, (r.quantity || 0) - 1) }
-                                    : r
-                                )
-                              );
+                              if (confirm(`Bạn có chắc muốn xóa phiếu "${voucher.voucherName}"?`)) {
+                                handleDeleteVoucher(voucher.id);
+                              }
                             }}
-                            className="w-8 h-8 rounded-xl bg-zinc-100 hover:bg-zinc-200 active:bg-zinc-300 text-zinc-800 font-extrabold flex items-center justify-center text-xs transition active:scale-95 cursor-pointer"
-                            title="Giảm 1 phiếu"
+                            className="p-2 text-zinc-400 hover:text-rose-600 rounded-xl hover:bg-rose-50 transition"
+                            title="Xóa phiếu này"
                           >
-                            -1
-                          </button>
-
-                          <input
-                            type="text"
-                            inputMode="numeric"
-                            value={row.quantity !== undefined ? row.quantity : 0}
-                            onFocus={handleFocusToEnd}
-                            onChange={(e) => {
-                              const cleaned = e.target.value.replace(/[^0-9]/g, '');
-                              const val = cleaned === '' ? 0 : parseInt(cleaned, 10);
-                              setVoucherRows((prev) =>
-                                prev.map((r, i) => (i === idx ? { ...r, quantity: val } : r))
-                              );
-                            }}
-                            className="w-12 h-8 text-center bg-zinc-50 border border-zinc-200 rounded-lg text-sm font-extrabold text-zinc-900 outline-none focus:ring-1 focus:ring-emerald-500"
-                          />
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setVoucherRows((prev) =>
-                                prev.map((r, i) =>
-                                  i === idx ? { ...r, quantity: (r.quantity || 0) + 1 } : r
-                                )
-                              );
-                            }}
-                            className="w-8 h-8 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-extrabold flex items-center justify-center text-xs transition active:scale-95 shadow-2xs cursor-pointer"
-                            title="Tăng 1 phiếu"
-                          >
-                            +1
+                            <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={() => removeVoucherRow(idx)}
-                        className="mt-4 p-2 text-zinc-400 hover:text-rose-600 rounded-lg transition"
-                        title="Xóa món khỏi danh sách"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
+                      {/* Danh sách nguyên liệu đã gán vào phiếu */}
+                      <div className="bg-white p-2.5 rounded-xl border border-zinc-200/80 space-y-2">
+                        {voucher.ingredients.length === 0 ? (
+                          <div className="text-[11px] text-zinc-400 py-1.5 italic flex items-center justify-between">
+                            <span>Chưa có nguyên liệu nào gắn với phiếu này.</span>
+                          </div>
+                        ) : (
+                          <div className="space-y-1.5">
+                            {voucher.ingredients.map((ing) => {
+                              const totalDeducted = Math.round(((ing.qtyPerVoucher || 1) * vQty) * 1000) / 1000;
+                              return (
+                                <div
+                                  key={ing.id}
+                                  className="flex items-center justify-between gap-2 p-1.5 bg-zinc-50/80 hover:bg-zinc-100/60 rounded-lg text-xs border border-zinc-100 transition"
+                                >
+                                  <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                                    <span className="font-bold text-zinc-900 truncate">
+                                      {ing.itemName}
+                                    </span>
+                                    {ing.tableName && (
+                                      <span className="text-[10px] px-1.5 py-0.2 bg-zinc-200/70 text-zinc-600 rounded font-medium shrink-0">
+                                        {ing.tableName}
+                                      </span>
+                                    )}
+                                  </div>
 
-                    {/* Hiển thị định lượng nguyên liệu trừ */}
-                    {ingredients.length > 0 && (
-                      <div className="bg-white p-2 rounded-xl border border-zinc-200/80 flex flex-wrap gap-1.5 text-[11px] text-zinc-600">
-                        <span className="font-bold text-zinc-500">Ghi vào bán ra:</span>
-                        {ingredients.map((ing, iIdx) => (
-                          <span
-                            key={iIdx}
-                            className="px-2 py-0.5 bg-rose-50 text-rose-700 border border-rose-200 rounded-md font-semibold"
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    {/* Sửa định lượng trên 1 phiếu */}
+                                    <div className="flex items-center gap-1 text-[11px] text-zinc-500">
+                                      <span>ĐL:</span>
+                                      <input
+                                        type="text"
+                                        inputMode="decimal"
+                                        value={ing.qtyPerVoucher !== undefined ? ing.qtyPerVoucher : 1}
+                                        onFocus={handleFocusToEnd}
+                                        onChange={(e) =>
+                                          handleUpdateIngredientQtyPerVoucher(voucher.id, ing.id, e.target.value)
+                                        }
+                                        className="w-12 h-6 text-center bg-white border border-zinc-200 rounded text-xs font-bold text-zinc-800 outline-none focus:ring-1 focus:ring-emerald-500"
+                                      />
+                                      <span className="text-[10px] text-zinc-400">{ing.unit || 'phần'}</span>
+                                    </div>
+
+                                    {/* Số lượng sẽ ghi vào Bán Ra */}
+                                    {vQty > 0 && (
+                                      <span className="px-2 py-0.5 bg-rose-50 text-rose-700 border border-rose-200 rounded font-extrabold text-[11px]">
+                                        Bán ra: +{totalDeducted} {ing.unit || ''}
+                                      </span>
+                                    )}
+
+                                    {/* Nút xóa nguyên liệu */}
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveIngredientFromVoucher(voucher.id, ing.id)}
+                                      className="text-zinc-300 hover:text-rose-500 p-0.5 rounded transition"
+                                      title="Xóa nguyên liệu này khỏi phiếu"
+                                    >
+                                      <X className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {/* Nút mở hộp xổ thêm nguyên liệu */}
+                        {!isAddingIngredient ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveAddingVoucherId(voucher.id);
+                              setIngredientSearchQuery('');
+                            }}
+                            className="mt-1 inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 px-2 py-1 rounded-lg transition border border-dashed border-emerald-300 cursor-pointer"
                           >
-                            {ing.item}: +{Math.round((ing.qty * (row.quantity || 0)) * 1000) / 1000}
-                          </span>
-                        ))}
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>Thêm nguyên liệu từ bảng kiểm</span>
+                          </button>
+                        ) : (
+                          /* Hộp xổ chọn nguyên liệu có thanh tìm kiếm nhanh */
+                          <div className="mt-2 p-2.5 bg-emerald-50/50 rounded-xl border border-emerald-200 space-y-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[11px] font-bold text-emerald-900">
+                                Chọn nguyên liệu từ danh sách bảng kiểm:
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => setActiveAddingVoucherId(null)}
+                                className="text-zinc-400 hover:text-zinc-700 p-0.5 rounded text-xs flex items-center gap-0.5"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                                <span>Đóng</span>
+                              </button>
+                            </div>
+
+                            {/* Ô tìm kiếm nhanh */}
+                            <div className="relative">
+                              <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                              <input
+                                type="text"
+                                autoFocus
+                                value={ingredientSearchQuery}
+                                onChange={(e) => setIngredientSearchQuery(e.target.value)}
+                                placeholder="Gõ tên nguyên liệu để lọc nhanh (VD: bò, gà, rau, mì...)"
+                                className="w-full pl-8 pr-3 py-1.5 bg-white border border-zinc-200 rounded-lg text-xs font-medium text-zinc-800 outline-none focus:ring-1 focus:ring-emerald-500"
+                              />
+                            </div>
+
+                            {/* Danh sách cuộn các mặt hàng */}
+                            <div className="max-h-44 overflow-y-auto space-y-1 bg-white rounded-lg border border-zinc-200 p-1 divide-y divide-zinc-100">
+                              {filteredAvailable.length === 0 ? (
+                                <p className="text-center py-3 text-[11px] text-zinc-400">
+                                  Không tìm thấy nguyên liệu nào phù hợp.
+                                </p>
+                              ) : (
+                                filteredAvailable.map((item, aIdx) => {
+                                  const isAlreadyAdded = voucher.ingredients.some(
+                                    (ing) =>
+                                      ing.itemName.trim().toLowerCase() === item.itemName.trim().toLowerCase() &&
+                                      (ing.tableName || DEFAULT_TABLE_NAME).trim().toLowerCase() === (item.tableName || DEFAULT_TABLE_NAME).trim().toLowerCase()
+                                  );
+
+                                  return (
+                                    <button
+                                      key={aIdx}
+                                      type="button"
+                                      disabled={isAlreadyAdded}
+                                      onClick={() => {
+                                        handleAddIngredientToVoucher(voucher.id, {
+                                          itemName: item.itemName,
+                                          tableName: item.tableName,
+                                          unit: item.unit,
+                                        });
+                                      }}
+                                      className={`w-full text-left px-2 py-1.5 rounded flex items-center justify-between text-xs transition ${
+                                        isAlreadyAdded
+                                          ? 'bg-zinc-50 text-zinc-400 cursor-not-allowed'
+                                          : 'hover:bg-emerald-50 text-zinc-800 cursor-pointer'
+                                      }`}
+                                    >
+                                      <div className="flex items-center gap-1.5 truncate">
+                                        <span className="font-bold truncate">{item.itemName}</span>
+                                        <span className="text-[10px] text-zinc-500 bg-zinc-100 px-1 py-0.2 rounded shrink-0">
+                                          {item.tableName}
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center gap-2 shrink-0">
+                                        <span className="text-[10px] text-zinc-400">
+                                          Tồn: {item.currentStock} {item.unit}
+                                        </span>
+                                        {isAlreadyAdded ? (
+                                          <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-0.5">
+                                            <Check className="w-3 h-3" /> Đã thêm
+                                          </span>
+                                        ) : (
+                                          <span className="text-[10px] text-emerald-700 font-bold bg-emerald-100 px-1.5 py-0.5 rounded">
+                                            + Chọn
+                                          </span>
+                                        )}
+                                      </div>
+                                    </button>
+                                  );
+                                })
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
-                );
-              })
-            )}
+                    </div>
+                  );
+                })
+              )}
             </div>
 
+            {/* Footer Modal */}
             <div className="flex justify-between items-center gap-2 pt-3 border-t border-zinc-100 flex-wrap">
               <span className="text-xs text-zinc-500 font-medium">
-                {voucherRows.filter((r) => (r.quantity || 0) > 0).length} món có số lượng cần trừ
+                {customVouchers.filter((v) => (v.quantity || 0) > 0).length} phiếu có số lượng bán &gt; 0
               </span>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setIsVoucherModalOpen(false)}
-                  className="px-4 py-2 text-xs font-semibold text-zinc-600 hover:bg-zinc-100 rounded-xl"
+                  onClick={() => {
+                    setIsVoucherModalOpen(false);
+                    setActiveAddingVoucherId(null);
+                  }}
+                  className="px-4 py-2 text-xs font-semibold text-zinc-600 hover:bg-zinc-100 rounded-xl transition"
                 >
                   Hủy
                 </button>
                 <button
                   type="button"
                   onClick={applyVoucherToInventory}
-                  className="px-4 py-2 text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl transition shadow-xs flex items-center gap-1.5 active:scale-95"
+                  className="px-4 py-2 text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl transition shadow-xs flex items-center gap-1.5 active:scale-95 cursor-pointer"
                 >
                   <Receipt className="w-3.5 h-3.5" />
-                  <span>Áp Dụng Vào Tồn Kho</span>
+                  <span>Áp Dụng Vào Tồn Kho (Ghi Bán Ra)</span>
                 </button>
               </div>
             </div>
