@@ -1,5 +1,5 @@
 {
-  "updatedAt": 1792810801946,
+  "updatedAt": 1793192413075,
   "tasks": [
     {
       "title": "Nấu nước daisi",
@@ -262,6 +262,132 @@
     "emailBackupFrequency": "weekly"
   },
   "notifications": [
+    {
+      "id": "notif-1793192413075-hourly-20",
+      "actorName": "Nhắc Việc 20:00",
+      "actorRole": "manager",
+      "actionText": "thông báo còn 9 việc chưa làm",
+      "targetText": "Tiến độ: 0/9 việc",
+      "createdAtMs": 1793192413075,
+      "type": "task_urgent"
+    },
+    {
+      "id": "notif-1793188812155-hourly-19",
+      "actorName": "Nhắc Việc 19:00",
+      "actorRole": "manager",
+      "actionText": "thông báo còn 9 việc chưa làm",
+      "targetText": "Tiến độ: 0/9 việc",
+      "createdAtMs": 1793188812155,
+      "type": "task_urgent"
+    },
+    {
+      "id": "notif-1793185211146-hourly-18",
+      "actorName": "Nhắc Việc 18:00",
+      "actorRole": "manager",
+      "actionText": "thông báo còn 9 việc chưa làm",
+      "targetText": "Tiến độ: 0/9 việc",
+      "createdAtMs": 1793185211146,
+      "type": "task_urgent"
+    },
+    {
+      "id": "notif-1793181610125-hourly-17",
+      "actorName": "Nhắc Việc 17:00",
+      "actorRole": "manager",
+      "actionText": "thông báo còn 9 việc chưa làm",
+      "targetText": "Tiến độ: 0/9 việc",
+      "createdAtMs": 1793181610125,
+      "type": "task_urgent"
+    },
+    {
+      "id": "notif-1793178009233-hourly-16",
+      "actorName": "Nhắc Việc 16:00",
+      "actorRole": "manager",
+      "actionText": "thông báo còn 9 việc chưa làm",
+      "targetText": "Tiến độ: 0/9 việc",
+      "createdAtMs": 1793178009233,
+      "type": "task_urgent"
+    },
+    {
+      "id": "notif-1793174408347-hourly-15",
+      "actorName": "Nhắc Việc 15:00",
+      "actorRole": "manager",
+      "actionText": "thông báo còn 9 việc chưa làm",
+      "targetText": "Tiến độ: 0/9 việc",
+      "createdAtMs": 1793174408347,
+      "type": "task_urgent"
+    },
+    {
+      "id": "notif-1793172607899-1430",
+      "actorName": "Lịch Kiểm Tra 14:30",
+      "actorRole": "manager",
+      "actionText": "nhắc @manager kiểm tra tiến độ Checklist ca bếp",
+      "targetText": "Hoàn thành 0/9 việc",
+      "createdAtMs": 1793172607899,
+      "type": "system"
+    },
+    {
+      "id": "notif-1793170807436-hourly-14",
+      "actorName": "Nhắc Việc 14:00",
+      "actorRole": "manager",
+      "actionText": "thông báo còn 9 việc chưa làm",
+      "targetText": "Tiến độ: 0/9 việc",
+      "createdAtMs": 1793170807436,
+      "type": "task_urgent"
+    },
+    {
+      "id": "notif-1793167206466-hourly-13",
+      "actorName": "Nhắc Việc 13:00",
+      "actorRole": "manager",
+      "actionText": "thông báo còn 9 việc chưa làm",
+      "targetText": "Tiến độ: 0/9 việc",
+      "createdAtMs": 1793167206466,
+      "type": "task_urgent"
+    },
+    {
+      "id": "notif-1793163605477-hourly-12",
+      "actorName": "Nhắc Việc 12:00",
+      "actorRole": "manager",
+      "actionText": "thông báo còn 9 việc chưa làm",
+      "targetText": "Tiến độ: 0/9 việc",
+      "createdAtMs": 1793163605477,
+      "type": "task_urgent"
+    },
+    {
+      "id": "notif-1793160004550-hourly-11",
+      "actorName": "Nhắc Việc 11:00",
+      "actorRole": "manager",
+      "actionText": "thông báo còn 9 việc chưa làm",
+      "targetText": "Tiến độ: 0/9 việc",
+      "createdAtMs": 1793160004550,
+      "type": "task_urgent"
+    },
+    {
+      "id": "notif-1793156403608-hourly-10",
+      "actorName": "Nhắc Việc 10:00",
+      "actorRole": "manager",
+      "actionText": "thông báo còn 9 việc chưa làm",
+      "targetText": "Tiến độ: 0/9 việc",
+      "createdAtMs": 1793156403608,
+      "type": "task_urgent"
+    },
+    {
+      "id": "notif-1793152802760-hourly-9",
+      "actorName": "Nhắc Việc 9:00",
+      "actorRole": "manager",
+      "actionText": "thông báo còn 9 việc chưa làm",
+      "targetText": "Tiến độ: 0/9 việc",
+      "createdAtMs": 1793152802760,
+      "type": "task_urgent"
+    },
+    {
+      "id": "notif-1793149201794-hourly-8",
+      "actorName": "Nhắc Việc 8:00",
+      "actorRole": "manager",
+      "actionText": "thông báo còn 9 việc chưa làm",
+      "targetText": "Tiến độ: 0/9 việc",
+      "createdAtMs": 1793149201794,
+      "type": "task_urgent"
+    },
     {
       "id": "notif-1792810801946-hourly-10",
       "actorName": "Nhắc Việc 10:00",
@@ -1473,14 +1599,15 @@
     }
   ],
   "pushSubscriptions": [],
-  "lastHourlyReminderKey": "24/10/2026-10",
+  "lastHourlyReminderKey": "28/10/2026-20",
   "latestPushMessage": {
-    "id": "notif-1792810801946-hourly-10",
-    "title": "⏰ [10:00] Nhắc Việc: Còn 9 việc chưa làm!",
+    "id": "notif-1793192413075-hourly-20",
+    "title": "⏰ [20:00] Nhắc Việc: Còn 9 việc chưa làm!",
     "body": "Còn 9 việc chưa làm. Các bạn vào kiểm tra và xử lý nhé!",
-    "tag": "bep-pro-hourly-10",
+    "tag": "bep-pro-hourly-20",
     "urgent": true,
     "url": "/",
-    "timestamp": 1792810801946
-  }
+    "timestamp": 1793192413075
+  },
+  "lastManager1430Date": "28/10/2026"
 }

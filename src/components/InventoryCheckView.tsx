@@ -476,10 +476,14 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     onCloseOrderListModal?.();
   };
 
-  // Voucher rows state
-  const [voucherRows, setVoucherRows] = useState<VoucherItemRow[]>([
-    { dish: 'Cá hồi sốt teri', quantity: 1 },
-  ]);
+  // Voucher rows state: Mặc định số lượng mỗi phiếu bằng 0 thay vì 1
+  const [voucherRows, setVoucherRows] = useState<VoucherItemRow[]>(() => {
+    const dishes = Object.keys(recipeMap);
+    if (dishes.length > 0) {
+      return dishes.map((dish) => ({ dish, quantity: 0 }));
+    }
+    return [{ dish: 'Cá hồi sốt teri', quantity: 0 }];
+  });
 
   // Order List selections & custom quantities
   const [orderSelection, setOrderSelection] = useState<Record<string, boolean>>({});
@@ -1382,50 +1386,114 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     setIsOrderListModalOpen(true);
   };
 
-  // Kiểm Phiếu Nhanh: Thêm dòng món
+  // Kiểm Phiếu Nhanh: Thêm dòng món (mặc định số lượng = 0)
   const addVoucherRow = () => {
     const availableDishes = Object.keys(recipeMap);
     const defaultDish = availableDishes[0] || 'Cá hồi sốt teri';
-    setVoucherRows([...voucherRows, { dish: defaultDish, quantity: 1 }]);
+    setVoucherRows([...voucherRows, { dish: defaultDish, quantity: 0 }]);
   };
 
   const removeVoucherRow = (index: number) => {
     setVoucherRows(voucherRows.filter((_, i) => i !== index));
   };
 
-  // Áp dụng kiểm phiếu vào tồn kho
+  // Áp dụng kiểm phiếu vào tồn kho: Tự ghi số lượng hàng sử dụng vào ô Bán Ra để tính theo công thức cài sẵn
+  // Sau đó reset toàn bộ phiếu đã kiểm về 0 để tránh bấm trừ 2 lần
   const applyVoucherToInventory = () => {
-    // Tính tổng định lượng nguyên liệu tiêu thụ
+    // 1. Kiểm tra xem có phiếu nào được nhập số lượng > 0 hay không
+    const totalQty = voucherRows.reduce((sum, r) => sum + (r.quantity || 0), 0);
+    if (totalQty <= 0) {
+      alert('Vui lòng nhập số lượng phiếu bán ra (lớn hơn 0) trước khi áp dụng vào tồn kho!');
+      return;
+    }
+
+    // 2. Tính tổng định lượng nguyên liệu tiêu thụ từ tất cả các phiếu đã bán
     const deductionMap: Record<string, number> = {};
     voucherRows.forEach((row) => {
+      const q = Math.max(0, row.quantity || 0);
+      if (q <= 0) return;
       const ingredients = recipeMap[row.dish] || [];
       ingredients.forEach((ing) => {
-        const key = ing.item.toLowerCase();
-        deductionMap[key] = (deductionMap[key] || 0) + ing.qty * row.quantity;
+        const key = ing.item.trim().toLowerCase();
+        deductionMap[key] = (deductionMap[key] || 0) + (ing.qty || 0) * q;
       });
     });
 
+    const usedKeys = Object.keys(deductionMap);
+    if (usedKeys.length === 0) {
+      alert('Các món đã chọn chưa có định lượng nguyên liệu trong công thức!');
+      return;
+    }
+
+    // Lưu snapshot vào lịch sử hoàn tác Undo trước khi áp dụng
+    pushUndoSnapshot();
+
+    let affectedCount = 0;
     const updated = localItems.map((item) => {
       if (item.dateStr !== selectedDate) return item;
-      const key = item.itemName.toLowerCase();
-      const used = deductionMap[key] || 0;
+      const itemKey = item.itemName.trim().toLowerCase();
+
+      // So khớp tên nguyên liệu: chính xác hoặc chứa nhau
+      let used = deductionMap[itemKey] || 0;
+      if (used <= 0) {
+        const matchedKey = usedKeys.find(
+          (k) => k === itemKey || itemKey.includes(k) || k.includes(itemKey)
+        );
+        if (matchedKey) {
+          used = deductionMap[matchedKey] || 0;
+        }
+      }
+
       if (used <= 0) return item;
 
-      const prev = parseFloat(item.prevStock || '0') || getPreviousDayStock(item.dateStr, item.itemName);
-      const targetStock = Math.max(prev - used, 0);
-      const neededImport = targetStock - prev >= 0 ? targetStock - prev : 0;
+      affectedCount++;
+      const prevStockNum = parseFloat(item.prevStock || '0') || getPreviousDayStock(item.dateStr, item.itemName, item.tableName);
+      const importNum = parseFloat(item.importQty || '0') || 0;
+      const currentWaste = parseFloat(item.wasteQty || '0') || 0;
+
+      // 1. Tự ghi số lượng hàng sử dụng cộng dồn vào ô Bán Ra (wasteQty)
+      const newWaste = Math.round((currentWaste + used) * 1000) / 1000;
+
+      // 2. Tính Tồn kho mới (stockQty) theo đúng công thức đã cài sẵn
+      let calculatedStock: number;
+      let nextManualBase = item.manualBaseStock;
+
+      if (item.manualBaseStock !== undefined) {
+        calculatedStock = Math.max(Math.round((item.manualBaseStock - newWaste) * 1000) / 1000, 0);
+      } else if (item.isManualStock) {
+        const currentStockNum = parseFloat(item.stockQty || '0') || 0;
+        const base = currentStockNum + currentWaste;
+        nextManualBase = base;
+        calculatedStock = Math.max(Math.round((base - newWaste) * 1000) / 1000, 0);
+      } else {
+        calculatedStock = Math.max(
+          Math.round((importNum + prevStockNum - newWaste) * 1000) / 1000,
+          0
+        );
+      }
 
       return {
         ...item,
-        stockQty: String(targetStock),
-        importQty: String(neededImport),
+        prevStock: String(prevStockNum),
+        wasteQty: String(newWaste),
+        stockQty: String(calculatedStock),
+        manualBaseStock: nextManualBase,
       };
     });
+
+    if (affectedCount === 0) {
+      alert('Không tìm thấy mặt hàng nguyên liệu nào trong bảng kiểm tồn hôm nay khớp với công thức món đã bán!');
+      return;
+    }
 
     setLocalItems(updated);
     if (onSaveDailyTable) {
       onSaveDailyTable(selectedDate, updated);
     }
+
+    // 3. Set toàn bộ phiếu đã kiểm về 0 (tránh bấm trừ 2 lần vào kiểm tồn)
+    setVoucherRows((prev) => prev.map((r) => ({ ...r, quantity: 0 })));
+
     setIsVoucherModalOpen(false);
     setJustSavedBanner(true);
     setTimeout(() => setJustSavedBanner(false), 2500);
@@ -2787,18 +2855,33 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
             </div>
 
             <div className="flex-1 overflow-y-auto space-y-3 pr-1">
-              <div className="flex justify-between items-center">
-                <span className="text-xs font-bold uppercase tracking-wider text-zinc-600">
-                  Danh sách món bán
-                </span>
-                <button
-                  type="button"
-                  onClick={addVoucherRow}
-                  className="px-2.5 py-1 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 rounded-lg text-xs font-bold transition flex items-center gap-1"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Thêm Món</span>
-                </button>
+              <div className="flex justify-between items-center flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold uppercase tracking-wider text-zinc-600">
+                    Danh sách món bán
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                    Tổng: {voucherRows.reduce((sum, r) => sum + (r.quantity || 0), 0)} phiếu
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setVoucherRows((prev) => prev.map((r) => ({ ...r, quantity: 0 })))}
+                    className="px-2.5 py-1 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-lg text-xs font-semibold transition"
+                    title="Đặt lại toàn bộ số phiếu về 0"
+                  >
+                    Đặt về 0
+                  </button>
+                  <button
+                    type="button"
+                    onClick={addVoucherRow}
+                    className="px-2.5 py-1 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 rounded-lg text-xs font-bold transition flex items-center gap-1"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Thêm Món</span>
+                  </button>
+                </div>
               </div>
 
               {voucherRows.map((row, idx) => {
@@ -2809,8 +2892,8 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                     key={idx}
                     className="p-3 bg-zinc-50 rounded-2xl border border-zinc-200 space-y-2 text-xs"
                   >
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1">
+                    <div className="flex items-center gap-2.5 flex-wrap sm:flex-nowrap">
+                      <div className="flex-1 min-w-[180px]">
                         <label className="text-[10px] font-bold uppercase text-zinc-500 block mb-0.5">
                           Tên Món
                         </label>
@@ -2832,28 +2915,66 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                         </select>
                       </div>
 
-                      <div className="w-24">
-                        <label className="text-[10px] font-bold uppercase text-zinc-500 block mb-0.5">
-                          Số Phần Bán
+                      {/* Cụm đếm phiếu nhanh: nút -1, ô số lượng, nút +1 */}
+                      <div className="shrink-0">
+                        <label className="text-[10px] font-bold uppercase text-zinc-500 block mb-0.5 text-center">
+                          Số Phiếu Bán
                         </label>
-                        <input
-                          type="number"
-                          min="1"
-                          value={row.quantity}
-                          onChange={(e) => {
-                            const val = parseInt(e.target.value, 10) || 1;
-                            setVoucherRows((prev) =>
-                              prev.map((r, i) => (i === idx ? { ...r, quantity: val } : r))
-                            );
-                          }}
-                          className="w-full p-2 text-center bg-white border border-zinc-200 rounded-xl text-xs font-bold outline-none"
-                        />
+                        <div className="inline-flex items-center gap-1 bg-white p-1 rounded-2xl border border-zinc-200 shadow-2xs">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setVoucherRows((prev) =>
+                                prev.map((r, i) =>
+                                  i === idx
+                                    ? { ...r, quantity: Math.max(0, (r.quantity || 0) - 1) }
+                                    : r
+                                )
+                              );
+                            }}
+                            className="w-8 h-8 rounded-xl bg-zinc-100 hover:bg-zinc-200 active:bg-zinc-300 text-zinc-800 font-extrabold flex items-center justify-center text-xs transition active:scale-95 cursor-pointer"
+                            title="Giảm 1 phiếu"
+                          >
+                            -1
+                          </button>
+
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={row.quantity !== undefined ? row.quantity : 0}
+                            onFocus={handleFocusToEnd}
+                            onChange={(e) => {
+                              const cleaned = e.target.value.replace(/[^0-9]/g, '');
+                              const val = cleaned === '' ? 0 : parseInt(cleaned, 10);
+                              setVoucherRows((prev) =>
+                                prev.map((r, i) => (i === idx ? { ...r, quantity: val } : r))
+                              );
+                            }}
+                            className="w-12 h-8 text-center bg-zinc-50 border border-zinc-200 rounded-lg text-sm font-extrabold text-zinc-900 outline-none focus:ring-1 focus:ring-emerald-500"
+                          />
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setVoucherRows((prev) =>
+                                prev.map((r, i) =>
+                                  i === idx ? { ...r, quantity: (r.quantity || 0) + 1 } : r
+                                )
+                              );
+                            }}
+                            className="w-8 h-8 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-extrabold flex items-center justify-center text-xs transition active:scale-95 shadow-2xs cursor-pointer"
+                            title="Tăng 1 phiếu"
+                          >
+                            +1
+                          </button>
+                        </div>
                       </div>
 
                       <button
                         type="button"
                         onClick={() => removeVoucherRow(idx)}
-                        className="mt-4 p-2 text-zinc-400 hover:text-rose-600 rounded-lg"
+                        className="mt-4 p-2 text-zinc-400 hover:text-rose-600 rounded-lg transition"
+                        title="Xóa món khỏi danh sách"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -2862,13 +2983,13 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                     {/* Hiển thị định lượng nguyên liệu trừ */}
                     {ingredients.length > 0 && (
                       <div className="bg-white p-2 rounded-xl border border-zinc-200/80 flex flex-wrap gap-1.5 text-[11px] text-zinc-600">
-                        <span className="font-bold text-zinc-500">Trừ tồn:</span>
+                        <span className="font-bold text-zinc-500">Ghi vào bán ra:</span>
                         {ingredients.map((ing, iIdx) => (
                           <span
                             key={iIdx}
-                            className="px-2 py-0.5 bg-zinc-100 rounded-md font-semibold text-zinc-800"
+                            className="px-2 py-0.5 bg-rose-50 text-rose-700 border border-rose-200 rounded-md font-semibold"
                           >
-                            {ing.item}: -{ing.qty * row.quantity}
+                            {ing.item}: +{Math.round((ing.qty * (row.quantity || 0)) * 1000) / 1000}
                           </span>
                         ))}
                       </div>
@@ -2878,21 +2999,27 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
               })}
             </div>
 
-            <div className="flex justify-end gap-2 pt-3 border-t border-zinc-100">
-              <button
-                type="button"
-                onClick={() => setIsVoucherModalOpen(false)}
-                className="px-4 py-2 text-xs font-semibold text-zinc-600 hover:bg-zinc-100 rounded-xl"
-              >
-                Hủy
-              </button>
-              <button
-                type="button"
-                onClick={applyVoucherToInventory}
-                className="px-4 py-2 text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl transition shadow-xs"
-              >
-                Áp Dụng Vào Tồn Kho
-              </button>
+            <div className="flex justify-between items-center gap-2 pt-3 border-t border-zinc-100 flex-wrap">
+              <span className="text-xs text-zinc-500 font-medium">
+                {voucherRows.filter((r) => (r.quantity || 0) > 0).length} món có số lượng cần trừ
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsVoucherModalOpen(false)}
+                  className="px-4 py-2 text-xs font-semibold text-zinc-600 hover:bg-zinc-100 rounded-xl"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  onClick={applyVoucherToInventory}
+                  className="px-4 py-2 text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl transition shadow-xs flex items-center gap-1.5 active:scale-95"
+                >
+                  <Receipt className="w-3.5 h-3.5" />
+                  <span>Áp Dụng Vào Tồn Kho</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
