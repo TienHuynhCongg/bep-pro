@@ -2666,8 +2666,8 @@ export default function App() {
           )}
         </main>
 
-        {/* Minimalist Production Footer */}
-        <footer className="bg-white text-zinc-400 text-[11px] py-3 border-t border-zinc-200/80 text-center shrink-0">
+        {/* Minimalist Production Footer (Chỉ hiện trên desktop/tablet, ẩn trên mobile để tối ưu không gian cho MobileBottomNav) */}
+        <footer className="hidden md:block bg-white text-zinc-400 text-[11px] py-3 border-t border-zinc-200/80 text-center shrink-0">
           <div className="max-w-5xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-1.5">
             <p>© {new Date().getFullYear()} {appConfig.appTitle} • Hệ Thống Vận Hành Bếp</p>
             {currentUser?.role === 'admin' && (

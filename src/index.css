@@ -27,7 +27,7 @@ body,
 
 /* Safe area cho tai thỏ iPhone (Notch / Dynamic Island) */
 .pt-safe-top {
-  padding-top: max(env(safe-area-inset-top, 0px), 48px);
+  padding-top: env(safe-area-inset-top, 0px);
 }
 
 @media (min-width: 768px) {
@@ -38,7 +38,7 @@ body,
 
 /* Safe area cho thanh Home Indicator dưới đáy iPhone */
 .pb-safe-bottom {
-  padding-bottom: max(env(safe-area-inset-bottom, 0px), 12px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 @media (min-width: 768px) {
