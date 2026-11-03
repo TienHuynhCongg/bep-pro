@@ -2352,7 +2352,7 @@ export default function App() {
   };
 
   return (
-    <div className="fixed inset-0 h-dvh w-full overflow-hidden bg-zinc-100 text-zinc-900 flex flex-col font-sans antialiased selection:bg-zinc-900 selection:text-white">
+    <div className="fixed inset-0 w-full h-full overflow-hidden bg-zinc-100 text-zinc-900 flex flex-col font-sans antialiased selection:bg-zinc-900 selection:text-white">
       {/* Top Frame: Cố định trên cùng, tự động chừa khoảng trống dưới tai thỏ iPhone (pt-safe-top) */}
       <HeaderNav
         config={appConfig}
