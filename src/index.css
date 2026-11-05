@@ -1,5 +1,161 @@
 @import "tailwindcss";
 
+/* ==========================================================================
+   UI UX PRO MAX — Design Layer (chỉ thay "lớp áo", không đụng logic)
+   Nguồn khuyến nghị: ui-ux-pro-max `--design-system`
+     Style: Minimalism & Swiss Style (dashboard / professional tool)
+     Effects: subtle hover 200-250ms, smooth transitions, clear hierarchy
+     Avoid: excessive decoration, complex shadows, 3D effects
+     Checklist: cursor-pointer, visible focus, reduced-motion, contrast 4.5:1
+   Màu trạng thái theo chuẩn Apple (systemGreen / systemYellow / systemRed / systemBlue)
+   ========================================================================== */
+
+@theme {
+  /* Apple system colors */
+  --color-apple-green: #34c759;
+  --color-apple-yellow: #ffcc00;
+  --color-apple-red: #ff3b30;
+  --color-apple-blue: #0a84ff;
+
+  /* Bóng đổ nhiều lớp mềm (thay cho bóng mặc định gắt) — áp dụng đồng loạt cho mọi card/modal */
+  --shadow-2xs: 0 1px 1px rgb(15 23 42 / 0.03);
+  --shadow-xs: 0 1px 2px rgb(15 23 42 / 0.04);
+  --shadow-sm: 0 1px 2px rgb(15 23 42 / 0.04), 0 2px 6px rgb(15 23 42 / 0.04);
+  --shadow-md: 0 2px 4px rgb(15 23 42 / 0.04), 0 6px 16px rgb(15 23 42 / 0.06);
+  --shadow-lg: 0 4px 8px rgb(15 23 42 / 0.04), 0 12px 28px rgb(15 23 42 / 0.08);
+  --shadow-xl: 0 8px 16px rgb(15 23 42 / 0.05), 0 20px 40px rgb(15 23 42 / 0.1);
+  --shadow-2xl: 0 12px 24px rgb(15 23 42 / 0.08), 0 32px 64px -12px rgb(15 23 42 / 0.22);
+
+  /* Chuyển động mặc định 200ms, đường cong chuẩn iOS */
+  --default-transition-duration: 200ms;
+  --default-transition-timing-function: cubic-bezier(0.25, 0.1, 0.25, 1);
+
+  --ease-apple: cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* animate-fadeIn / animate-in đã được dùng sẵn trong các modal nhưng trước đây chưa có định nghĩa */
+  --animate-fadeIn: ui-fade-in 200ms cubic-bezier(0.25, 0.1, 0.25, 1) both;
+  --animate-in: ui-fade-in 200ms cubic-bezier(0.25, 0.1, 0.25, 1) both;
+  --animate-sheet: ui-sheet-in 320ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  --animate-sheet-up: ui-sheet-up 340ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  --animate-toast: ui-toast-in 260ms cubic-bezier(0.32, 0.72, 0, 1) both;
+
+  @keyframes ui-fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes ui-sheet-in {
+    from {
+      opacity: 0;
+      transform: translateY(12px) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @keyframes ui-sheet-up {
+    from {
+      opacity: 0.6;
+      transform: translateY(100%);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @keyframes ui-toast-in {
+    from {
+      opacity: 0;
+      transform: translateY(10px) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+}
+
+/* ---------- Base layer: chỉ áp dụng khi phần tử CHƯA có class tiện ích tương ứng ---------- */
+@layer base {
+  :where(button, [role='button'], a[href], select, summary, label[for], input[type='checkbox'], input[type='radio']) {
+    cursor: pointer;
+  }
+
+  :where(button, [role='button']):disabled,
+  :where(button)[aria-disabled='true'] {
+    cursor: not-allowed;
+  }
+
+  /* Phản hồi chạm mượt kiểu iOS cho mọi nút */
+  :where(button, [role='button']) {
+    transition-property: color, background-color, border-color, box-shadow, opacity, scale, translate;
+    transition-duration: 200ms;
+    transition-timing-function: cubic-bezier(0.25, 0.1, 0.25, 1);
+  }
+
+  :where(button, [role='button']):not(:disabled):active {
+    scale: 0.98;
+  }
+
+  /* Ô nhập liệu: chuyển màu viền & vòng focus mềm */
+  :where(input:not([type='checkbox'], [type='radio'], [type='range'], [type='color'], [type='file']), select, textarea) {
+    transition-property: border-color, box-shadow, background-color;
+    transition-duration: 200ms;
+    transition-timing-function: cubic-bezier(0.25, 0.1, 0.25, 1);
+  }
+
+  :where(input:not([type='checkbox'], [type='radio'], [type='range'], [type='color'], [type='file']), select, textarea):focus {
+    box-shadow: 0 0 0 3px rgb(10 132 255 / 0.16);
+  }
+
+  :where(input[type='checkbox'], input[type='radio'], input[type='range']) {
+    accent-color: #18181b;
+  }
+
+  /* Số trong bảng kiểm tồn thẳng cột */
+  :where(table, input[type='number']) {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Thanh cuộn mảnh trên máy tính */
+  @media (pointer: fine) {
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: rgb(161 161 170 / 0.55) transparent;
+    }
+  }
+}
+
+/* ---------- Components layer: lớp áo dùng chung cho modal / overlay ---------- */
+@layer components {
+  .ui-overlay {
+    background-color: rgb(9 9 11 / 0.55);
+    -webkit-backdrop-filter: blur(6px) saturate(140%);
+    backdrop-filter: blur(6px) saturate(140%);
+  }
+
+  .ui-sheet {
+    animation: var(--animate-sheet);
+  }
+
+  .ui-sheet-up {
+    animation: var(--animate-sheet-up);
+  }
+
+  .ui-toast {
+    animation: var(--animate-toast);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+  }
+}
+
 /* Mobile & iPhone Safe-Area Frame Lock */
 
 * {
@@ -55,7 +211,20 @@ body,
   display: none;
 }
 
+/* Vòng focus bàn phím rõ ràng (Apple systemBlue) */
 :focus-visible {
-  outline: 2px solid #18181b;
+  outline: 2px solid #0a84ff;
   outline-offset: 2px;
+}
+
+/* Tôn trọng cài đặt "Giảm chuyển động" của hệ điều hành */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

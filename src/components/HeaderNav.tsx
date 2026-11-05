@@ -43,10 +43,32 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
 }) => {
   const [showNotifDropdown, setShowNotifDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const [dbUsage, setDbUsage] = useState<number>(0.05);
 
   const visibleItems = navItems.filter(
     (item) => item.visible && canRoleAccessTab(currentUser?.role, item.targetType, item)
   );
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchUsage = () => {
+      fetch('/api/db-usage')
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (isMounted && data && typeof data.usageRatio === 'number') {
+            setDbUsage(Math.max(0.01, Math.min(1, data.usageRatio)));
+          }
+        })
+        .catch(() => {});
+    };
+
+    fetchUsage();
+    const interval = setInterval(fetchUsage, 45000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [syncStatus]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -61,7 +83,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
   }, [showNotifDropdown]);
 
   return (
-    <header className="shrink-0 bg-zinc-950 text-white z-40 border-b border-zinc-800 pt-safe-top select-none">
+    <header className="shrink-0 bg-zinc-950 text-white z-40 border-b border-zinc-800 pt-safe-top select-none relative">
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-13 sm:h-15 gap-2">
           {/* Brand Logo & Title */}
@@ -238,6 +260,20 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
             )}
           </div>
         </div>
+      </div>
+
+      {/* NHIỆM VỤ 1: Thanh tiến trình dung lượng Database siêu mỏng (Silent Progress Bar chuẩn Apple, tuyệt đối KHÔNG text / icon / %) */}
+      <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-zinc-900/80 overflow-hidden pointer-events-none" aria-hidden="true">
+        <div
+          className={`h-full transition-all duration-700 ease-out ${
+            dbUsage >= 0.85
+              ? 'bg-[#ff3b30]'
+              : dbUsage >= 0.70
+              ? 'bg-[#ffcc00]'
+              : 'bg-[#34c759]'
+          }`}
+          style={{ width: `${Math.max(2, Math.min(100, Math.round(dbUsage * 100)))}%` }}
+        />
       </div>
     </header>
   );

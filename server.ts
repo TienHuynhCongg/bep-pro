@@ -1031,6 +1031,59 @@ export function createKitchenApiMiddleware() {
     );
   });
 
+  // GET /api/db-usage - Tỷ lệ dung lượng Database đang dùng (chỉ đọc, không ghi dữ liệu)
+  // - MongoDB Atlas: dung lượng lưu trữ thực tế (db.stats) so với hạn mức gói (mặc định M0 Free = 512 MB)
+  // - Toàn bộ state được lưu trong 1 document 'global_state' => giới hạn 16 MB/document của MongoDB,
+  //   đồng thời gói đồng bộ /api/sync bị giới hạn 5 MB (express.json limit) => lấy giới hạn nhỏ hơn
+  // => usageRatio = max(storage/quota, document/min(16MB, 5MB))
+  router.get('/api/db-usage', async (_req, res) => {
+    const MONGO_DOC_LIMIT_BYTES = 16 * 1024 * 1024;
+    const SYNC_BODY_LIMIT_BYTES = 5 * 1024 * 1024;
+    const effectiveDocLimit = Math.min(MONGO_DOC_LIMIT_BYTES, SYNC_BODY_LIMIT_BYTES);
+    const quotaMb = Number(process.env.DB_QUOTA_MB) > 0 ? Number(process.env.DB_QUOTA_MB) : 512;
+    const quotaBytes = quotaMb * 1024 * 1024;
+    let documentBytes = 0;
+    let storageBytes = 0;
+    let source: 'mongodb' | 'local' = 'local';
+
+    try {
+      documentBytes = Buffer.byteLength(JSON.stringify(dbState), 'utf-8');
+    } catch {
+      documentBytes = 0;
+    }
+
+    try {
+      if (mongoDb) {
+        const stats: any = await mongoDb.stats();
+        storageBytes = Number(stats?.storageSize || 0) + Number(stats?.indexSize || 0);
+        if (!storageBytes) storageBytes = Number(stats?.dataSize || 0);
+        source = 'mongodb';
+      } else if (fs.existsSync(DB_FILE)) {
+        storageBytes = fs.statSync(DB_FILE).size;
+      }
+    } catch {
+      // Không lấy được thống kê (thiếu quyền dbStats...) -> chỉ dựa vào kích thước document
+    }
+
+    const storageRatio = quotaBytes > 0 ? storageBytes / quotaBytes : 0;
+    const documentRatio = documentBytes / effectiveDocLimit;
+    const usageRatio = Math.min(1, Math.max(0, storageRatio, documentRatio));
+
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Cache-Control', 'no-store');
+    res.end(
+      JSON.stringify({
+        ok: true,
+        source,
+        usageRatio,
+        storageBytes,
+        quotaBytes,
+        documentBytes,
+        documentLimitBytes: effectiveDocLimit,
+      })
+    );
+  });
+
   // POST /api/sync - Đồng bộ dữ liệu từ bất kỳ máy iOS/Android/PC nào lên Server
   router.post('/api/sync', (req, res) => {
     const {

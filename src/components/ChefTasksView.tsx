@@ -872,8 +872,8 @@ export const ChefTasksView: React.FC<ChefTasksViewProps> = ({
 
       {/* Modal xác nhận nạp mẫu việc an toàn (Chống mất việc đã tạo) */}
       {presetModal && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs animate-fadeIn">
-          <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-6 border border-stone-200 space-y-4">
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-md animate-fadeIn">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-6 border border-stone-200/80 space-y-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0">
                 <ChefHat className="w-5 h-5" />

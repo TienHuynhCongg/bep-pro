@@ -157,10 +157,10 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   return (
     <div
       className={`fixed inset-0 z-50 flex items-center justify-center p-3.5 pt-safe-top pb-safe-bottom animate-fadeIn ${
-        currentUser ? 'bg-black/65 backdrop-blur-xs' : 'bg-zinc-950'
+        currentUser ? 'bg-black/65 backdrop-blur-md' : 'bg-zinc-950'
       }`}
     >
-      <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl border border-zinc-200 overflow-hidden flex flex-col max-h-[84dvh]">
+      <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl border border-zinc-200/80 overflow-hidden flex flex-col max-h-[84dvh] transition-all">
         {/* Header */}
         <div className="bg-zinc-950 text-white p-5 relative border-b border-zinc-800">
           {currentUser && (
@@ -282,7 +282,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                     placeholder="Ví dụ: admin, truongca, nv_bep, thc..."
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
-                    className="w-full pl-10 pr-3 py-2 text-sm bg-zinc-50 border border-zinc-300 rounded-xl focus:ring-2 focus:ring-zinc-900 focus:bg-white outline-none transition"
+                    className="w-full pl-10 pr-3 py-2 text-sm bg-zinc-50 border border-zinc-300 rounded-xl focus:ring-2 focus:ring-[#0a84ff]/30 focus:border-[#0a84ff] focus:bg-white outline-none transition"
                   />
                 </div>
               </div>
@@ -299,7 +299,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                     placeholder="Nhập mật khẩu..."
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full pl-10 pr-10 py-2 text-sm bg-zinc-50 border border-zinc-300 rounded-xl focus:ring-2 focus:ring-zinc-900 focus:bg-white outline-none transition"
+                    className="w-full pl-10 pr-10 py-2 text-sm bg-zinc-50 border border-zinc-300 rounded-xl focus:ring-2 focus:ring-[#0a84ff]/30 focus:border-[#0a84ff] focus:bg-white outline-none transition"
                   />
                   <button
                     type="button"
@@ -313,7 +313,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
               <button
                 type="submit"
-                className="w-full py-2.5 bg-zinc-950 hover:bg-zinc-800 text-white font-bold rounded-xl text-sm shadow-sm transition flex items-center justify-center gap-2"
+                className="w-full py-2.5 bg-zinc-950 hover:bg-zinc-800 active:scale-95 text-white font-bold rounded-xl text-sm shadow-md shadow-zinc-950/20 transition flex items-center justify-center gap-2"
               >
                 <span>Đăng Nhập Ca Làm Việc</span>
                 <ArrowRight className="w-4 h-4" />

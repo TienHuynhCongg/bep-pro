@@ -2729,10 +2729,10 @@ export default function App() {
       {/* Floating Toast Notification */}
       {toast && (
         <div
-          className={`fixed bottom-20 md:bottom-5 right-3 md:right-5 left-3 sm:left-auto z-50 px-4 py-2.5 rounded-xl shadow-lg flex items-center space-x-2.5 transition-all duration-200 border ${
+          className={`fixed bottom-20 md:bottom-5 right-3 md:right-5 left-3 sm:left-auto z-50 px-4 py-2.5 rounded-2xl shadow-xl flex items-center space-x-2.5 transition-all duration-200 border ui-toast backdrop-blur-md ${
             toast.type === 'error'
-              ? 'bg-rose-950 text-white border-rose-800'
-              : 'bg-zinc-900 text-white border-zinc-800'
+              ? 'bg-rose-950/95 text-white border-rose-800/80 shadow-rose-950/30'
+              : 'bg-zinc-900/95 text-white border-zinc-800/80 shadow-zinc-950/30'
           }`}
         >
           {toast.type === 'error' ? (

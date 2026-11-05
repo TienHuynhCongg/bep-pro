@@ -102,10 +102,10 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
 
       {/* Mobile Bottom Sheet for Overflow Menu */}
       {showMoreSheet && (
-        <div className="md:hidden fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex flex-col justify-end">
+        <div className="md:hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-md flex flex-col justify-end animate-fadeIn">
           <div className="fixed inset-0" onClick={() => setShowMoreSheet(false)} />
 
-          <div className="relative bg-white rounded-t-3xl p-5 space-y-4 shadow-2xl z-10 pb-6">
+          <div className="relative bg-white rounded-t-3xl p-5 space-y-4 shadow-2xl z-10 pb-6 border-t border-zinc-200/80">
             <div className="w-10 h-1 bg-zinc-200 rounded-full mx-auto -mt-1 mb-1" />
             <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
               <span className="text-xs font-bold text-zinc-900 uppercase tracking-wider">

@@ -127,8 +127,8 @@ export const NavConfigModal: React.FC<NavConfigModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3.5 pt-safe-top pb-safe-bottom animate-fadeIn">
-      <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl border border-zinc-200 overflow-hidden flex flex-col max-h-[82dvh]">
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-md flex items-center justify-center p-3.5 pt-safe-top pb-safe-bottom animate-fadeIn">
+      <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl border border-zinc-200/80 overflow-hidden flex flex-col max-h-[82dvh] transition-all">
         {/* Header */}
         <div className="bg-zinc-950 text-white p-4 flex items-center justify-between border-b border-zinc-800">
           <div className="flex items-center gap-2.5">

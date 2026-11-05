@@ -2974,8 +2974,8 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
 
       {/* Modal: Kiểm Phiếu Nhanh (VoucherModal) */}
       {isVoucherModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4">
-          <div className="bg-white rounded-3xl max-w-3xl w-full p-4 sm:p-6 shadow-2xl border border-zinc-200 max-h-[92vh] flex flex-col space-y-4">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-50 flex items-center justify-center p-3 sm:p-4 animate-fadeIn">
+          <div className="bg-white rounded-3xl max-w-3xl w-full p-4 sm:p-6 shadow-2xl border border-zinc-200/80 max-h-[92vh] flex flex-col space-y-4">
             {/* Header */}
             <div className="flex justify-between items-center pb-3 border-b border-zinc-100">
               <div className="flex items-center gap-2.5">
@@ -3352,8 +3352,8 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
 
       {/* Modal: Danh Sách Đặt Hàng (OrderListModal) */}
       {isOrderListModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-3xl w-full p-5 sm:p-6 shadow-2xl border border-zinc-200 max-h-[90vh] flex flex-col space-y-3.5">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white rounded-3xl max-w-3xl w-full p-5 sm:p-6 shadow-2xl border border-zinc-200/80 max-h-[90vh] flex flex-col space-y-3.5">
             <div className="flex justify-between items-center pb-2.5 border-b border-zinc-100">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center font-bold">
@@ -3990,8 +3990,8 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
 
       {/* Modal: Thêm Bảng Lưu Kiểm Tồn / Tủ Mới */}
       {isAddTableModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-fadeIn">
-          <div className="bg-white rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-zinc-200 space-y-4">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-zinc-200/80 space-y-4">
             <div className="flex justify-between items-center pb-3 border-b border-zinc-100">
               <h3 className="text-base font-bold text-zinc-950 flex items-center gap-2">
                 <PackageCheck className="w-5 h-5 text-amber-600" />
@@ -4078,8 +4078,8 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
 
       {/* Modal: Thêm Mặt Hàng Mới (Admin) */}
       {isAddItemModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-zinc-200 space-y-4">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-zinc-200/80 space-y-4">
             <div className="flex justify-between items-center pb-3 border-b border-zinc-100">
               <h3 className="text-base font-bold text-zinc-950 flex items-center gap-2">
                 <Plus className="w-4 h-4 text-emerald-600" />
@@ -4189,8 +4189,8 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
 
       {/* Modal: Thêm Hàng Đặt Chợ (Admin) */}
       {isAddCustomOrderModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-zinc-200 space-y-4">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-zinc-200/80 space-y-4">
             <div className="flex justify-between items-center pb-3 border-b border-zinc-100">
               <h3 className="text-base font-bold text-zinc-950 flex items-center gap-2">
                 <Plus className="w-4 h-4 text-indigo-600" />
