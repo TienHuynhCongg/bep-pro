@@ -85,32 +85,7 @@ export const DEFAULT_NAV_ITEMS: NavItem[] = [
   },
 ];
 
-export const DEFAULT_RECIPES: KitchenRecipe[] = [
-  {
-    id: 'recipe-1',
-    dishName: 'Sốt Bò Đen Tiêu Xanh Chuẩn Bếp',
-    updatedAt: '20/10/2026, 09:00',
-    createdBy: 'Chef Hoàng Nam (Bếp Trưởng)',
-    ingredients: [
-      { id: 'ing-1', name: 'Nước dùng bò cô đặc', quantity: '500', unit: 'ml' },
-      { id: 'ing-2', name: 'Tiêu xanh tươi đập dập', quantity: '45', unit: 'g' },
-      { id: 'ing-3', name: 'Dầu hào thượng hạng', quantity: '3', unit: 'muỗng canh' },
-      { id: 'ing-4', name: 'Bơ lạt Anchor', quantity: '30', unit: 'g' },
-    ],
-  },
-  {
-    id: 'recipe-2',
-    dishName: 'Nước Dùng Cốt Phở / Lẩu Thanh Ngọt',
-    updatedAt: '20/10/2026, 08:30',
-    createdBy: 'Chef Hoàng Nam (Bếp Trưởng)',
-    ingredients: [
-      { id: 'ing-21', name: 'Xương ống bò tươi', quantity: '5', unit: 'kg' },
-      { id: 'ing-22', name: 'Nước lọc tinh khiết', quantity: '20', unit: 'lít' },
-      { id: 'ing-23', name: 'Đường phèn kết tinh', quantity: '120', unit: 'g' },
-      { id: 'ing-24', name: 'Muối hạt hầm', quantity: '4', unit: 'muỗng cà phê' },
-    ],
-  },
-];
+export const DEFAULT_RECIPES: KitchenRecipe[] = [];
 
 export const DEFAULT_INVENTORY: InventoryCheckItem[] = [];
 
@@ -159,62 +134,28 @@ export const DEFAULT_STAFF_USERS = [
   },
 ];
 
-export const DEFAULT_TASKS: KitchenTask[] = [
-  {
-    id: 'task-1',
-    title: 'Kiểm tra & ghi nhiệt độ tủ mát (< 4°C) và tủ đông (< -18°C)',
-    category: 'An toàn ATTP',
-    priority: 'Gấp',
-    taskType: 'daily',
-    completed: false,
-    assignedShift: 'Tất cả ca',
-  },
-  {
-    id: 'task-2',
-    title: 'Sơ chế rau củ, củ quả và cá thịt nhập từ kho tươi buổi sáng',
-    category: 'Sơ chế',
-    priority: 'Thường',
-    taskType: 'daily',
-    completed: false,
-    assignedShift: 'Ca Sáng',
-  },
-  {
-    id: 'task-3',
-    title: 'Nấu nước dùng chính & chia định lượng sốt gia vị cho ca phục vụ',
-    category: 'Nấu nướng',
-    priority: 'Gấp',
-    taskType: 'urgent_today',
-    completed: false,
-    assignedShift: 'Ca Sáng',
-  },
-  {
-    id: 'task-4',
-    title: 'Bọc màng thực phẩm & dán nhãn ngày/hạn sử dụng (FIFO) các khay',
-    category: 'Kiểm kê',
-    priority: 'Thường',
-    taskType: 'daily',
-    completed: false,
-    assignedShift: 'Tất cả ca',
-  },
-  {
-    id: 'task-5',
-    title: 'Vệ sinh lau chùi bề mặt bếp gas, bếp từ, vỉ nướng và hệ thống hút mùi',
-    category: 'Vệ sinh',
-    priority: 'Thường',
-    taskType: 'daily',
-    completed: false,
-    assignedShift: 'Ca Chiều',
-  },
-  {
-    id: 'task-6',
-    title: 'Khử khuẩn sàn bếp, nghiệm thu thùng rác hữu cơ & khóa van gas tổng',
-    category: 'An toàn ATTP',
-    priority: 'Gấp',
-    taskType: 'daily',
-    completed: false,
-    assignedShift: 'Tất cả ca',
-  },
-];
+export const DEFAULT_TASKS: KitchenTask[] = [];
+
+export function filterOutDefaultTasks(taskList: KitchenTask[]): KitchenTask[] {
+  if (!Array.isArray(taskList)) return [];
+  const defaultIds = new Set(['task-1', 'task-2', 'task-3', 'task-4', 'task-5', 'task-6']);
+  return taskList.filter((t) => {
+    if (!t) return false;
+    if (defaultIds.has(String(t.id))) return false;
+    const title = String(t.title || '').trim().toLowerCase();
+    if (
+      title.includes('nhiệt độ tủ mát') ||
+      title.includes('sơ chế rau củ, củ quả và cá thịt') ||
+      title.includes('nấu nước dùng chính & chia định lượng') ||
+      title.includes('bọc màng thực phẩm & dán nhãn') ||
+      title.includes('bề mặt bếp gas, bếp từ, vỉ nướng') ||
+      title.includes('khử khuẩn sàn bếp, nghiệm thu thùng rác')
+    ) {
+      return false;
+    }
+    return true;
+  });
+}
 
 export const DEFAULT_SCHEMA: DynamicField[] = [
   {
@@ -259,39 +200,4 @@ export const DEFAULT_SCHEMA: DynamicField[] = [
   },
 ];
 
-export const INITIAL_SAMPLE_LOGS: ShiftLog[] = [
-  {
-    id: 'LOG-0824',
-    timestamp: '19/10/2026, 14:15:20',
-    dateStr: '19/10/2026',
-    shiftName: 'Ca Sáng (06:00 - 14:00)',
-    staffName: 'Chef Hoàng Nam',
-    completedCount: 6,
-    totalCount: 6,
-    tasks: DEFAULT_TASKS.map(t => ({ ...t, completed: true })),
-    fields: [
-      { id: 'field-1', label: 'Tên Trực Ca / Đầu Bếp Phụ Trách', value: 'Chef Hoàng Nam' },
-      { id: 'field-2', label: 'Ca Làm Việc', value: 'Ca Sáng (06:00 - 14:00)' },
-      { id: 'field-3', label: 'Nhiệt Độ Tủ Mát / Tủ Đông (°C)', value: 'Mát: 3.2°C, Đông: -18.5°C (Đạt chuẩn)' },
-      { id: 'field-4', label: 'Đánh Giá Vệ Sinh ATTP', value: 'Đạt chuẩn 100% (Sạch sẽ, gọn gàng)' },
-      { id: 'field-5', label: 'Ghi Chú Phát Sinh / Nguyên Liệu Cần Báo Mua', value: 'Kho đã hết bơ lạt Anchor và tiêu đen hạt vỡ. Đã thông báo thu mua.' },
-    ],
-  },
-  {
-    id: 'LOG-0823',
-    timestamp: '18/10/2026, 22:05:40',
-    dateStr: '18/10/2026',
-    shiftName: 'Ca Chiều (14:00 - 22:00)',
-    staffName: 'Trần Văn Hưng',
-    completedCount: 5,
-    totalCount: 6,
-    tasks: DEFAULT_TASKS.map((t, i) => ({ ...t, completed: i !== 4 })),
-    fields: [
-      { id: 'field-1', label: 'Tên Trực Ca / Đầu Bếp Phụ Trách', value: 'Trần Văn Hưng' },
-      { id: 'field-2', label: 'Ca Làm Việc', value: 'Ca Chiều (14:00 - 22:00)' },
-      { id: 'field-3', label: 'Nhiệt Độ Tủ Mát / Tủ Đông (°C)', value: 'Mát: 4.0°C, Đông: -18°C' },
-      { id: 'field-4', label: 'Đánh Giá Vệ Sinh ATTP', value: 'Đạt loại khá (Có lưu ý nhỏ)' },
-      { id: 'field-5', label: 'Ghi Chú Phát Sinh / Nguyên Liệu Cần Báo Mua', value: 'Khay inox số 3 ở bồn rửa cần thay gioăng cao su.' },
-    ],
-  },
-];
+export const INITIAL_SAMPLE_LOGS: ShiftLog[] = [];

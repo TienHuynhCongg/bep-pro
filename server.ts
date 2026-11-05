@@ -172,6 +172,27 @@ function encryptWebPushPayload(
   return Buffer.concat([salt, rsBuf, idLenBuf, localPub, encrypted, authTag]);
 }
 
+function cleanServerTasks(tasks: any[]): any[] {
+  if (!Array.isArray(tasks)) return [];
+  const defaultIds = new Set(['task-1', 'task-2', 'task-3', 'task-4', 'task-5', 'task-6']);
+  return tasks.filter((t: any) => {
+    if (!t) return false;
+    if (defaultIds.has(String(t.id))) return false;
+    const title = String(t.title || '').trim().toLowerCase();
+    if (
+      title.includes('nhiệt độ tủ mát') ||
+      title.includes('sơ chế rau củ, củ quả và cá thịt') ||
+      title.includes('nấu nước dùng chính & chia định lượng') ||
+      title.includes('bọc màng thực phẩm & dán nhãn') ||
+      title.includes('bề mặt bếp gas, bếp từ, vỉ nướng') ||
+      title.includes('khử khuẩn sàn bếp, nghiệm thu thùng rác')
+    ) {
+      return false;
+    }
+    return true;
+  });
+}
+
 const MONGODB_URI = process.env.MONGODB_URI;
 let mongoDb: Db | null = null;
 let mongoClient: MongoClient | null = null;
@@ -194,6 +215,9 @@ async function initMongoConnection(onCloudStateLoaded?: (cloudState: KitchenServ
     const doc = await col.findOne({ _id: 'global_state' as any });
     if (doc && (Array.isArray(doc.tasks) || Array.isArray(doc.inventory))) {
       const { _id, ...rest } = doc as any;
+      if (Array.isArray(rest.tasks)) {
+        rest.tasks = cleanServerTasks(rest.tasks);
+      }
       console.log(`✅ [MongoDB Atlas] Nạp thành công dữ liệu từ Cloud (updatedAt: ${rest.updatedAt})`);
       if (onCloudStateLoaded) {
         onCloudStateLoaded(rest as KitchenServerState);
@@ -216,6 +240,9 @@ function loadDb(): KitchenServerState {
       const raw = fs.readFileSync(DB_FILE, 'utf-8').replace(/^\uFEFF/, '');
       const parsed = JSON.parse(raw);
       if (parsed && (parsed.initialized || (Array.isArray(parsed.tasks) && parsed.tasks.length > 0))) {
+        if (Array.isArray(parsed.tasks)) {
+          parsed.tasks = cleanServerTasks(parsed.tasks);
+        }
         return parsed;
       }
     }
@@ -228,6 +255,9 @@ function loadDb(): KitchenServerState {
         seedState.updatedAt = Date.now();
       }
       seedState.isSeedReset = true;
+      if (Array.isArray(seedState.tasks)) {
+        seedState.tasks = cleanServerTasks(seedState.tasks);
+      }
       saveDb(seedState);
       console.log('Successfully initialized database from initial-data.json on server start.');
       return seedState;
@@ -967,6 +997,14 @@ export function createKitchenApiMiddleware() {
 
   // GET /api/state - Lấy dữ liệu đồng bộ mới nhất từ Server
   router.get('/api/state', (_req, res) => {
+    if (Array.isArray(dbState.tasks)) {
+      const cleaned = cleanServerTasks(dbState.tasks);
+      if (cleaned.length !== dbState.tasks.length) {
+        dbState.tasks = cleaned;
+        dbState.updatedAt = Date.now();
+        saveDb(dbState);
+      }
+    }
     res.setHeader('Content-Type', 'application/json');
     res.end(
       JSON.stringify({
@@ -1037,14 +1075,15 @@ export function createKitchenApiMiddleware() {
       }
     }
     if (Array.isArray(tasks)) {
+      const sanitizedTasks = cleanServerTasks(tasks);
       // Admin hoặc Quản lý được phép cập nhật toàn bộ danh sách tasks
       if (senderRole === 'admin' || senderRole === 'manager' || !dbState.tasks || dbState.tasks.length === 0) {
-        dbState.tasks = tasks;
+        dbState.tasks = sanitizedTasks;
       } else {
         // Staff chỉ được phép cập nhật trạng thái hoàn thành (complete/incomplete/note) của các task có sẵn
         if (Array.isArray(dbState.tasks) && dbState.tasks.length > 0) {
-          const incomingMap = new Map(tasks.map((t: any) => [t.id, t]));
-          dbState.tasks = dbState.tasks.map((existing: any) => {
+          const incomingMap = new Map(sanitizedTasks.map((t: any) => [t.id, t]));
+          dbState.tasks = cleanServerTasks(dbState.tasks).map((existing: any) => {
             const incoming = incomingMap.get(existing.id);
             if (!incoming) return existing;
             return {
@@ -1058,9 +1097,12 @@ export function createKitchenApiMiddleware() {
             };
           });
         } else {
-          dbState.tasks = tasks;
+          dbState.tasks = sanitizedTasks;
         }
       }
+    }
+    if (Array.isArray(dbState.tasks)) {
+      dbState.tasks = cleanServerTasks(dbState.tasks);
     }
     if (Array.isArray(logs)) dbState.logs = logs;
     if (Array.isArray(deleteRequests)) dbState.deleteRequests = deleteRequests;

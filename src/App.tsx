@@ -24,6 +24,7 @@ import {
   DEFAULT_RECIPES,
   DEFAULT_INVENTORY,
   DEFAULT_CUSTOM_ORDERS,
+  filterOutDefaultTasks,
 } from './defaultData.ts';
 import { HeaderNav } from './components/HeaderNav.tsx';
 import { ChecklistView } from './components/ChecklistView.tsx';
@@ -189,9 +190,10 @@ export default function App() {
   const [tasks, setTasks] = useState<KitchenTask[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.TASKS);
-      return saved ? JSON.parse(saved) : DEFAULT_TASKS;
+      const parsed = saved ? JSON.parse(saved) : [];
+      return filterOutDefaultTasks(parsed);
     } catch {
-      return DEFAULT_TASKS;
+      return [];
     }
   });
 
@@ -525,17 +527,20 @@ export default function App() {
 
     markLocalEdit();
 
+    const sanitizedTasks = payload.tasks ? filterOutDefaultTasks(payload.tasks) : undefined;
+    const finalPayload = sanitizedTasks !== undefined ? { ...payload, tasks: sanitizedTasks } : payload;
+
     if (role === 'admin') {
       try {
         const clientBackup = {
           timestamp: Date.now(),
           adminName: name,
-          tasks: payload.tasks || tasksRef.current,
-          staffList: payload.staffList || staffListRef.current,
-          appConfig: payload.appConfig || appConfigRef.current,
-          toolbarItems: payload.toolbarItems || navItems,
-          inventory: payload.inventory || inventoryRef.current,
-          recipes: payload.recipes || recipes,
+          tasks: finalPayload.tasks || filterOutDefaultTasks(tasksRef.current),
+          staffList: finalPayload.staffList || staffListRef.current,
+          appConfig: finalPayload.appConfig || appConfigRef.current,
+          toolbarItems: finalPayload.toolbarItems || navItems,
+          inventory: finalPayload.inventory || inventoryRef.current,
+          recipes: finalPayload.recipes || recipes,
         };
         localStorage.setItem('kitchen_admin_auto_backup_latest', JSON.stringify(clientBackup));
       } catch {
@@ -544,7 +549,7 @@ export default function App() {
     }
 
     return rawPushStateToServer({
-      ...payload,
+      ...finalPayload,
       senderRole: role,
       senderName: name,
     });
@@ -823,20 +828,13 @@ export default function App() {
 
       if (s.appConfig && typeof s.appConfig === 'object') setAppConfig(s.appConfig);
 
-      // 1. Đồng bộ Tasks an toàn: Giữ các việc riêng và đồng bộ trạng thái
+      // 1. Đồng bộ Tasks an toàn: Làm sạch triệt để các việc mặc định hệ thống và đồng bộ trạng thái
       if (Array.isArray(s.tasks)) {
-        const localTasks = tasksRef.current || [];
-        const serverTaskIds = new Set(s.tasks.map((t: any) => t.id));
-        const missingLocalTasks = localTasks.filter((lt) => !serverTaskIds.has(lt.id));
-
-        if (missingLocalTasks.length > 0 && currentUserRef.current?.role === 'admin') {
-          const mergedTasks = [...s.tasks, ...missingLocalTasks];
-          tasksRef.current = mergedTasks;
-          setTasks(mergedTasks);
-          pushStateToServer({ tasks: mergedTasks });
-        } else {
-          tasksRef.current = s.tasks;
-          setTasks(s.tasks);
+        const cleanedTasks = filterOutDefaultTasks(s.tasks);
+        tasksRef.current = cleanedTasks;
+        setTasks(cleanedTasks);
+        if (cleanedTasks.length !== s.tasks.length && currentUserRef.current?.role === 'admin') {
+          pushStateToServer({ tasks: cleanedTasks });
         }
       }
 
@@ -908,7 +906,7 @@ export default function App() {
         if (shouldRestoreServer) {
           console.log('🛡️ [Auto Sync] Tự động bảo toàn và đẩy dữ liệu chuẩn từ thiết bị lên máy chủ...');
           pushStateToServer({
-            tasks: localTasks.length > 0 ? localTasks : s.tasks,
+            tasks: localTasks.length > 0 ? filterOutDefaultTasks(localTasks) : filterOutDefaultTasks(s.tasks || []),
             logs: logs.length > 0 ? logs : s.logs,
             staffList: staffListRef.current.length > 0 ? staffListRef.current : s.staffList,
             toolbarItems: navItems,
@@ -938,8 +936,9 @@ export default function App() {
               rememberServerTs(s.updatedAt);
               if (s.appConfig && typeof s.appConfig === 'object') setAppConfig(s.appConfig);
               if (Array.isArray(s.tasks)) {
-                tasksRef.current = s.tasks;
-                setTasks(s.tasks);
+                const cleanedTasks = filterOutDefaultTasks(s.tasks);
+                tasksRef.current = cleanedTasks;
+                setTasks(cleanedTasks);
               }
               if (Array.isArray(s.logs)) setLogs(s.logs);
               if (Array.isArray(s.staffList) && s.staffList.length > 0) {
@@ -1105,7 +1104,7 @@ export default function App() {
     const handleStorageEvent = (e: StorageEvent) => {
       if (e.key === STORAGE_KEYS.TASKS && e.newValue) {
         try {
-          const parsed = JSON.parse(e.newValue);
+          const parsed = filterOutDefaultTasks(JSON.parse(e.newValue));
           tasksRef.current = parsed;
           setTasks(parsed);
         } catch {
@@ -1398,7 +1397,7 @@ export default function App() {
       try {
         const saved = localStorage.getItem(STORAGE_KEYS.TASKS);
         if (saved) {
-          const parsed = JSON.parse(saved);
+          const parsed = filterOutDefaultTasks(JSON.parse(saved));
           tasksRef.current = parsed;
           setTasks(parsed);
         }
