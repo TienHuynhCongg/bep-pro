@@ -41,6 +41,8 @@ interface InventoryCheckViewProps {
   onCloseOrderListModal?: () => void;
   onLowStockCountChange?: (count: number) => void;
   onRestoreEmergencyInventory?: () => void;
+  customTables?: string[];
+  onUpdateCustomTables?: (tables: string[]) => void;
 }
 
 const COMMON_UNITS = [
@@ -137,9 +139,12 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
   onCloseOrderListModal,
   onLowStockCountChange,
   onRestoreEmergencyInventory,
+  customTables: propsCustomTables = [],
+  onUpdateCustomTables,
 }) => {
   const todayStr = new Date().toLocaleDateString('vi-VN');
   const isAdmin = currentUser?.role === 'admin';
+  const canManageItems = isAdmin || currentUser?.role === 'manager';
 
   // Quản lý ngày
   const [selectedDate, setSelectedDate] = useState<string>(todayStr);
@@ -501,16 +506,38 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     'Kho Khô & Gia Vị',
   ];
 
+  // Danh sách các bảng / tủ người dùng tự tạo thêm (lưu bền vững qua localStorage & server appConfig)
+  const [customTables, setCustomTables] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('kitchen_inventory_custom_tables_v2');
+      const parsed = saved ? JSON.parse(saved) : [];
+      const localList = Array.isArray(parsed) ? parsed : [];
+      return Array.from(new Set([...localList, ...(propsCustomTables || [])]));
+    } catch {
+      return propsCustomTables || [];
+    }
+  });
+
+  useEffect(() => {
+    if (propsCustomTables && Array.isArray(propsCustomTables) && propsCustomTables.length > 0) {
+      setCustomTables((prev) => Array.from(new Set([...prev, ...propsCustomTables])));
+    }
+  }, [propsCustomTables]);
+
   // Danh sách các bảng / tủ đã từng được tạo trên toàn bộ hệ thống
   const allKnownTables = useMemo(() => {
     const set = new Set<string>();
     set.add(DEFAULT_TABLE_NAME);
+    (customTables || []).forEach((t) => {
+      const name = t.trim();
+      if (name) set.add(name);
+    });
     localItems.forEach((i) => {
       const name = (i.tableName || DEFAULT_TABLE_NAME).trim();
       if (name) set.add(name);
     });
     return Array.from(set);
-  }, [localItems]);
+  }, [localItems, customTables]);
 
   // Danh sách các bảng / tủ trong ngày đang chọn (luôn bao gồm tất cả các tủ đã có để không bị biến mất khi đổi ngày)
   const existingTablesForDate = useMemo(() => {
@@ -1072,6 +1099,19 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
       return;
     }
 
+    // 1. Thêm vào danh sách customTables ngay lập tức để bảng xuất hiện trên tab
+    const nextCustom = Array.from(new Set([...customTables, trimmed]));
+    setCustomTables(nextCustom);
+    try {
+      localStorage.setItem('kitchen_inventory_custom_tables_v2', JSON.stringify(nextCustom));
+    } catch {
+      // ignore
+    }
+    if (onUpdateCustomTables) {
+      onUpdateCustomTables(nextCustom);
+    }
+
+    // 2. Xử lý sao chép danh mục mặt hàng nếu người dùng chọn
     let newItemsToAppend: InventoryCheckItem[] = [];
     if (cloneFromCurrentTable && rowsForSelectedDateAndTable.length > 0) {
       // Sao chép danh mục mặt hàng từ tủ hiện tại sang tủ mới với số tồn đặt về 0
@@ -1083,16 +1123,18 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
         itemName: item.itemName,
         prevStock: '0',
         importQty: '0',
+        usedQty: '0',
         stockQty: '0',
         wasteQty: '0',
         minThreshold: item.minThreshold ?? 0,
         unit: item.unit || 'kg',
         statusType: 'ton',
+        isManualStock: false,
         createdBy: currentUser?.fullName || 'Người tạo',
         createdAt: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
       }));
     } else {
-      // Bắt đầu với bảng trống, không tạo mặt hàng mẫu rác
+      // Bắt đầu với bảng trống để người dùng tự thêm mặt hàng bằng nút "+ Thêm Hàng"
       newItemsToAppend = [];
     }
 
@@ -1123,6 +1165,19 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     if (!window.confirm(`Bạn có chắc chắn muốn XÓA HOÀN TOÀN bảng/tủ "${tableToDelete}" khỏi hệ thống không?\n\nThao tác này sẽ xóa dứt điểm bảng này và toàn bộ danh mục mặt hàng của bảng trên tất cả các ngày!`)) {
       return;
     }
+
+    // Xóa khỏi customTables
+    const nextCustom = customTables.filter((t) => t.trim() !== tableToDelete.trim());
+    setCustomTables(nextCustom);
+    try {
+      localStorage.setItem('kitchen_inventory_custom_tables_v2', JSON.stringify(nextCustom));
+    } catch {
+      // ignore
+    }
+    if (onUpdateCustomTables) {
+      onUpdateCustomTables(nextCustom);
+    }
+
     const nextAll = localItems.filter(
       (i) => (i.tableName || DEFAULT_TABLE_NAME).trim() !== tableToDelete.trim()
     );
@@ -1266,10 +1321,10 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     setTimeout(() => setJustSavedBanner(false), 2500);
   };
 
-  // Thêm mặt hàng mới (Admin) vào bảng/tủ đang chọn
+  // Thêm mặt hàng mới (Admin / Manager) vào bảng/tủ đang chọn
   const handleAddNewItemSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isAdmin || !newItemName.trim()) return;
+    if (!canManageItems || !newItemName.trim()) return;
 
     const exists = rowsForSelectedDateAndTable.some(
       (i) => i.itemName.toLowerCase() === newItemName.trim().toLowerCase()
@@ -2475,11 +2530,25 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
 
       {/* Thanh chọn Bảng / Tủ Lưu Kiểm Tồn trong ngày */}
       <div className="bg-white rounded-2xl shadow-xs border border-zinc-200 p-2.5 sm:p-3 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none flex-1">
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none touch-pan-x flex-1">
           <span className="text-[11px] font-extrabold uppercase tracking-wider text-zinc-500 shrink-0 mr-1 flex items-center gap-1">
             <PackageCheck className="w-3.5 h-3.5 text-emerald-600" />
-            <span>Khu Vực Tủ:</span>
+            <span className="hidden xs:inline">Khu Vực:</span>
           </span>
+
+          {/* Nút + Thêm Bảng Tủ Mới (luôn hiển thị rõ ngay đầu dải tab trên mobile) */}
+          <button
+            type="button"
+            onClick={() => {
+              setNewTableNameInput('');
+              setIsAddTableModalOpen(true);
+            }}
+            className="px-2.5 py-1.5 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white flex items-center gap-1 shrink-0 shadow-xs active:scale-95 transition"
+            title="Thêm bảng kiểm tồn cho tủ khác trong ngày hôm nay"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>+ Bảng Mới</span>
+          </button>
 
           {existingTablesForDate.map((tableName) => {
             const isActive = tableName === selectedTable;
@@ -2517,20 +2586,6 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
               </button>
             );
           })}
-
-          {/* Nút + Thêm Bảng Tủ Mới */}
-          <button
-            type="button"
-            onClick={() => {
-              setNewTableNameInput('');
-              setIsAddTableModalOpen(true);
-            }}
-            className="px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white flex items-center gap-1 shrink-0 shadow-xs active:scale-95 transition"
-            title="Thêm bảng kiểm tồn cho tủ khác trong ngày hôm nay"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>+ Bảng Tủ Mới</span>
-          </button>
         </div>
 
         {/* Nút Xóa Tủ hiện tại (Nếu có từ 2 tủ trở lên trong ngày) */}
@@ -2622,7 +2677,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
         </div>
 
         <div className="flex items-center gap-2 self-end md:self-auto flex-wrap">
-          {isAdmin && (
+          {canManageItems && (
             <button
               type="button"
               onClick={() => {
@@ -2709,7 +2764,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                             <span>Lấy danh mục từ ngày gần nhất</span>
                           </button>
                         )}
-                        {isAdmin && (
+                        {canManageItems && (
                           <button
                             type="button"
                             onClick={() => setIsAddItemModalOpen(true)}

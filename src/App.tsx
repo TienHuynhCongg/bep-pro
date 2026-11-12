@@ -2331,6 +2331,16 @@ export default function App() {
     showToast(`🗑️ Admin đã xóa bảng tồn kiểm ngày ${dateStr}`);
   };
 
+  const handleUpdateCustomTables = (newCustomTables: string[]) => {
+    const nextConfig = {
+      ...appConfigRef.current,
+      customTables: newCustomTables,
+    };
+    appConfigRef.current = nextConfig;
+    setAppConfig(nextConfig);
+    pushStateToServer({ appConfig: nextConfig });
+  };
+
   // Find currently active nav item
   const currentNavItem = navItems.find((item) => item.id === activeTabId) || navItems[0];
   const pendingTasksCount = tasks.filter((t) => !t.completed).length;
@@ -2498,7 +2508,7 @@ export default function App() {
         )}
 
         {/* Main Body */}
-        <main className="flex-grow max-w-5xl w-full mx-auto px-3 sm:px-6 py-3.5 sm:py-5 space-y-3.5">
+        <main className="flex-grow max-w-5xl w-full mx-auto px-3 sm:px-6 pt-3.5 pb-24 sm:py-5 space-y-3.5">
           {/* Render View based on targetType of active Tab with role-based permission verification */}
           {currentNavItem && canRoleAccessTab(currentUser?.role, currentNavItem.targetType, currentNavItem) ? (
             <>
@@ -2541,6 +2551,8 @@ export default function App() {
                   onCloseOrderListModal={() => setAutoOpenOrderList(false)}
                   onLowStockCountChange={setRealtimeLowStockCount}
                   onRestoreEmergencyInventory={handleRestoreEmergencyInventory}
+                  customTables={appConfig.customTables || []}
+                  onUpdateCustomTables={handleUpdateCustomTables}
                 />
               )}
 
