@@ -158,6 +158,7 @@ export interface AppConfig {
   emailBackupFrequency?: 'weekly' | 'daily';
   lastEmailBackupAt?: number;
   customTables?: string[];
+  defaultTableName?: string;
 }
 
 export type UserRole = 'admin' | 'manager' | 'staff';

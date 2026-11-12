@@ -58,6 +58,7 @@ export interface KitchenServerState {
   lastHourlyReminderKey?: string;
   lastEmailBackupWeek?: string;
   lastEmailBackupDay?: string;
+  lastAutoCopiedInventoryDate?: string;
   isSeedReset?: boolean;
   updatedAt: number;
 }
@@ -191,6 +192,154 @@ function cleanServerTasks(tasks: any[]): any[] {
     }
     return true;
   });
+}
+
+function parseVnDateInfo(dateStr: unknown): { day: number; month: number; year: number; ms: number; key: string } | null {
+  if (typeof dateStr !== 'string') return null;
+  const parts = dateStr.trim().split('/');
+  if (parts.length !== 3) return null;
+  const day = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10);
+  const year = parseInt(parts[2], 10);
+  if (!Number.isFinite(day) || !Number.isFinite(month) || !Number.isFinite(year)) return null;
+  const ms = new Date(year, month - 1, day).getTime();
+  if (Number.isNaN(ms)) return null;
+  return { day, month, year, ms, key: `${day}/${month}/${year}` };
+}
+
+function getVnNowDateInfo(now: Date = new Date()): { day: number; month: number; year: number; ms: number; key: string } {
+  const vnTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+  const day = vnTime.getDate();
+  const month = vnTime.getMonth() + 1;
+  const year = vnTime.getFullYear();
+  return {
+    day,
+    month,
+    year,
+    ms: new Date(year, month - 1, day).getTime(),
+    key: `${day}/${month}/${year}`,
+  };
+}
+
+/**
+ * Tự động sao chép tất cả các bảng kiểm tồn sang ngày mới (theo giờ Việt Nam UTC+7).
+ * Chạy 1 lần cho mỗi ngày mới; giữ nguyên ngày cũ và tôn trọng nếu Admin chủ động xóa bảng ngày hôm nay.
+ */
+function autoCopyInventoryToToday(state: KitchenServerState): boolean {
+  if (!state || !Array.isArray(state.inventory) || state.inventory.length === 0) {
+    return false;
+  }
+
+  const todayInfo = getVnNowDateInfo();
+  if (state.lastAutoCopiedInventoryDate === todayInfo.key) {
+    return false;
+  }
+
+  const invList: any[] = state.inventory;
+  const pastDatesMap = new Map<string, { dateStr: string; ms: number }>();
+  let existingTodayDateStr: string | null = null;
+
+  for (const item of invList) {
+    if (!item || typeof item !== 'object') continue;
+    const info = parseVnDateInfo(item.dateStr);
+    if (!info) continue;
+    if (info.ms === todayInfo.ms) {
+      if (!existingTodayDateStr) existingTodayDateStr = String(item.dateStr);
+    } else if (info.ms < todayInfo.ms) {
+      if (!pastDatesMap.has(info.key)) {
+        pastDatesMap.set(info.key, { dateStr: String(item.dateStr), ms: info.ms });
+      }
+    }
+  }
+
+  // Nếu chưa từng có ngày nào trong quá khứ trước hôm nay -> không có gì để sao chép sang ngày mới
+  if (pastDatesMap.size === 0) {
+    return false;
+  }
+
+  const pastDatesSorted = Array.from(pastDatesMap.entries()).sort((a, b) => b[1].ms - a[1].ms);
+  const targetDateStr = existingTodayDateStr || todayInfo.key;
+
+  const defaultTableName =
+    typeof state.appConfig?.defaultTableName === 'string' && state.appConfig.defaultTableName.trim()
+      ? state.appConfig.defaultTableName.trim()
+      : 'Tủ Mát Chính';
+
+  const tableSet = new Set<string>([defaultTableName]);
+  if (Array.isArray(state.appConfig?.customTables)) {
+    for (const t of state.appConfig.customTables) {
+      if (typeof t === 'string' && t.trim()) tableSet.add(t.trim());
+    }
+  }
+  for (const item of invList) {
+    if (!item || typeof item !== 'object') continue;
+    const tName = (typeof item.tableName === 'string' && item.tableName.trim()) || defaultTableName;
+    tableSet.add(tName);
+  }
+
+  const newlyCopied: any[] = [];
+  const baseTs = Date.now();
+
+  for (const tableName of tableSet) {
+    // Nếu bảng/tủ này đã có mặt hàng trong ngày hôm nay thì giữ nguyên
+    const hasTodayRowsForTable = invList.some((item: any) => {
+      const info = parseVnDateInfo(item?.dateStr);
+      if (!info || info.ms !== todayInfo.ms) return false;
+      const tName = (typeof item?.tableName === 'string' && item.tableName.trim()) || defaultTableName;
+      return tName === tableName;
+    });
+    if (hasTodayRowsForTable) continue;
+
+    // Tìm ngày gần nhất trong quá khứ có mặt hàng của bảng/tủ này
+    let sourceItems: any[] = [];
+    for (const [pastKey] of pastDatesSorted) {
+      const candidates = invList.filter((item: any) => {
+        const info = parseVnDateInfo(item?.dateStr);
+        if (!info || info.key !== pastKey) return false;
+        const tName = (typeof item?.tableName === 'string' && item.tableName.trim()) || defaultTableName;
+        return tName === tableName && !String(item?.itemName || '').includes('Mặt hàng 1');
+      });
+      if (candidates.length > 0) {
+        sourceItems = candidates;
+        break;
+      }
+    }
+
+    if (sourceItems.length === 0) continue;
+
+    sourceItems.forEach((item: any, idx: number) => {
+      const prevEndingStock = parseFloat(item.stockQty) || 0;
+      newlyCopied.push({
+        id: `inv-${baseTs}-${newlyCopied.length}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
+        stt: item.stt || idx + 1,
+        dateStr: targetDateStr,
+        tableName,
+        itemName: item.itemName,
+        prevStock: String(prevEndingStock),
+        importQty: '0',
+        usedQty: '0',
+        wasteQty: '0',
+        stockQty: String(prevEndingStock),
+        minThreshold: item.minThreshold ?? 0,
+        unit: item.unit || 'kg',
+        statusType: 'ton',
+        isManualStock: false,
+        createdBy: 'Hệ thống tự động',
+        createdAt: '00:00',
+      });
+    });
+  }
+
+  state.lastAutoCopiedInventoryDate = todayInfo.key;
+
+  if (newlyCopied.length > 0) {
+    state.inventory = [...invList, ...newlyCopied];
+    state.updatedAt = Date.now();
+    console.log(`📦 [Auto Copy Inventory] Đã tự động sao chép ${newlyCopied.length} mặt hàng sang ngày mới (${targetDateStr})`);
+    return true;
+  }
+
+  return true;
 }
 
 const MONGODB_URI = process.env.MONGODB_URI;
@@ -582,6 +731,7 @@ export function createKitchenApiMiddleware() {
 
   let dbState: KitchenServerState = loadDb();
   const vapidKeys = ensureVapidKeys(dbState);
+  autoCopyInventoryToToday(dbState);
   saveDb(dbState);
 
   const sseClients = new Set<ServerResponse>();
@@ -590,6 +740,9 @@ export function createKitchenApiMiddleware() {
   initMongoConnection((cloudState) => {
     dbState = cloudState;
     ensureVapidKeys(dbState);
+    if (autoCopyInventoryToToday(dbState)) {
+      saveDb(dbState);
+    }
     broadcastSse({
       type: 'STATE_UPDATED',
       senderId: 'server-mongo-init',
@@ -846,6 +999,11 @@ export function createKitchenApiMiddleware() {
       }
     }
 
+    // 5. Tự động sao chép bảng kiểm tồn khi qua ngày mới (theo giờ Việt Nam UTC+7)
+    if (autoCopyInventoryToToday(dbState)) {
+      changed = true;
+    }
+
     if (changed) {
       dbState.updatedAt = nowMs;
       saveDb(dbState);
@@ -997,13 +1155,20 @@ export function createKitchenApiMiddleware() {
 
   // GET /api/state - Lấy dữ liệu đồng bộ mới nhất từ Server
   router.get('/api/state', (_req, res) => {
+    let stateChanged = false;
     if (Array.isArray(dbState.tasks)) {
       const cleaned = cleanServerTasks(dbState.tasks);
       if (cleaned.length !== dbState.tasks.length) {
         dbState.tasks = cleaned;
         dbState.updatedAt = Date.now();
-        saveDb(dbState);
+        stateChanged = true;
       }
+    }
+    if (autoCopyInventoryToToday(dbState)) {
+      stateChanged = true;
+    }
+    if (stateChanged) {
+      saveDb(dbState);
     }
     res.setHeader('Content-Type', 'application/json');
     res.end(
@@ -1107,6 +1272,16 @@ export function createKitchenApiMiddleware() {
     if (appConfig && typeof appConfig === 'object') {
       if (senderRole === 'admin' || !dbState.appConfig) {
         dbState.appConfig = appConfig;
+      } else {
+        // Cho phép cập nhật an toàn danh sách bảng/tủ kiểm tồn và tên bảng mặc định mà không ảnh hưởng cấu hình Admin
+        const nextCfg = { ...dbState.appConfig };
+        if (Array.isArray(appConfig.customTables)) {
+          nextCfg.customTables = appConfig.customTables;
+        }
+        if (typeof appConfig.defaultTableName === 'string' && appConfig.defaultTableName.trim()) {
+          nextCfg.defaultTableName = appConfig.defaultTableName.trim();
+        }
+        dbState.appConfig = nextCfg;
       }
     }
     if (Array.isArray(toolbarItems)) {
@@ -1161,7 +1336,24 @@ export function createKitchenApiMiddleware() {
     if (Array.isArray(deleteRequests)) dbState.deleteRequests = deleteRequests;
     if (Array.isArray(notifications)) dbState.notifications = notifications;
     if (Array.isArray(recipes)) dbState.recipes = recipes;
-    if (Array.isArray(inventory)) dbState.inventory = inventory;
+    if (Array.isArray(inventory)) {
+      const todayInfo = getVnNowDateInfo();
+      const prevHadToday =
+        Array.isArray(dbState.inventory) &&
+        dbState.inventory.some((item: any) => {
+          const info = parseVnDateInfo(item?.dateStr);
+          return Boolean(info && info.ms === todayInfo.ms);
+        });
+      const nextHasToday = inventory.some((item: any) => {
+        const info = parseVnDateInfo(item?.dateStr);
+        return Boolean(info && info.ms === todayInfo.ms);
+      });
+      if (prevHadToday && !nextHasToday) {
+        // Admin đã chủ động xóa bảng ngày hôm nay -> đánh dấu đã xử lý ngày này để không tự copy đè lại
+        dbState.lastAutoCopiedInventoryDate = todayInfo.key;
+      }
+      dbState.inventory = inventory;
+    }
     dbState.updatedAt = Date.now();
     dbState.isSeedReset = false;
 

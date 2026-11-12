@@ -2284,6 +2284,15 @@ export default function App() {
     dateStr: string,
     updatedAllItems: InventoryCheckItem[]
   ) => {
+    try {
+      const p = (dateStr || '').split('/');
+      const key = p.length === 3 ? `${parseInt(p[0], 10)}/${parseInt(p[1], 10)}/${parseInt(p[2], 10)}` : dateStr;
+      if (localStorage.getItem('kitchen_inventory_manual_deleted_date') === key) {
+        localStorage.removeItem('kitchen_inventory_manual_deleted_date');
+      }
+    } catch {
+      // ignore
+    }
     saveEmergencyInventorySnapshot(updatedAllItems);
     inventoryRef.current = updatedAllItems;
     setInventory(updatedAllItems);
@@ -2322,8 +2331,19 @@ export default function App() {
       showToast('🔒 Chỉ Bếp Trưởng (Admin) mới có quyền xóa bảng tồn kiểm theo ngày!', 'error');
       return;
     }
+    const p = (dateStr || '').split('/');
+    const targetKey = p.length === 3 ? `${parseInt(p[0], 10)}/${parseInt(p[1], 10)}/${parseInt(p[2], 10)}` : dateStr;
+    try {
+      localStorage.setItem('kitchen_inventory_manual_deleted_date', targetKey);
+    } catch {
+      // ignore
+    }
     const currentList = inventoryRef.current;
-    const nextInventory = currentList.filter((i) => i.dateStr !== dateStr);
+    const nextInventory = currentList.filter((i) => {
+      const ip = (i.dateStr || '').split('/');
+      const iKey = ip.length === 3 ? `${parseInt(ip[0], 10)}/${parseInt(ip[1], 10)}/${parseInt(ip[2], 10)}` : i.dateStr;
+      return iKey !== targetKey;
+    });
     saveEmergencyInventorySnapshot(currentList);
     inventoryRef.current = nextInventory;
     setInventory(nextInventory);
@@ -2339,6 +2359,35 @@ export default function App() {
     appConfigRef.current = nextConfig;
     setAppConfig(nextConfig);
     pushStateToServer({ appConfig: nextConfig });
+  };
+
+  const handleAutoPopulateTodayInventory = (updatedAllItems: InventoryCheckItem[]) => {
+    saveEmergencyInventorySnapshot(updatedAllItems);
+    inventoryRef.current = updatedAllItems;
+    setInventory(updatedAllItems);
+    pushStateToServer({ inventory: updatedAllItems });
+  };
+
+  const handleRenameInventoryTable = (
+    oldName: string,
+    newName: string,
+    updatedAllItems: InventoryCheckItem[],
+    nextCustomTables: string[],
+    nextDefaultTableName?: string
+  ) => {
+    saveEmergencyInventorySnapshot(updatedAllItems);
+    inventoryRef.current = updatedAllItems;
+    setInventory(updatedAllItems);
+
+    const nextConfig = {
+      ...appConfigRef.current,
+      customTables: nextCustomTables,
+      ...(nextDefaultTableName ? { defaultTableName: nextDefaultTableName } : {}),
+    };
+    appConfigRef.current = nextConfig;
+    setAppConfig(nextConfig);
+    pushStateToServer({ inventory: updatedAllItems, appConfig: nextConfig });
+    showToast(`✏️ Đã đổi tên bảng "${oldName}" → "${newName}"`);
   };
 
   // Find currently active nav item
@@ -2552,7 +2601,10 @@ export default function App() {
                   onLowStockCountChange={setRealtimeLowStockCount}
                   onRestoreEmergencyInventory={handleRestoreEmergencyInventory}
                   customTables={appConfig.customTables || []}
+                  defaultTableName={appConfig.defaultTableName}
                   onUpdateCustomTables={handleUpdateCustomTables}
+                  onRenameTable={handleRenameInventoryTable}
+                  onAutoPopulateToday={handleAutoPopulateTodayInventory}
                 />
               )}
 
