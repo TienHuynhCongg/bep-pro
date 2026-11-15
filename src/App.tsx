@@ -52,14 +52,15 @@ import {
 import {
   pushStateToServer as rawPushStateToServer,
   fetchStateFromServer,
+  flushOfflineQueue,
+  hasPendingOfflineSync,
   getClientSenderId,
-  getLastSeenServerTs,
   rememberServerTs,
-  getLocalLastEditTs,
   markLocalEdit,
   subscribeSyncStatus,
   SyncStateStatus,
   ServerSyncPayload,
+  InventorySyncMeta,
 } from './utils/serverSync.ts';
 import { CheckCircle2, AlertCircle, ShieldAlert, Check, X, BellRing } from 'lucide-react';
 
@@ -159,6 +160,41 @@ function ensureLatestNavItems(list: NavItem[]): NavItem[] {
     else cloned.push(chefItem);
   }
   return cloned;
+}
+
+function getInvDateKey(dateStr?: string): string {
+  const parts = (dateStr || '').trim().split('/');
+  if (parts.length !== 3) return (dateStr || '').trim();
+  const d = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10);
+  const y = parseInt(parts[2], 10);
+  if (!Number.isFinite(d) || !Number.isFinite(m) || !Number.isFinite(y)) {
+    return (dateStr || '').trim();
+  }
+  return `${d}/${m}/${y}`;
+}
+
+function mergeInventoriesSafe(
+  primaryList: InventoryCheckItem[],
+  secondaryList: InventoryCheckItem[],
+  defaultTableName = 'Tủ Mát Chính'
+): InventoryCheckItem[] {
+  const map = new Map<string, InventoryCheckItem>();
+  const makeKey = (item: InventoryCheckItem) => {
+    const dk = getInvDateKey(item.dateStr);
+    const tn = (item.tableName || defaultTableName).trim().toLowerCase();
+    const iname = (item.itemName || '').trim().toLowerCase();
+    return iname ? `${dk}|||${tn}|||${iname}` : item.id;
+  };
+  for (const item of secondaryList || []) {
+    if (!item) continue;
+    map.set(makeKey(item), item);
+  }
+  for (const item of primaryList || []) {
+    if (!item) continue;
+    map.set(makeKey(item), item);
+  }
+  return Array.from(map.values());
 }
 
 export default function App() {
@@ -321,6 +357,8 @@ export default function App() {
   const [showLoginModal, setShowLoginModal] = useState<boolean>(false);
 
   const [serverConnected, setServerConnected] = useState<boolean>(false);
+  const [hasLoadedServerState, setHasLoadedServerState] = useState<boolean>(false);
+  const hasLoadedServerStateRef = useRef<boolean>(false);
   const [syncStatus, setSyncStatus] = useState<SyncStateStatus>('synced');
 
   useEffect(() => {
@@ -360,8 +398,8 @@ export default function App() {
     if (realtimeLowStockCount !== null) {
       return realtimeLowStockCount;
     }
-    const todayStr = new Date().toLocaleDateString('vi-VN');
-    const todayItems = inventory.filter((item) => (item.dateStr || todayStr) === todayStr);
+    const todayKey = getInvDateKey(new Date().toLocaleDateString('vi-VN'));
+    const todayItems = inventory.filter((item) => getInvDateKey(item.dateStr) === todayKey || !item.dateStr);
     const targetItems = todayItems.length > 0 ? todayItems : inventory;
     return targetItems.filter((item) => {
       const stock = parseFloat(item.stockQty);
@@ -821,6 +859,15 @@ export default function App() {
   // Chạy 1 lần duy nhất khi mở app để kết nối siêu tốc và không ghi đè state khi đổi user
   useEffect(() => {
     let eventSource: EventSource | null = null;
+    let isCancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const markServerLoaded = () => {
+      if (!hasLoadedServerStateRef.current) {
+        hasLoadedServerStateRef.current = true;
+        setHasLoadedServerState(true);
+      }
+    };
 
     const applyServerState = (s: any) => {
       const serverTs = s.updatedAt || 0;
@@ -872,56 +919,76 @@ export default function App() {
       }
     };
 
-    fetchStateFromServer().then((res) => {
-      if (res.ok && res.state) {
-        setServerConnected(true);
-        const s = res.state;
-        const serverTs = s.updatedAt || 0;
-        const localLastEditTs = getLocalLastEditTs();
-        const isAdmin = currentUserRef.current?.role === 'admin';
+    const syncFromServerOnBoot = (attempt = 0) => {
+      fetchStateFromServer().then((res) => {
+        if (isCancelled) return;
+        if (res.ok && res.state) {
+          setServerConnected(true);
+          const s = res.state;
 
-        const localInventory = inventoryRef.current || [];
-        const localTasks = tasksRef.current || [];
+          const localInventory = inventoryRef.current || [];
+          const localTasks = tasksRef.current || [];
 
-        // Kiểm tra xem máy chủ có vừa bị khởi động lại từ file seed gốc (Render spin-down) không
-        const isServerSeedReset = Boolean(s.isSeedReset);
-        const serverDates = new Set(
-          Array.isArray(s.inventory) ? s.inventory.map((i: any) => i.dateStr).filter(Boolean) : []
-        );
-        const localDates = new Set(localInventory.map((i) => i.dateStr).filter(Boolean));
-        const localHasExtraDates = Array.from(localDates).some((d) => !serverDates.has(d));
-        const localHasMoreInventory = localInventory.length > (s.inventory?.length || 0);
-        const localHasMoreTasks = localTasks.length > (s.tasks?.length || 0);
+          // Chỉ khôi phục toàn bộ khi máy chủ thực sự vừa restart trắng từ file seed gốc (Render spin-down không có Mongo)
+          const isServerSeedReset = Boolean(s.isSeedReset);
+          const serverDates = new Set(
+            Array.isArray(s.inventory) ? s.inventory.map((i: any) => getInvDateKey(i.dateStr)).filter(Boolean) : []
+          );
+          const localDates = new Set(localInventory.map((i) => getInvDateKey(i.dateStr)).filter(Boolean));
+          const localHasExtraDates = Array.from(localDates).some((d) => !serverDates.has(d));
+          const localHasMoreInventory = localInventory.length > (s.inventory?.length || 0);
+          const localHasMoreTasks = localTasks.length > (s.tasks?.length || 0);
 
-        const localHasRicherData =
-          (localHasExtraDates || localHasMoreInventory || localHasMoreTasks) &&
-          (localInventory.length > 0 || localTasks.length > 0);
+          const localHasRicherData =
+            (localHasExtraDates || localHasMoreInventory || localHasMoreTasks) &&
+            (localInventory.length > 0 || localTasks.length > 0);
 
-        // TH1: Máy chủ vừa restart từ seed file mà thiết bị này có dữ liệu thật phong phú hơn -> Tự động khôi phục máy chủ
-        // TH2: Thiết bị này có thao tác sửa đổi gần đây chưa kịp đẩy (localLastEditTs > serverTs + 1500)
-        const shouldRestoreServer =
-          (isServerSeedReset && localHasRicherData) ||
-          (isAdmin && localLastEditTs > 0 && localLastEditTs > serverTs + 1500);
+          if (isServerSeedReset && localHasRicherData) {
+            // Merge an toàn thay vì ghi đè mù: giữ nguyên mọi ngày ở cả Server và thiết bị
+            const defaultTbl = (s.appConfig?.defaultTableName || appConfigRef.current?.defaultTableName || 'Tủ Mát Chính').trim();
+            const mergedInventory = mergeInventoriesSafe(
+              localInventory,
+              Array.isArray(s.inventory) ? s.inventory : [],
+              defaultTbl
+            );
+            inventoryRef.current = mergedInventory;
+            setInventory(mergedInventory);
+            saveEmergencyInventorySnapshot(mergedInventory);
 
-        if (shouldRestoreServer) {
-          console.log('🛡️ [Auto Sync] Tự động bảo toàn và đẩy dữ liệu chuẩn từ thiết bị lên máy chủ...');
-          pushStateToServer({
-            tasks: localTasks.length > 0 ? filterOutDefaultTasks(localTasks) : filterOutDefaultTasks(s.tasks || []),
-            logs: logs.length > 0 ? logs : s.logs,
-            staffList: staffListRef.current.length > 0 ? staffListRef.current : s.staffList,
-            toolbarItems: navItems,
-            deleteRequests,
-            notifications: notificationsRef.current,
-            recipes: recipes.length > 0 ? recipes : s.recipes,
-            inventory: localInventory.length > 0 ? localInventory : s.inventory,
-            appConfig,
-          });
-          showToast('🛡️ Đã tự động bảo toàn và đồng bộ dữ liệu lên máy chủ!');
+            console.log('🛡️ [Auto Sync] Khôi phục an toàn (merge) từ thiết bị khi máy chủ vừa reset từ seed...');
+            pushStateToServer({
+              tasks: localTasks.length > 0 ? filterOutDefaultTasks(localTasks) : filterOutDefaultTasks(s.tasks || []),
+              logs: logs.length > 0 ? logs : s.logs,
+              staffList: staffListRef.current.length > 0 ? staffListRef.current : s.staffList,
+              toolbarItems: navItems,
+              deleteRequests,
+              notifications: notificationsRef.current,
+              recipes: recipes.length > 0 ? recipes : s.recipes,
+              inventory: mergedInventory,
+              inventorySyncMeta: { mode: 'merge_union' },
+              appConfig,
+            });
+            showToast('🛡️ Đã tự động bảo toàn và đồng bộ dữ liệu lên máy chủ!');
+          } else {
+            applyServerState(s);
+            // Nếu máy này còn thao tác offline chưa đẩy lên thì đẩy bù ngay sau khi nhận state từ server
+            if (hasPendingOfflineSync()) {
+              flushOfflineQueue();
+            }
+          }
+          markServerLoaded();
+        } else if (attempt < 6) {
+          // Render Free có thể mất 15-40s để đánh thức server -> tự thử lại trước khi cho phép auto-copy
+          retryTimer = setTimeout(() => {
+            if (!isCancelled) syncFromServerOnBoot(attempt + 1);
+          }, 4000);
         } else {
-          applyServerState(s);
+          markServerLoaded();
         }
-      }
-    });
+      });
+    };
+
+    syncFromServerOnBoot(0);
 
     try {
       eventSource = new EventSource('/api/events');
@@ -930,6 +997,13 @@ export default function App() {
       eventSource.onmessage = (e) => {
         try {
           const data = JSON.parse(e.data);
+          if (data.type === 'CONNECTED' && data.state) {
+            if (!hasLoadedServerStateRef.current) {
+              applyServerState(data.state);
+              markServerLoaded();
+            }
+            return;
+          }
           if (data.type === 'STATE_UPDATED' && data.senderId !== getClientSenderId()) {
             const s = data.state;
             if (s) {
@@ -957,7 +1031,9 @@ export default function App() {
               if (Array.isArray(s.inventory)) {
                 inventoryRef.current = s.inventory;
                 setInventory(s.inventory);
+                saveEmergencyInventorySnapshot(s.inventory);
               }
+              markServerLoaded();
             }
 
             const notif = data.notification;
@@ -1019,8 +1095,9 @@ export default function App() {
           navigator.serviceWorker.controller.postMessage({ type: 'CLEAR_BADGE' });
         }
         fetchStateFromServer().then((res) => {
-          if (res.ok && res.state) {
+          if (!isCancelled && res.ok && res.state) {
             applyServerState(res.state);
+            markServerLoaded();
           }
         });
       }
@@ -1028,6 +1105,8 @@ export default function App() {
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
+      isCancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
       eventSource?.close();
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
@@ -2221,7 +2300,10 @@ export default function App() {
         if (Array.isArray(restoredInv) && restoredInv.length > 0) {
           inventoryRef.current = restoredInv;
           setInventory(restoredInv);
-          pushStateToServer({ inventory: restoredInv });
+          pushStateToServer({
+            inventory: restoredInv,
+            inventorySyncMeta: { mode: 'restore_replace' },
+          });
           showToast(`Đã phục hồi ${restoredInv.length} dòng tồn kiểm từ bản lưu khẩn cấp!`);
           return;
         }
@@ -2236,7 +2318,10 @@ export default function App() {
           if (allArchivedItems.length > 0) {
             inventoryRef.current = allArchivedItems;
             setInventory(allArchivedItems);
-            pushStateToServer({ inventory: allArchivedItems });
+            pushStateToServer({
+              inventory: allArchivedItems,
+              inventorySyncMeta: { mode: 'restore_replace' },
+            });
             showToast(`Đã phục hồi ${allArchivedItems.length} dòng tồn kiểm từ kho lưu trữ theo ngày!`);
             return;
           }
@@ -2252,7 +2337,10 @@ export default function App() {
         if (Array.isArray(parsed.inventory) && parsed.inventory.length > 0) {
           inventoryRef.current = parsed.inventory;
           setInventory(parsed.inventory);
-          pushStateToServer({ inventory: parsed.inventory });
+          pushStateToServer({
+            inventory: parsed.inventory,
+            inventorySyncMeta: { mode: 'restore_replace' },
+          });
           showToast(`Đã phục hồi ${parsed.inventory.length} dòng tồn kiểm từ bản sao lưu gần nhất!`);
           return;
         }
@@ -2265,28 +2353,70 @@ export default function App() {
   };
 
   // 2. Handlers Lưu Số Lượng Tồn Kiểm (Inventory Check - Sửa trực tiếp trong bảng, Lưu theo ngày, Chỉ Admin được xóa)
-  const handleSaveInventoryItem = (itemPayload: InventoryCheckItem, isEdit: boolean) => {
+  const handleSaveInventoryItem = (
+    itemPayload: InventoryCheckItem,
+    isEdit: boolean,
+    cascadedItems?: InventoryCheckItem[]
+  ) => {
     const currentList = inventoryRef.current;
-    const exists = currentList.some((i) => i.id === itemPayload.id);
-    const nextInventory =
-      isEdit && exists
-        ? currentList.map((i) => (i.id === itemPayload.id ? itemPayload : i))
-        : [...currentList, itemPayload];
+    const upsertMap = new Map<string, InventoryCheckItem>();
+    upsertMap.set(itemPayload.id, itemPayload);
+    if (Array.isArray(cascadedItems)) {
+      cascadedItems.forEach((ci) => upsertMap.set(ci.id, ci));
+    }
+
+    let nextInventory = currentList.map((i) => upsertMap.get(i.id) || i);
+    upsertMap.forEach((uItem, id) => {
+      if (!nextInventory.some((i) => i.id === id)) {
+        nextInventory = [...nextInventory, uItem];
+      }
+    });
+    if (!isEdit && !currentList.some((i) => i.id === itemPayload.id) && !nextInventory.some((i) => i.id === itemPayload.id)) {
+      nextInventory = [...nextInventory, itemPayload];
+    }
+
     saveEmergencyInventorySnapshot(nextInventory);
     inventoryRef.current = nextInventory;
     setInventory(nextInventory);
 
-    // Dữ liệu được đồng bộ ngầm lên Server, không tạo thông báo cho đến khi người dùng bấm Lưu
-    pushStateToServer({ inventory: nextInventory });
+    // Dữ liệu được đồng bộ ngầm lên Server theo từng dòng cụ thể, không bao giờ ghi đè ngày khác
+    pushStateToServer({
+      inventory: nextInventory,
+      inventorySyncMeta: {
+        mode: 'upsert_item',
+        item: itemPayload,
+        cascadedItems: cascadedItems && cascadedItems.length > 0 ? cascadedItems : undefined,
+      },
+    });
+  };
+
+  const handleSaveCascadedItemsSilent = (
+    changedItems: InventoryCheckItem[],
+    updatedAllItems: InventoryCheckItem[]
+  ) => {
+    if (!Array.isArray(changedItems) || changedItems.length === 0) return;
+    saveEmergencyInventorySnapshot(updatedAllItems);
+    inventoryRef.current = updatedAllItems;
+    setInventory(updatedAllItems);
+    pushStateToServer({
+      inventory: updatedAllItems,
+      inventorySyncMeta: { mode: 'upsert_items', items: changedItems },
+    });
   };
 
   const handleSaveDailyInventoryTable = (
     dateStr: string,
-    updatedAllItems: InventoryCheckItem[]
+    updatedAllItems: InventoryCheckItem[],
+    scope?: {
+      mode: 'replace_date_table';
+      dateKey: string;
+      tableName: string;
+      rows: InventoryCheckItem[];
+      cascadedItems?: InventoryCheckItem[];
+    }
   ) => {
+    const key = getInvDateKey(dateStr);
     try {
-      const p = (dateStr || '').split('/');
-      const key = p.length === 3 ? `${parseInt(p[0], 10)}/${parseInt(p[1], 10)}/${parseInt(p[2], 10)}` : dateStr;
       if (localStorage.getItem('kitchen_inventory_manual_deleted_date') === key) {
         localStorage.removeItem('kitchen_inventory_manual_deleted_date');
       }
@@ -2296,7 +2426,7 @@ export default function App() {
     saveEmergencyInventorySnapshot(updatedAllItems);
     inventoryRef.current = updatedAllItems;
     setInventory(updatedAllItems);
-    const countForDate = updatedAllItems.filter((i) => i.dateStr === dateStr).length;
+    const countForDate = updatedAllItems.filter((i) => getInvDateKey(i.dateStr) === key).length;
     const actorName = currentUser?.fullName || 'Nhân viên ca';
 
     const nextNotifs = createNotificationItem({
@@ -2307,7 +2437,11 @@ export default function App() {
       type: 'task_completed',
     });
 
-    pushStateToServer({ inventory: updatedAllItems, notifications: nextNotifs });
+    pushStateToServer({
+      inventory: updatedAllItems,
+      notifications: nextNotifs,
+      inventorySyncMeta: scope || { mode: 'merge_union' },
+    });
     showToast(`📦 Đã lưu bảng tồn kiểm ngày ${dateStr} (${countForDate} dòng)!`);
   };
 
@@ -2322,7 +2456,10 @@ export default function App() {
     saveEmergencyInventorySnapshot(currentList);
     inventoryRef.current = nextInventory;
     setInventory(nextInventory);
-    pushStateToServer({ inventory: nextInventory });
+    pushStateToServer({
+      inventory: nextInventory,
+      inventorySyncMeta: { mode: 'delete_item', itemId: id },
+    });
     showToast(target?.itemName ? `Đã xóa dòng tồn kiểm: "${target.itemName}"` : 'Đã xóa dòng trong bảng');
   };
 
@@ -2331,24 +2468,45 @@ export default function App() {
       showToast('🔒 Chỉ Bếp Trưởng (Admin) mới có quyền xóa bảng tồn kiểm theo ngày!', 'error');
       return;
     }
-    const p = (dateStr || '').split('/');
-    const targetKey = p.length === 3 ? `${parseInt(p[0], 10)}/${parseInt(p[1], 10)}/${parseInt(p[2], 10)}` : dateStr;
+    const targetKey = getInvDateKey(dateStr);
     try {
       localStorage.setItem('kitchen_inventory_manual_deleted_date', targetKey);
     } catch {
       // ignore
     }
     const currentList = inventoryRef.current;
-    const nextInventory = currentList.filter((i) => {
-      const ip = (i.dateStr || '').split('/');
-      const iKey = ip.length === 3 ? `${parseInt(ip[0], 10)}/${parseInt(ip[1], 10)}/${parseInt(ip[2], 10)}` : i.dateStr;
-      return iKey !== targetKey;
-    });
+    const nextInventory = currentList.filter((i) => getInvDateKey(i.dateStr) !== targetKey);
     saveEmergencyInventorySnapshot(currentList);
     inventoryRef.current = nextInventory;
     setInventory(nextInventory);
-    pushStateToServer({ inventory: nextInventory });
+    pushStateToServer({
+      inventory: nextInventory,
+      inventorySyncMeta: { mode: 'delete_date', dateKey: targetKey },
+    });
     showToast(`🗑️ Admin đã xóa bảng tồn kiểm ngày ${dateStr}`);
+  };
+
+  const handleDeleteInventoryTable = (
+    tableName: string,
+    updatedAllItems: InventoryCheckItem[],
+    nextCustomTables: string[]
+  ) => {
+    saveEmergencyInventorySnapshot(inventoryRef.current);
+    inventoryRef.current = updatedAllItems;
+    setInventory(updatedAllItems);
+
+    const nextConfig = {
+      ...appConfigRef.current,
+      customTables: nextCustomTables,
+    };
+    appConfigRef.current = nextConfig;
+    setAppConfig(nextConfig);
+    pushStateToServer({
+      inventory: updatedAllItems,
+      appConfig: nextConfig,
+      inventorySyncMeta: { mode: 'delete_table', tableName },
+    });
+    showToast(`🗑️ Đã xóa bảng/tủ "${tableName}"`);
   };
 
   const handleUpdateCustomTables = (newCustomTables: string[]) => {
@@ -2361,11 +2519,22 @@ export default function App() {
     pushStateToServer({ appConfig: nextConfig });
   };
 
-  const handleAutoPopulateTodayInventory = (updatedAllItems: InventoryCheckItem[]) => {
+  const handleAutoPopulateTodayInventory = (
+    updatedAllItems: InventoryCheckItem[],
+    todayKey?: string,
+    newTodayItems?: InventoryCheckItem[]
+  ) => {
     saveEmergencyInventorySnapshot(updatedAllItems);
     inventoryRef.current = updatedAllItems;
     setInventory(updatedAllItems);
-    pushStateToServer({ inventory: updatedAllItems });
+    const resolvedTodayKey = todayKey || getInvDateKey(new Date().toLocaleDateString('vi-VN'));
+    pushStateToServer({
+      inventory: updatedAllItems,
+      inventorySyncMeta:
+        newTodayItems && newTodayItems.length > 0
+          ? { mode: 'auto_populate_today', todayKey: resolvedTodayKey, items: newTodayItems }
+          : { mode: 'merge_union' },
+    });
   };
 
   const handleRenameInventoryTable = (
@@ -2386,7 +2555,11 @@ export default function App() {
     };
     appConfigRef.current = nextConfig;
     setAppConfig(nextConfig);
-    pushStateToServer({ inventory: updatedAllItems, appConfig: nextConfig });
+    pushStateToServer({
+      inventory: updatedAllItems,
+      appConfig: nextConfig,
+      inventorySyncMeta: { mode: 'rename_table', oldName, newName },
+    });
     showToast(`✏️ Đã đổi tên bảng "${oldName}" → "${newName}"`);
   };
 
@@ -2591,9 +2764,11 @@ export default function App() {
                 <InventoryCheckView
                   items={inventory}
                   onSaveItem={handleSaveInventoryItem}
+                  onSaveItemsSilent={handleSaveCascadedItemsSilent}
                   onDeleteItem={handleDeleteInventoryItem}
                   onSaveDailyTable={handleSaveDailyInventoryTable}
                   onDeleteDateTable={handleDeleteInventoryDateTable}
+                  onDeleteTable={handleDeleteInventoryTable}
                   currentUser={currentUser}
                   recipes={recipes}
                   initialOpenOrderList={autoOpenOrderList}
@@ -2605,6 +2780,7 @@ export default function App() {
                   onUpdateCustomTables={handleUpdateCustomTables}
                   onRenameTable={handleRenameInventoryTable}
                   onAutoPopulateToday={handleAutoPopulateTodayInventory}
+                  canAutoPopulateToday={hasLoadedServerState}
                 />
               )}
 

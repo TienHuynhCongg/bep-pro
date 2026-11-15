@@ -221,6 +221,163 @@ function getVnNowDateInfo(now: Date = new Date()): { day: number; month: number;
   };
 }
 
+function getDefaultInvTableName(state: KitchenServerState): string {
+  return typeof state.appConfig?.defaultTableName === 'string' && state.appConfig.defaultTableName.trim()
+    ? state.appConfig.defaultTableName.trim()
+    : 'Tủ Mát Chính';
+}
+
+function normalizeInvTableName(tableName: unknown, defaultTableName: string): string {
+  return typeof tableName === 'string' && tableName.trim() ? tableName.trim() : defaultTableName;
+}
+
+function normalizeInvDateKey(dateStr: unknown): string {
+  const info = parseVnDateInfo(dateStr);
+  return info ? info.key : String(dateStr || '').trim();
+}
+
+function dedupeInventoryList(items: any[], defaultTableName: string): any[] {
+  if (!Array.isArray(items)) return [];
+  const keyToIndex = new Map<string, number>();
+  const result: any[] = [];
+  for (const item of items) {
+    if (!item || typeof item !== 'object') continue;
+    const dKey = normalizeInvDateKey(item.dateStr);
+    const tName = normalizeInvTableName(item.tableName, defaultTableName).toLowerCase();
+    const iName = String(item.itemName || '').trim().toLowerCase();
+    const dedupeKey = iName ? `${dKey}|||${tName}|||${iName}` : String(item.id || Math.random());
+    if (keyToIndex.has(dedupeKey)) {
+      const idx = keyToIndex.get(dedupeKey)!;
+      result[idx] = item;
+    } else {
+      keyToIndex.set(dedupeKey, result.length);
+      result.push(item);
+    }
+  }
+  return result;
+}
+
+function findPrevStockInSameTable(
+  invList: any[],
+  targetMs: number,
+  itemName: string,
+  tableName: string,
+  defaultTableName: string
+): number | null {
+  const normItem = String(itemName || '').trim().toLowerCase();
+  if (!normItem || !Number.isFinite(targetMs) || targetMs <= 0) return null;
+  let bestMs = -Infinity;
+  let bestStock: number | null = null;
+  for (const row of invList) {
+    if (!row || typeof row !== 'object') continue;
+    const info = parseVnDateInfo(row.dateStr);
+    if (!info || info.ms >= targetMs) continue;
+    const rowTable = normalizeInvTableName(row.tableName, defaultTableName);
+    if (rowTable !== tableName) continue;
+    if (String(row.itemName || '').trim().toLowerCase() !== normItem) continue;
+    if (info.ms > bestMs && row.stockQty !== undefined) {
+      bestMs = info.ms;
+      bestStock = parseFloat(row.stockQty) || 0;
+    }
+  }
+  return bestStock;
+}
+
+/**
+ * Tự động đồng bộ / sửa các dòng chưa khóa thủ công (`!isManualStock`) trên ngày hôm nay
+ * dựa theo Tồn cuối ngày trước cùng tủ -> đảm bảo Tồn = Nhập + Tồn Trước - Bán Ra luôn khớp 100%.
+ */
+function reconcileTodayInventoryRows(state: KitchenServerState): boolean {
+  if (!state || !Array.isArray(state.inventory) || state.inventory.length === 0) {
+    return false;
+  }
+  const defaultTableName = getDefaultInvTableName(state);
+  const deduped = dedupeInventoryList(state.inventory, defaultTableName);
+  let changed = deduped.length !== state.inventory.length;
+  const todayInfo = getVnNowDateInfo();
+
+  const updated = deduped.map((row) => {
+    if (!row || typeof row !== 'object') return row;
+    const info = parseVnDateInfo(row.dateStr);
+    if (!info || info.ms !== todayInfo.ms) return row;
+
+    const rowTable = normalizeInvTableName(row.tableName, defaultTableName);
+    const actualPrev = findPrevStockInSameTable(deduped, todayInfo.ms, row.itemName, rowTable, defaultTableName);
+    const prevNum = actualPrev !== null ? actualPrev : (parseFloat(row.prevStock || '0') || 0);
+
+    if (row.isManualStock) {
+      if (actualPrev !== null && String(row.prevStock ?? '') !== String(prevNum)) {
+        changed = true;
+        return { ...row, prevStock: String(prevNum) };
+      }
+      return row;
+    }
+
+    const importNum = parseFloat(row.importQty || '0') || 0;
+    const wasteNum = parseFloat(row.wasteQty || '0') || 0;
+    const expectedStock = Math.max(Math.round((importNum + prevNum - wasteNum) * 1000) / 1000, 0);
+    const currentPrevNum = row.prevStock !== undefined ? parseFloat(row.prevStock || '0') : NaN;
+    const currentStockNum = row.stockQty !== undefined ? parseFloat(row.stockQty || '0') : NaN;
+
+    if (
+      currentPrevNum !== prevNum ||
+      currentStockNum !== expectedStock ||
+      row.manualBaseStock !== undefined
+    ) {
+      changed = true;
+      const nextRow: any = {
+        ...row,
+        prevStock: String(prevNum),
+        stockQty: String(expectedStock),
+      };
+      delete nextRow.manualBaseStock;
+      return nextRow;
+    }
+    return row;
+  });
+
+  if (changed) {
+    state.inventory = updated;
+  }
+  return changed;
+}
+
+function mergeInventoryArraysSafe(
+  existingInv: any[],
+  incomingInv: any[],
+  defaultTableName: string,
+  preferExistingOnConflict: boolean
+): any[] {
+  const mergedMap = new Map<string, any>();
+  const makeKey = (item: any) => {
+    const dKey = normalizeInvDateKey(item?.dateStr);
+    const tName = normalizeInvTableName(item?.tableName, defaultTableName).toLowerCase();
+    const iName = String(item?.itemName || '').trim().toLowerCase();
+    return iName ? `${dKey}|||${tName}|||${iName}` : String(item?.id || Math.random());
+  };
+
+  if (preferExistingOnConflict) {
+    for (const item of incomingInv || []) {
+      if (!item || typeof item !== 'object') continue;
+      mergedMap.set(makeKey(item), item);
+    }
+    for (const item of existingInv || []) {
+      if (!item || typeof item !== 'object') continue;
+      mergedMap.set(makeKey(item), item);
+    }
+  } else {
+    for (const item of existingInv || []) {
+      if (!item || typeof item !== 'object') continue;
+      mergedMap.set(makeKey(item), item);
+    }
+    for (const item of incomingInv || []) {
+      if (!item || typeof item !== 'object') continue;
+      mergedMap.set(makeKey(item), item);
+    }
+  }
+  return Array.from(mergedMap.values());
+}
+
 /**
  * Tự động sao chép tất cả các bảng kiểm tồn sang ngày mới (theo giờ Việt Nam UTC+7).
  * Chạy 1 lần cho mỗi ngày mới; giữ nguyên ngày cũ và tôn trọng nếu Admin chủ động xóa bảng ngày hôm nay.
@@ -232,10 +389,10 @@ function autoCopyInventoryToToday(state: KitchenServerState): boolean {
 
   const todayInfo = getVnNowDateInfo();
   if (state.lastAutoCopiedInventoryDate === todayInfo.key) {
-    return false;
+    return reconcileTodayInventoryRows(state);
   }
 
-  const invList: any[] = state.inventory;
+  const invList: any[] = dedupeInventoryList(state.inventory, getDefaultInvTableName(state));
   const pastDatesMap = new Map<string, { dateStr: string; ms: number }>();
   let existingTodayDateStr: string | null = null;
 
@@ -260,10 +417,7 @@ function autoCopyInventoryToToday(state: KitchenServerState): boolean {
   const pastDatesSorted = Array.from(pastDatesMap.entries()).sort((a, b) => b[1].ms - a[1].ms);
   const targetDateStr = existingTodayDateStr || todayInfo.key;
 
-  const defaultTableName =
-    typeof state.appConfig?.defaultTableName === 'string' && state.appConfig.defaultTableName.trim()
-      ? state.appConfig.defaultTableName.trim()
-      : 'Tủ Mát Chính';
+  const defaultTableName = getDefaultInvTableName(state);
 
   const tableSet = new Set<string>([defaultTableName]);
   if (Array.isArray(state.appConfig?.customTables)) {
@@ -273,7 +427,7 @@ function autoCopyInventoryToToday(state: KitchenServerState): boolean {
   }
   for (const item of invList) {
     if (!item || typeof item !== 'object') continue;
-    const tName = (typeof item.tableName === 'string' && item.tableName.trim()) || defaultTableName;
+    const tName = normalizeInvTableName(item.tableName, defaultTableName);
     tableSet.add(tName);
   }
 
@@ -285,7 +439,7 @@ function autoCopyInventoryToToday(state: KitchenServerState): boolean {
     const hasTodayRowsForTable = invList.some((item: any) => {
       const info = parseVnDateInfo(item?.dateStr);
       if (!info || info.ms !== todayInfo.ms) return false;
-      const tName = (typeof item?.tableName === 'string' && item.tableName.trim()) || defaultTableName;
+      const tName = normalizeInvTableName(item?.tableName, defaultTableName);
       return tName === tableName;
     });
     if (hasTodayRowsForTable) continue;
@@ -296,7 +450,7 @@ function autoCopyInventoryToToday(state: KitchenServerState): boolean {
       const candidates = invList.filter((item: any) => {
         const info = parseVnDateInfo(item?.dateStr);
         if (!info || info.key !== pastKey) return false;
-        const tName = (typeof item?.tableName === 'string' && item.tableName.trim()) || defaultTableName;
+        const tName = normalizeInvTableName(item?.tableName, defaultTableName);
         return tName === tableName && !String(item?.itemName || '').includes('Mặt hàng 1');
       });
       if (candidates.length > 0) {
@@ -334,49 +488,75 @@ function autoCopyInventoryToToday(state: KitchenServerState): boolean {
 
   if (newlyCopied.length > 0) {
     state.inventory = [...invList, ...newlyCopied];
+    reconcileTodayInventoryRows(state);
     state.updatedAt = Date.now();
     console.log(`📦 [Auto Copy Inventory] Đã tự động sao chép ${newlyCopied.length} mặt hàng sang ngày mới (${targetDateStr})`);
     return true;
   }
 
-  return true;
+  return reconcileTodayInventoryRows(state);
 }
 
 const MONGODB_URI = process.env.MONGODB_URI;
 let mongoDb: Db | null = null;
 let mongoClient: MongoClient | null = null;
+let mongoInitPromise: Promise<void> | null = null;
+let mongoRetryScheduled = false;
 
-async function initMongoConnection(onCloudStateLoaded?: (cloudState: KitchenServerState) => void) {
+async function waitForMongoInit(maxWaitMs = 6000): Promise<void> {
+  if (!mongoInitPromise || mongoDb) return;
+  await Promise.race([
+    mongoInitPromise,
+    new Promise<void>((resolve) => setTimeout(resolve, maxWaitMs)),
+  ]);
+}
+
+function initMongoConnection(onCloudStateLoaded?: (cloudState: KitchenServerState) => void): Promise<void> {
   if (!MONGODB_URI) {
     console.log('ℹ️ [Storage] Server đang lưu trữ trên Ổ đĩa Local (Thêm MONGODB_URI vào Render Environment Variables để lưu trữ Cloud vĩnh viễn không mất dữ liệu).');
-    return;
+    return Promise.resolve();
   }
-  try {
-    mongoClient = new MongoClient(MONGODB_URI, {
-      serverSelectionTimeoutMS: 6000,
-      connectTimeoutMS: 10000,
-    });
-    await mongoClient.connect();
-    mongoDb = mongoClient.db(process.env.MONGODB_DB_NAME || 'kitchen_db');
-    console.log('✅ [MongoDB Atlas] ĐÃ KẾT NỐI CLOUD DATABASE LƯU TRỮ VĨNH VIỄN!');
+  const attempt = async () => {
+    try {
+      mongoClient = new MongoClient(MONGODB_URI, {
+        serverSelectionTimeoutMS: 6000,
+        connectTimeoutMS: 10000,
+      });
+      await mongoClient.connect();
+      mongoDb = mongoClient.db(process.env.MONGODB_DB_NAME || 'kitchen_db');
+      mongoRetryScheduled = false;
+      console.log('✅ [MongoDB Atlas] ĐÃ KẾT NỐI CLOUD DATABASE LƯU TRỮ VĨNH VIỄN!');
 
-    const col = mongoDb.collection('kitchen_state');
-    const doc = await col.findOne({ _id: 'global_state' as any });
-    if (doc && (Array.isArray(doc.tasks) || Array.isArray(doc.inventory))) {
-      const { _id, ...rest } = doc as any;
-      if (Array.isArray(rest.tasks)) {
-        rest.tasks = cleanServerTasks(rest.tasks);
+      const col = mongoDb.collection('kitchen_state');
+      const doc = await col.findOne({ _id: 'global_state' as any });
+      if (doc && (Array.isArray(doc.tasks) || Array.isArray(doc.inventory))) {
+        const { _id, ...rest } = doc as any;
+        if (Array.isArray(rest.tasks)) {
+          rest.tasks = cleanServerTasks(rest.tasks);
+        }
+        console.log(`✅ [MongoDB Atlas] Nạp thành công dữ liệu từ Cloud (updatedAt: ${rest.updatedAt})`);
+        if (onCloudStateLoaded) {
+          onCloudStateLoaded(rest as KitchenServerState);
+        }
+      } else {
+        console.log('ℹ️ [MongoDB Atlas] Cloud Database chưa có bản ghi, sẽ khởi tạo từ dữ liệu local.');
       }
-      console.log(`✅ [MongoDB Atlas] Nạp thành công dữ liệu từ Cloud (updatedAt: ${rest.updatedAt})`);
-      if (onCloudStateLoaded) {
-        onCloudStateLoaded(rest as KitchenServerState);
+    } catch (err) {
+      console.error('⚠️ [MongoDB Atlas] Kết nối thất bại, tự động dùng ổ đĩa local:', err);
+      mongoDb = null;
+      if (!mongoRetryScheduled) {
+        mongoRetryScheduled = true;
+        setTimeout(() => {
+          mongoRetryScheduled = false;
+          if (!mongoDb) {
+            mongoInitPromise = initMongoConnection(onCloudStateLoaded);
+          }
+        }, 15000);
       }
-    } else {
-      console.log('ℹ️ [MongoDB Atlas] Cloud Database chưa có bản ghi, sẽ khởi tạo từ dữ liệu local.');
     }
-  } catch (err) {
-    console.error('⚠️ [MongoDB Atlas] Kết nối thất bại, tự động dùng ổ đĩa local:', err);
-  }
+  };
+  mongoInitPromise = attempt();
+  return mongoInitPromise;
 }
 
 function loadDb(): KitchenServerState {
@@ -425,11 +605,13 @@ function saveDb(state: KitchenServerState) {
     fs.writeFileSync(DB_FILE, JSON.stringify(state, null, 2), 'utf-8');
 
     // Tự động đồng bộ ngay sang initial-data.json để khi commit Git & Deploy lại Render không bao giờ bị mất checklist/nhân sự
-    try {
-      const SEED_FILE = path.join(process.cwd(), 'initial-data.json');
-      fs.writeFileSync(SEED_FILE, JSON.stringify(state, null, 2), 'utf-8');
-    } catch {
-      // ignore
+    if (!process.env.KITCHEN_TEST_MODE) {
+      try {
+        const SEED_FILE = path.join(process.cwd(), 'initial-data.json');
+        fs.writeFileSync(SEED_FILE, JSON.stringify(state, null, 2), 'utf-8');
+      } catch {
+        // ignore
+      }
     }
   } catch (err) {
     console.error('Error saving kitchen-db.json:', err);
@@ -738,6 +920,10 @@ export function createKitchenApiMiddleware() {
 
   // Nạp từ Cloud Database (MongoDB Atlas) nếu có cấu hình
   initMongoConnection((cloudState) => {
+    const defaultTable = getDefaultInvTableName(cloudState);
+    if (!dbState.isSeedReset && Array.isArray(dbState.inventory) && dbState.inventory.length > 0 && Array.isArray(cloudState.inventory)) {
+      cloudState.inventory = mergeInventoryArraysSafe(cloudState.inventory, dbState.inventory, defaultTable, true);
+    }
     dbState = cloudState;
     ensureVapidKeys(dbState);
     if (autoCopyInventoryToToday(dbState)) {
@@ -1154,7 +1340,8 @@ export function createKitchenApiMiddleware() {
   });
 
   // GET /api/state - Lấy dữ liệu đồng bộ mới nhất từ Server
-  router.get('/api/state', (_req, res) => {
+  router.get('/api/state', async (_req, res) => {
+    await waitForMongoInit();
     let stateChanged = false;
     if (Array.isArray(dbState.tasks)) {
       const cleaned = cleanServerTasks(dbState.tasks);
@@ -1250,7 +1437,8 @@ export function createKitchenApiMiddleware() {
   });
 
   // POST /api/sync - Đồng bộ dữ liệu từ bất kỳ máy iOS/Android/PC nào lên Server
-  router.post('/api/sync', (req, res) => {
+  router.post('/api/sync', async (req, res) => {
+    await waitForMongoInit();
     const {
       tasks,
       logs,
@@ -1260,6 +1448,7 @@ export function createKitchenApiMiddleware() {
       notifications,
       recipes,
       inventory,
+      inventorySyncMeta,
       appConfig,
       notification,
       senderId,
@@ -1336,23 +1525,157 @@ export function createKitchenApiMiddleware() {
     if (Array.isArray(deleteRequests)) dbState.deleteRequests = deleteRequests;
     if (Array.isArray(notifications)) dbState.notifications = notifications;
     if (Array.isArray(recipes)) dbState.recipes = recipes;
-    if (Array.isArray(inventory)) {
+    if (Array.isArray(inventory) || (inventorySyncMeta && typeof inventorySyncMeta === 'object')) {
       const todayInfo = getVnNowDateInfo();
-      const prevHadToday =
-        Array.isArray(dbState.inventory) &&
-        dbState.inventory.some((item: any) => {
-          const info = parseVnDateInfo(item?.dateStr);
-          return Boolean(info && info.ms === todayInfo.ms);
+      const defaultTableName = getDefaultInvTableName(dbState);
+      const existingInv: any[] = Array.isArray(dbState.inventory) ? [...dbState.inventory] : [];
+      const meta = inventorySyncMeta && typeof inventorySyncMeta === 'object' ? inventorySyncMeta : null;
+      const incomingList: any[] = Array.isArray(inventory) ? inventory : [];
+
+      if (meta?.mode === 'restore_replace') {
+        dbState.inventory = dedupeInventoryList(incomingList, defaultTableName);
+      } else if (meta?.mode === 'delete_item' && meta.itemId) {
+        if (senderRole === 'admin') {
+          dbState.inventory = existingInv.filter((i: any) => i?.id !== meta.itemId);
+        }
+      } else if (meta?.mode === 'delete_date' && meta.dateKey) {
+        if (senderRole === 'admin') {
+          const targetDateKey = normalizeInvDateKey(meta.dateKey);
+          if (targetDateKey === todayInfo.key) {
+            dbState.lastAutoCopiedInventoryDate = todayInfo.key;
+          }
+          dbState.inventory = existingInv.filter((i: any) => normalizeInvDateKey(i?.dateStr) !== targetDateKey);
+        }
+      } else if (meta?.mode === 'delete_table' && meta.tableName) {
+        const targetTable = String(meta.tableName).trim();
+        dbState.inventory = existingInv.filter(
+          (i: any) => normalizeInvTableName(i?.tableName, defaultTableName) !== targetTable
+        );
+      } else if (meta?.mode === 'rename_table' && meta.oldName && meta.newName) {
+        const oldT = String(meta.oldName).trim();
+        const newT = String(meta.newName).trim();
+        dbState.inventory = existingInv.map((i: any) =>
+          normalizeInvTableName(i?.tableName, defaultTableName) === oldT ? { ...i, tableName: newT } : i
+        );
+      } else if (meta?.mode === 'upsert_item' && meta.item) {
+        const upserts = [meta.item, ...(Array.isArray(meta.cascadedItems) ? meta.cascadedItems : [])];
+        let nextInv = [...existingInv];
+        for (const uItem of upserts) {
+          if (!uItem || typeof uItem !== 'object') continue;
+          const uDate = normalizeInvDateKey(uItem.dateStr);
+          const uTable = normalizeInvTableName(uItem.tableName, defaultTableName).toLowerCase();
+          const uName = String(uItem.itemName || '').trim().toLowerCase();
+          const idx = nextInv.findIndex(
+            (r: any) =>
+              r?.id === uItem.id ||
+              (uName &&
+                normalizeInvDateKey(r?.dateStr) === uDate &&
+                normalizeInvTableName(r?.tableName, defaultTableName).toLowerCase() === uTable &&
+                String(r?.itemName || '').trim().toLowerCase() === uName)
+          );
+          if (idx >= 0) {
+            nextInv[idx] = uItem;
+          } else {
+            nextInv.push(uItem);
+          }
+        }
+        dbState.inventory = dedupeInventoryList(nextInv, defaultTableName);
+      } else if (meta?.mode === 'upsert_items' && Array.isArray(meta.items)) {
+        let nextInv = [...existingInv];
+        for (const uItem of meta.items) {
+          if (!uItem || typeof uItem !== 'object') continue;
+          const uDate = normalizeInvDateKey(uItem.dateStr);
+          const uTable = normalizeInvTableName(uItem.tableName, defaultTableName).toLowerCase();
+          const uName = String(uItem.itemName || '').trim().toLowerCase();
+          const idx = nextInv.findIndex(
+            (r: any) =>
+              r?.id === uItem.id ||
+              (uName &&
+                normalizeInvDateKey(r?.dateStr) === uDate &&
+                normalizeInvTableName(r?.tableName, defaultTableName).toLowerCase() === uTable &&
+                String(r?.itemName || '').trim().toLowerCase() === uName)
+          );
+          if (idx >= 0) {
+            nextInv[idx] = uItem;
+          } else {
+            nextInv.push(uItem);
+          }
+        }
+        dbState.inventory = dedupeInventoryList(nextInv, defaultTableName);
+      } else if (meta?.mode === 'replace_date_table' && meta.dateKey && meta.tableName && Array.isArray(meta.rows)) {
+        const targetDateKey = normalizeInvDateKey(meta.dateKey);
+        const targetTable = String(meta.tableName).trim();
+        let nextInv = existingInv.filter(
+          (r: any) =>
+            !(
+              normalizeInvDateKey(r?.dateStr) === targetDateKey &&
+              normalizeInvTableName(r?.tableName, defaultTableName) === targetTable
+            )
+        );
+        nextInv.push(...meta.rows);
+        if (Array.isArray(meta.cascadedItems)) {
+          for (const cItem of meta.cascadedItems) {
+            if (!cItem || typeof cItem !== 'object') continue;
+            const cDate = normalizeInvDateKey(cItem.dateStr);
+            const cTable = normalizeInvTableName(cItem.tableName, defaultTableName).toLowerCase();
+            const cName = String(cItem.itemName || '').trim().toLowerCase();
+            const idx = nextInv.findIndex(
+              (r: any) =>
+                r?.id === cItem.id ||
+                (cName &&
+                  normalizeInvDateKey(r?.dateStr) === cDate &&
+                  normalizeInvTableName(r?.tableName, defaultTableName).toLowerCase() === cTable &&
+                  String(r?.itemName || '').trim().toLowerCase() === cName)
+            );
+            if (idx >= 0) {
+              nextInv[idx] = cItem;
+            } else {
+              nextInv.push(cItem);
+            }
+          }
+        }
+        dbState.inventory = dedupeInventoryList(nextInv, defaultTableName);
+      } else if (meta?.mode === 'auto_populate_today' && Array.isArray(meta.items)) {
+        const targetTodayKey = normalizeInvDateKey(meta.todayKey || todayInfo.key);
+        const existingTablesToday = new Set(
+          existingInv
+            .filter((r: any) => normalizeInvDateKey(r?.dateStr) === targetTodayKey)
+            .map((r: any) => normalizeInvTableName(r?.tableName, defaultTableName))
+        );
+        const itemsToAdd = meta.items.filter((i: any) => {
+          const dk = normalizeInvDateKey(i?.dateStr);
+          const tn = normalizeInvTableName(i?.tableName, defaultTableName);
+          return dk === targetTodayKey && !existingTablesToday.has(tn);
         });
-      const nextHasToday = inventory.some((item: any) => {
-        const info = parseVnDateInfo(item?.dateStr);
-        return Boolean(info && info.ms === todayInfo.ms);
-      });
-      if (prevHadToday && !nextHasToday) {
-        // Admin đã chủ động xóa bảng ngày hôm nay -> đánh dấu đã xử lý ngày này để không tự copy đè lại
+        dbState.inventory = dedupeInventoryList([...existingInv, ...itemsToAdd], defaultTableName);
         dbState.lastAutoCopiedInventoryDate = todayInfo.key;
+      } else if (meta?.mode === 'merge_union') {
+        dbState.inventory = mergeInventoryArraysSafe(
+          existingInv,
+          incomingList,
+          defaultTableName,
+          !dbState.isSeedReset
+        );
+      } else {
+        // Fallback an toàn: KHÔNG BAO GIỜ để client cũ / mất đồng bộ xóa mất các ngày hoặc bảng đã lưu trên Server
+        if (existingInv.length === 0) {
+          dbState.inventory = dedupeInventoryList(incomingList, defaultTableName);
+        } else {
+          const incomingDateTablePairs = new Set(
+            incomingList.map(
+              (i: any) =>
+                `${normalizeInvDateKey(i?.dateStr)}|||${normalizeInvTableName(i?.tableName, defaultTableName)}`
+            )
+          );
+          const preservedOther = existingInv.filter((i: any) => {
+            const pair = `${normalizeInvDateKey(i?.dateStr)}|||${normalizeInvTableName(i?.tableName, defaultTableName)}`;
+            return !incomingDateTablePairs.has(pair);
+          });
+          dbState.inventory = dedupeInventoryList([...preservedOther, ...incomingList], defaultTableName);
+        }
       }
-      dbState.inventory = inventory;
+
+      reconcileTodayInventoryRows(dbState);
     }
     dbState.updatedAt = Date.now();
     dbState.isSeedReset = false;
@@ -1363,7 +1686,8 @@ export function createKitchenApiMiddleware() {
     const isAdminAction =
       senderRole === 'admin' ||
       Boolean(appConfig || toolbarItems || staffList || deleteRequests);
-    const hasInventoryUpdate = Array.isArray(inventory) && inventory.length > 0;
+    const hasInventoryUpdate =
+      (Array.isArray(inventory) && inventory.length > 0) || Boolean(inventorySyncMeta);
     if (isAdminAction || hasInventoryUpdate) {
       createAutoBackup(
         dbState,
@@ -1662,7 +1986,8 @@ export function createKitchenApiMiddleware() {
   });
 
   // GET /api/events - Luồng Real-time SSE cho mọi thiết bị iOS / Android
-  router.get('/api/events', (req: IncomingMessage, res: ServerResponse) => {
+  router.get('/api/events', async (req: IncomingMessage, res: ServerResponse) => {
+    await waitForMongoInit();
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache, no-transform',

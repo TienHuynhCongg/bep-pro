@@ -10,6 +10,24 @@ import {
   InventoryCheckItem,
 } from '../types';
 
+export type InventorySyncMeta =
+  | { mode: 'upsert_item'; item: InventoryCheckItem; cascadedItems?: InventoryCheckItem[] }
+  | { mode: 'upsert_items'; items: InventoryCheckItem[] }
+  | { mode: 'delete_item'; itemId: string }
+  | { mode: 'delete_date'; dateKey: string }
+  | { mode: 'delete_table'; tableName: string }
+  | {
+      mode: 'replace_date_table';
+      dateKey: string;
+      tableName: string;
+      rows: InventoryCheckItem[];
+      cascadedItems?: InventoryCheckItem[];
+    }
+  | { mode: 'rename_table'; oldName: string; newName: string }
+  | { mode: 'auto_populate_today'; todayKey: string; items: InventoryCheckItem[] }
+  | { mode: 'merge_union' }
+  | { mode: 'restore_replace' };
+
 export interface ServerSyncPayload {
   tasks?: KitchenTask[];
   logs?: ShiftLog[];
@@ -19,6 +37,7 @@ export interface ServerSyncPayload {
   notifications?: AppNotificationItem[];
   recipes?: KitchenRecipe[];
   inventory?: InventoryCheckItem[];
+  inventorySyncMeta?: InventorySyncMeta;
   appConfig?: AppConfig;
   notification?: {
     kind: 'TASK_TOGGLED' | 'TASK_ASSIGNED' | 'DELETE_REQUEST' | 'MANAGER_1430_CHECK';
@@ -131,6 +150,10 @@ function getOfflineQueue(): ServerSyncPayload[] {
   } catch {
     return [];
   }
+}
+
+export function hasPendingOfflineSync(): boolean {
+  return getOfflineQueue().length > 0;
 }
 
 function saveOfflineQueue(queue: ServerSyncPayload[]) {
@@ -262,7 +285,7 @@ export async function fetchStateFromServer(): Promise<{
 }> {
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const timeoutId = setTimeout(() => controller.abort(), 25000);
 
     const res = await fetch('/api/state', {
       signal: controller.signal,

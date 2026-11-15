@@ -31,10 +31,33 @@ import {
 
 interface InventoryCheckViewProps {
   items: InventoryCheckItem[];
-  onSaveItem: (item: InventoryCheckItem, isEdit: boolean) => void;
+  onSaveItem: (
+    item: InventoryCheckItem,
+    isEdit: boolean,
+    cascadedItems?: InventoryCheckItem[]
+  ) => void;
+  onSaveItemsSilent?: (
+    changedItems: InventoryCheckItem[],
+    updatedAllItems: InventoryCheckItem[]
+  ) => void;
   onDeleteItem: (id: string) => void;
-  onSaveDailyTable?: (dateStr: string, updatedAllItems: InventoryCheckItem[]) => void;
+  onSaveDailyTable?: (
+    dateStr: string,
+    updatedAllItems: InventoryCheckItem[],
+    scope?: {
+      mode: 'replace_date_table';
+      dateKey: string;
+      tableName: string;
+      rows: InventoryCheckItem[];
+      cascadedItems?: InventoryCheckItem[];
+    }
+  ) => void;
   onDeleteDateTable?: (dateStr: string) => void;
+  onDeleteTable?: (
+    tableName: string,
+    updatedAllItems: InventoryCheckItem[],
+    nextCustomTables: string[]
+  ) => void;
   currentUser?: StaffUser | null;
   recipes?: KitchenRecipe[];
   initialOpenOrderList?: boolean;
@@ -51,7 +74,12 @@ interface InventoryCheckViewProps {
     nextCustomTables: string[],
     nextDefaultTableName?: string
   ) => void;
-  onAutoPopulateToday?: (updatedAllItems: InventoryCheckItem[]) => void;
+  onAutoPopulateToday?: (
+    updatedAllItems: InventoryCheckItem[],
+    todayKey?: string,
+    newTodayItems?: InventoryCheckItem[]
+  ) => void;
+  canAutoPopulateToday?: boolean;
 }
 
 const COMMON_UNITS = [
@@ -139,9 +167,11 @@ function formatNumericString(raw: string): string {
 export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
   items,
   onSaveItem,
+  onSaveItemsSilent,
   onDeleteItem,
   onSaveDailyTable,
   onDeleteDateTable,
+  onDeleteTable,
   currentUser = null,
   recipes = [],
   initialOpenOrderList = false,
@@ -153,6 +183,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
   onUpdateCustomTables,
   onRenameTable,
   onAutoPopulateToday,
+  canAutoPopulateToday = true,
 }) => {
   // Chuẩn hóa ngày DD/MM/YYYY <-> D/M/YYYY
   const parseDateMs = (dateStr?: string): number => {
@@ -189,8 +220,12 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
 
   // Local working copy để nhập liệu mượt mà
   const [localItems, setLocalItems] = useState<InventoryCheckItem[]>(items);
+  const localItemsRef = useRef<InventoryCheckItem[]>(localItems);
+  localItemsRef.current = localItems;
+
   useEffect(() => {
     if (activeEditingCellRef.current) return;
+    localItemsRef.current = items;
     setLocalItems(items);
   }, [items]);
 
@@ -735,37 +770,43 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     activeEditingCellRef.current = null;
     snapshotBeforeEditRef.current = null;
 
-    setUndoStack((prev) => {
-      const stack = prev[currentTableKey] || [];
-      if (stack.length === 0) return prev;
+    const stack = undoStack[currentTableKey] || [];
+    if (stack.length === 0) return;
 
-      const previousRows = stack[stack.length - 1];
-      const newStack = stack.slice(0, -1);
+    const previousRows = stack[stack.length - 1].map((r) => ({ ...r }));
+    const newStack = stack.slice(0, -1);
 
-      // Thay thế CHỈ các dòng thuộc bảng đang chọn, giữ nguyên 100% các bảng và ngày khác!
-      setLocalItems((currentAll) => {
-        const otherItems = currentAll.filter(
-          (i) => !(isSameDate(i.dateStr, selectedDate) && (i.tableName || DEFAULT_TABLE_NAME) === selectedTable)
-        );
-        const restored = [...otherItems, ...previousRows.map((r) => ({ ...r }))];
+    setUndoStack((prev) => ({
+      ...prev,
+      [currentTableKey]: newStack,
+    }));
 
-        if (onSaveDailyTable) {
-          onSaveDailyTable(selectedDate, restored);
-        } else {
-          previousRows.forEach((r) => onSaveItem(r, true));
-        }
+    const targetTable = selectedTable || DEFAULT_TABLE_NAME;
+    const otherItems = localItemsRef.current.filter(
+      (i) => !(isSameDate(i.dateStr, selectedDate) && (i.tableName || DEFAULT_TABLE_NAME) === selectedTable)
+    );
+    const merged = [...otherItems, ...previousRows];
+    const { nextAll, cascadedItems } = cascadeFollowingDatesFromList(merged, selectedDate, targetTable);
+    localItemsRef.current = nextAll;
+    setLocalItems(nextAll);
 
-        return restored;
+    if (onSaveDailyTable) {
+      onSaveDailyTable(selectedDate, nextAll, {
+        mode: 'replace_date_table',
+        dateKey: getDateKey(selectedDate),
+        tableName: targetTable,
+        rows: previousRows,
+        cascadedItems: cascadedItems.length > 0 ? cascadedItems : undefined,
       });
+    } else {
+      previousRows.forEach((r) => onSaveItem(r, true));
+      if (cascadedItems.length > 0) {
+        onSaveItemsSilent?.(cascadedItems, nextAll);
+      }
+    }
 
-      setUndoToast(`Đã hoàn tác 1 bước trên "${selectedTable || DEFAULT_TABLE_NAME}" (còn ${newStack.length} bước)`);
-      setTimeout(() => setUndoToast(null), 2500);
-
-      return {
-        ...prev,
-        [currentTableKey]: newStack,
-      };
-    });
+    setUndoToast(`Đã hoàn tác 1 bước trên "${targetTable}" (còn ${newStack.length} bước)`);
+    setTimeout(() => setUndoToast(null), 2500);
   };
 
   // Phím tắt Ctrl+Z hoặc Cmd+Z để hoàn tác nhanh bảng đang chọn
@@ -836,12 +877,133 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     return getLatestItemsForTable(tableName, selectedDate);
   };
 
+  // Làm tròn an toàn 3 chữ số thập phân, không âm
+  const roundStock = (val: number): number => Math.max(Math.round(val * 1000) / 1000, 0);
+
+  // Hàm tìm tồn cuối ngày trước đó CÙNG TỦ trên một mảng Inventory bất kỳ (KHÔNG lấy nhầm từ tủ khác)
+  const getPreviousDayStockFromList = (
+    list: InventoryCheckItem[],
+    dateStr: string,
+    itemName: string,
+    tableName?: string
+  ): number => {
+    const curTable = (tableName || selectedTable || DEFAULT_TABLE_NAME).trim();
+    const curMs = parseDateMs(dateStr);
+    const normItem = (itemName || '').trim().toLowerCase();
+
+    const dateKeysSet = new Set<string>();
+    list.forEach((i) => {
+      if (!i.dateStr || isSameDate(i.dateStr, dateStr)) return;
+      const ms = parseDateMs(i.dateStr);
+      if (curMs > 0 ? ms > 0 && ms < curMs : true) {
+        dateKeysSet.add(i.dateStr);
+      }
+    });
+    const sortedPastDates = sortDatesDesc(Array.from(dateKeysSet));
+
+    for (const pastDate of sortedPastDates) {
+      const found = list.find(
+        (i) =>
+          isSameDate(i.dateStr, pastDate) &&
+          (i.tableName || DEFAULT_TABLE_NAME).trim() === curTable &&
+          (i.itemName || '').trim().toLowerCase() === normItem
+      );
+      if (found && found.stockQty !== undefined) {
+        return parseFloat(found.stockQty) || 0;
+      }
+    }
+
+    const currentItem = list.find(
+      (i) =>
+        isSameDate(i.dateStr, dateStr) &&
+        (i.tableName || DEFAULT_TABLE_NAME).trim() === curTable &&
+        (i.itemName || '').trim().toLowerCase() === normItem
+    );
+    if (currentItem?.prevStock !== undefined) {
+      return parseFloat(currentItem.prevStock) || 0;
+    }
+    return 0;
+  };
+
+  // Khi chỉnh sửa ngày trước (ví dụ sửa 15/11 lúc 00:53 khi 16/11 đã tự động copy lúc 00:00):
+  // Tự động tính lại Tồn Trước & Tồn Hiện Tại cho các ngày SAU ĐÓ chưa nhập tay (!isManualStock)
+  const cascadeFollowingDatesFromList = (
+    list: InventoryCheckItem[],
+    editedDateStr: string,
+    tableName?: string,
+    targetItemNames?: Set<string>
+  ): { nextAll: InventoryCheckItem[]; cascadedItems: InventoryCheckItem[] } => {
+    const editedMs = parseDateMs(editedDateStr);
+    if (!editedMs) return { nextAll: list, cascadedItems: [] };
+    const curTable = (tableName || selectedTable || DEFAULT_TABLE_NAME).trim();
+
+    const laterDatesMap = new Map<string, number>();
+    list.forEach((item) => {
+      if (!item.dateStr) return;
+      const ms = parseDateMs(item.dateStr);
+      if (ms > editedMs) {
+        const dk = getDateKey(item.dateStr);
+        if (!laterDatesMap.has(dk)) laterDatesMap.set(dk, ms);
+      }
+    });
+    if (laterDatesMap.size === 0) return { nextAll: list, cascadedItems: [] };
+
+    const laterDateKeysAsc = Array.from(laterDatesMap.entries())
+      .sort((a, b) => a[1] - b[1])
+      .map((e) => e[0]);
+
+    const workingList = list.map((r) => ({ ...r }));
+    const changedMap = new Map<string, InventoryCheckItem>();
+
+    for (const laterDk of laterDateKeysAsc) {
+      for (let idx = 0; idx < workingList.length; idx++) {
+        const row = workingList[idx];
+        if (getDateKey(row.dateStr) !== laterDk) continue;
+        if ((row.tableName || DEFAULT_TABLE_NAME).trim() !== curTable) continue;
+        const normName = (row.itemName || '').trim().toLowerCase();
+        if (targetItemNames && !targetItemNames.has(normName)) continue;
+
+        const actualPrev = getPreviousDayStockFromList(workingList, row.dateStr, row.itemName, curTable);
+        const curPrev = row.prevStock !== undefined && row.prevStock !== '' ? parseFloat(row.prevStock) : NaN;
+
+        if (!row.isManualStock) {
+          const importNum = parseFloat(row.importQty || '0') || 0;
+          const wasteNum = parseFloat(row.wasteQty || '0') || 0;
+          const expectedStock = roundStock(importNum + actualPrev - wasteNum);
+          const curStock = row.stockQty !== undefined && row.stockQty !== '' ? parseFloat(row.stockQty) : NaN;
+
+          if (curPrev !== actualPrev || curStock !== expectedStock || row.manualBaseStock !== undefined) {
+            const nextRow: InventoryCheckItem = {
+              ...row,
+              prevStock: String(actualPrev),
+              stockQty: String(expectedStock),
+            };
+            delete nextRow.manualBaseStock;
+            workingList[idx] = nextRow;
+            changedMap.set(nextRow.id, nextRow);
+          }
+        } else if (curPrev !== actualPrev) {
+          const nextRow: InventoryCheckItem = {
+            ...row,
+            prevStock: String(actualPrev),
+          };
+          workingList[idx] = nextRow;
+          changedMap.set(nextRow.id, nextRow);
+        }
+      }
+    }
+
+    return { nextAll: workingList, cascadedItems: Array.from(changedMap.values()) };
+  };
+
   // Lưu vết các bảng đã tự động copy cho ngày hôm nay để không bị chạy lặp
   const autoCopiedRunSignatureRef = useRef<string>('');
+  const lastTodayReconcileSigRef = useRef<string>('');
 
   // TỰ ĐỘNG SAO CHÉP BẢNG KIỂM TỒN KHI QUA NGÀY MỚI
-  // Kiểm tra từng tủ: nếu hôm nay tủ đó chưa có dữ liệu và có dữ liệu từ ngày trước -> tự động sao chép sang ngày mới và đồng bộ lên Server
+  // Chỉ chạy SAU KHI đã tải xong dữ liệu chuẩn từ Server để không bao giờ ghi đè các ngày cũ bằng cache cũ
   const ensureTodayPopulated = (targetDate: string) => {
+    if (!canAutoPopulateToday) return;
     if (!isSameDate(targetDate, todayStr)) return;
     if (localItems.length === 0) return;
 
@@ -858,6 +1020,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
       localItems.find((i) => isSameDate(i.dateStr, todayStr))?.dateStr || todayStr;
 
     let nextAll = [...localItems];
+    const newlyCopiedAll: InventoryCheckItem[] = [];
     let hasChanges = false;
     const copiedTables: string[] = [];
 
@@ -895,6 +1058,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
         });
 
         nextAll = [...nextAll, ...clonedRows];
+        newlyCopiedAll.push(...clonedRows);
         copiedTables.push(tableName);
         hasChanges = true;
       }
@@ -905,17 +1069,70 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
       if (autoCopiedRunSignatureRef.current === runSig) return;
       autoCopiedRunSignatureRef.current = runSig;
 
+      localItemsRef.current = nextAll;
       setLocalItems(nextAll);
-      onAutoPopulateToday?.(nextAll);
+      onAutoPopulateToday?.(nextAll, todayKey, newlyCopiedAll);
     }
   };
 
   // Khi mở app ở ngày mới hoặc nhận được dữ liệu lịch sử từ Server khi vừa qua 00:00 -> tự động copy các bảng sang hôm nay
   useEffect(() => {
-    if (isSameDate(selectedDate, todayStr)) {
+    if (canAutoPopulateToday && isSameDate(selectedDate, todayStr)) {
       ensureTodayPopulated(todayStr);
     }
-  }, [selectedDate, todayStr, items, allKnownTables]);
+  }, [canAutoPopulateToday, selectedDate, todayStr, items, allKnownTables]);
+
+  // Tự động sửa / đồng bộ các dòng chưa khóa tay (!isManualStock) của ngày Hôm Nay theo Tồn cuối ngày trước
+  useEffect(() => {
+    if (!canAutoPopulateToday || activeEditingCellRef.current || localItems.length === 0) return;
+
+    const todayKey = getDateKey(todayStr);
+    const changedItems: InventoryCheckItem[] = [];
+    let hasMismatch = false;
+
+    const nextAll = localItems.map((row) => {
+      if (!isSameDate(row.dateStr, todayStr)) return row;
+      const actualPrev = getPreviousDayStockFromList(localItems, row.dateStr, row.itemName, row.tableName);
+      const curPrev = row.prevStock !== undefined && row.prevStock !== '' ? parseFloat(row.prevStock) : NaN;
+
+      if (!row.isManualStock) {
+        const importNum = parseFloat(row.importQty || '0') || 0;
+        const wasteNum = parseFloat(row.wasteQty || '0') || 0;
+        const expectedStock = roundStock(importNum + actualPrev - wasteNum);
+        const curStock = row.stockQty !== undefined && row.stockQty !== '' ? parseFloat(row.stockQty) : NaN;
+        if (curPrev !== actualPrev || curStock !== expectedStock || row.manualBaseStock !== undefined) {
+          hasMismatch = true;
+          const fixedRow: InventoryCheckItem = {
+            ...row,
+            prevStock: String(actualPrev),
+            stockQty: String(expectedStock),
+          };
+          delete fixedRow.manualBaseStock;
+          changedItems.push(fixedRow);
+          return fixedRow;
+        }
+      } else if (curPrev !== actualPrev) {
+        hasMismatch = true;
+        const fixedRow: InventoryCheckItem = {
+          ...row,
+          prevStock: String(actualPrev),
+        };
+        changedItems.push(fixedRow);
+        return fixedRow;
+      }
+      return row;
+    });
+
+    if (hasMismatch && changedItems.length > 0) {
+      const sig = `${todayKey}::${changedItems.map((c) => `${c.id}=${c.prevStock}/${c.stockQty}`).join('|')}`;
+      if (lastTodayReconcileSigRef.current === sig) return;
+      lastTodayReconcileSigRef.current = sig;
+
+      localItemsRef.current = nextAll;
+      setLocalItems(nextAll);
+      onSaveItemsSilent?.(changedItems, nextAll);
+    }
+  }, [canAutoPopulateToday, todayStr, localItems]);
 
   // Nạp nhanh các mặt hàng của tủ này từ ngày hôm trước (Thao tác do người dùng chủ động bấm)
   const handleCopyTableFromPreviousDay = (tableName: string) => {
@@ -931,7 +1148,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
       (i) => !(isSameDate(i.dateStr, selectedDate) && (i.tableName || DEFAULT_TABLE_NAME) === targetTable)
     );
     pushUndoSnapshot();
-    const cloned = prevItems.map((item, idx) => {
+    const cloned: InventoryCheckItem[] = prevItems.map((item, idx) => {
       const prevEnding = parseFloat(item.stockQty) || 0;
       return {
         id: `inv-${Date.now()}-${targetTable}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
@@ -953,55 +1170,29 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
       };
     });
 
-    const nextAll = [...otherItems, ...cloned];
+    const { nextAll, cascadedItems } = cascadeFollowingDatesFromList(
+      [...otherItems, ...cloned],
+      selectedDate,
+      targetTable
+    );
+    localItemsRef.current = nextAll;
     setLocalItems(nextAll);
     if (onSaveDailyTable) {
-      onSaveDailyTable(selectedDate, nextAll);
+      onSaveDailyTable(selectedDate, nextAll, {
+        mode: 'replace_date_table',
+        dateKey: getDateKey(selectedDate),
+        tableName: targetTable,
+        rows: cloned,
+        cascadedItems: cascadedItems.length > 0 ? cascadedItems : undefined,
+      });
     }
     setJustSavedBanner(true);
     setTimeout(() => setJustSavedBanner(false), 2500);
   };
 
-  // Hàm tính toán tồn hôm trước tự động từ ngày trước đó
+  // Hàm tính toán tồn hôm trước tự động từ ngày trước đó (chỉ tìm trong CÙNG tủ)
   const getPreviousDayStock = (dateStr: string, itemName: string, tableName?: string): number => {
-    const curTable = tableName || selectedTable || DEFAULT_TABLE_NAME;
-    const curMs = parseDateMs(dateStr);
-    const sortedPastDates = sortDatesDesc(
-      existingDates.filter((d) => {
-        if (isSameDate(d, dateStr)) return false;
-        const ms = parseDateMs(d);
-        return curMs > 0 ? ms > 0 && ms < curMs : true;
-      })
-    );
-    for (const pastDate of sortedPastDates) {
-      const found = localItems.find(
-        (i) =>
-          isSameDate(i.dateStr, pastDate) &&
-          (i.tableName || DEFAULT_TABLE_NAME) === curTable &&
-          i.itemName.toLowerCase() === itemName.toLowerCase()
-      );
-      if (found && found.stockQty !== undefined) {
-        return parseFloat(found.stockQty) || 0;
-      }
-    }
-    for (const pastDate of sortedPastDates) {
-      const found = localItems.find(
-        (i) => isSameDate(i.dateStr, pastDate) && i.itemName.toLowerCase() === itemName.toLowerCase()
-      );
-      if (found && found.stockQty !== undefined) {
-        return parseFloat(found.stockQty) || 0;
-      }
-    }
-    const currentItem = localItems.find(
-      (i) =>
-        isSameDate(i.dateStr, dateStr) &&
-        (i.tableName || DEFAULT_TABLE_NAME) === curTable &&
-        i.itemName.toLowerCase() === itemName.toLowerCase()
-    );
-    if (currentItem?.prevStock !== undefined) {
-      return parseFloat(currentItem.prevStock) || 0;
-    }
-    return 0;
+    return getPreviousDayStockFromList(localItems, dateStr, itemName, tableName);
   };
 
   // Đổi ngày đang xem
@@ -1045,7 +1236,8 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
       prev.map((row) => {
         if (row.id !== id) return row;
 
-        const prevStockNum = parseFloat(row.prevStock || '0') || getPreviousDayStock(row.dateStr, row.itemName, row.tableName);
+        // Luôn lấy đúng Tồn Hôm Trước đang hiển thị ở cột Trước (từ ngày trước cùng tủ)
+        const prevStockNum = getPreviousDayStockFromList(prev, row.dateStr, row.itemName, row.tableName);
 
         let nextRow = { ...row };
 
@@ -1060,8 +1252,6 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
             importQty: formatted,
           };
           if (row.isManualStock) {
-            // Khi có nhập thêm hàng trên dòng đã nhập tay:
-            // Cộng chênh lệch nhập vào mốc tồn gốc
             const currentBase =
               row.manualBaseStock !== undefined
                 ? row.manualBaseStock
@@ -1069,13 +1259,11 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
             const deltaImport = importNum - oldImportNum;
             const newBase = Math.max(0, currentBase + deltaImport);
             nextRow.manualBaseStock = newBase;
-            const calculatedStock = Math.max(Math.round((newBase - wasteNum) * 1000) / 1000, 0);
+            const calculatedStock = roundStock(newBase - wasteNum);
             nextRow.stockQty = String(calculatedStock);
           } else {
-            const calculatedStock = Math.max(
-              Math.round((importNum + prevStockNum - wasteNum) * 1000) / 1000,
-              0
-            );
+            const calculatedStock = roundStock(importNum + prevStockNum - wasteNum);
+            nextRow.manualBaseStock = undefined;
             nextRow.stockQty = String(calculatedStock);
           }
         } else if (field === 'wasteQty') {
@@ -1087,37 +1275,32 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
             prevStock: String(prevStockNum),
             wasteQty: formatted,
           };
-          // Tự động tính mới tồn kho khi thay đổi Bán ra:
-          // Nếu đã nhập Tồn trước đó (hoặc có manualBaseStock), lấy mốc tồn cơ sở trừ đi Bán ra mới -> không bị khóa nhập!
           let calculatedStock: number;
-          if (row.manualBaseStock !== undefined) {
-            calculatedStock = Math.max(Math.round((row.manualBaseStock - wasteNum) * 1000) / 1000, 0);
-          } else if (row.isManualStock) {
-            const currentStockNum = parseFloat(row.stockQty || '0') || 0;
-            const oldWasteNum = parseFloat(row.wasteQty || '0') || 0;
-            const base = currentStockNum + oldWasteNum;
+          if (row.isManualStock) {
+            const base =
+              row.manualBaseStock !== undefined
+                ? row.manualBaseStock
+                : (parseFloat(row.stockQty || '0') || 0) + (parseFloat(row.wasteQty || '0') || 0);
             nextRow.manualBaseStock = base;
-            calculatedStock = Math.max(Math.round((base - wasteNum) * 1000) / 1000, 0);
+            calculatedStock = roundStock(base - wasteNum);
           } else {
-            calculatedStock = Math.max(
-              Math.round((importNum + prevStockNum - wasteNum) * 1000) / 1000,
-              0
-            );
+            nextRow.manualBaseStock = undefined;
+            calculatedStock = roundStock(importNum + prevStockNum - wasteNum);
           }
           nextRow.stockQty = String(calculatedStock);
         } else if (field === 'stockQty') {
           const formatted = formatNumericString(String(rawValue));
           const enteredStockNum = parseFloat(formatted) || 0;
+          const importNum = parseFloat(row.importQty || '0') || 0;
           const currentWasteNum = parseFloat(row.wasteQty || '0') || 0;
-          // Khi user nhập thủ công vào cột Tồn:
-          // Ghi nhận mốc tồn gốc (base stock = Tồn đã nhập + Bán ra hiện tại)
-          // để nếu lát sau nhập Bán ra (ví dụ 3) thì Tồn sẽ tự động tính = 10 - 3 = 7
+          const formulaStock = roundStock(importNum + prevStockNum - currentWasteNum);
+          const isTrueManualOverride = formatted === '' || enteredStockNum !== formulaStock;
           nextRow = {
             ...nextRow,
             prevStock: String(prevStockNum),
             stockQty: formatted,
-            isManualStock: true,
-            manualBaseStock: enteredStockNum + currentWasteNum,
+            isManualStock: isTrueManualOverride,
+            manualBaseStock: isTrueManualOverride ? enteredStockNum + currentWasteNum : undefined,
           };
         } else if (field === 'minThreshold') {
           const formatted = formatNumericString(String(rawValue));
@@ -1137,25 +1320,32 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
 
   // Tính lại tồn kho theo công thức khi người dùng muốn bỏ chế độ nhập tay
   const handleRecalculateRowStock = (id: string) => {
-    setLocalItems((prev) =>
-      prev.map((row) => {
-        if (row.id !== id) return row;
-        const prevStockNum = parseFloat(row.prevStock || '0') || getPreviousDayStock(row.dateStr, row.itemName, row.tableName);
-        const importNum = parseFloat(row.importQty || '0') || 0;
-        const wasteNum = parseFloat(row.wasteQty || '0') || 0;
-        const calculatedStock = Math.max(
-          Math.round((importNum + prevStockNum - wasteNum) * 1000) / 1000,
-          0
-        );
-        const updatedRow = {
-          ...row,
-          stockQty: String(calculatedStock),
-          isManualStock: false,
-        };
-        onSaveItem(updatedRow, true);
-        return updatedRow;
-      })
+    const current = localItemsRef.current;
+    const target = current.find((r) => r.id === id);
+    if (!target) return;
+
+    const prevStockNum = getPreviousDayStockFromList(current, target.dateStr, target.itemName, target.tableName);
+    const importNum = parseFloat(target.importQty || '0') || 0;
+    const wasteNum = parseFloat(target.wasteQty || '0') || 0;
+    const calculatedStock = roundStock(importNum + prevStockNum - wasteNum);
+    const updatedRow: InventoryCheckItem = {
+      ...target,
+      prevStock: String(prevStockNum),
+      stockQty: String(calculatedStock),
+      isManualStock: false,
+      manualBaseStock: undefined,
+    };
+
+    const replaced = current.map((r) => (r.id === id ? updatedRow : r));
+    const { nextAll, cascadedItems } = cascadeFollowingDatesFromList(
+      replaced,
+      updatedRow.dateStr,
+      updatedRow.tableName || DEFAULT_TABLE_NAME,
+      new Set([(updatedRow.itemName || '').trim().toLowerCase()])
     );
+    localItemsRef.current = nextAll;
+    setLocalItems(nextAll);
+    onSaveItem(updatedRow, true, cascadedItems);
   };
 
   // Đổi thứ tự mặt hàng (Kéo thả hoặc bấm mũi tên) trong bảng/tủ đang chọn
@@ -1178,9 +1368,15 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
       (i) => !(isSameDate(i.dateStr, selectedDate) && (i.tableName || DEFAULT_TABLE_NAME) === selectedTable)
     );
     const nextAll = [...otherItems, ...updatedWithStt];
+    localItemsRef.current = nextAll;
     setLocalItems(nextAll);
     if (onSaveDailyTable) {
-      onSaveDailyTable(selectedDate, nextAll);
+      onSaveDailyTable(selectedDate, nextAll, {
+        mode: 'replace_date_table',
+        dateKey: getDateKey(selectedDate),
+        tableName: selectedTable || DEFAULT_TABLE_NAME,
+        rows: updatedWithStt,
+      });
     } else {
       updatedWithStt.forEach((r) => onSaveItem(r, true));
     }
@@ -1205,9 +1401,15 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
       (i) => !(isSameDate(i.dateStr, selectedDate) && (i.tableName || DEFAULT_TABLE_NAME) === selectedTable)
     );
     const nextAll = [...otherItems, ...updatedWithStt];
+    localItemsRef.current = nextAll;
     setLocalItems(nextAll);
     if (onSaveDailyTable) {
-      onSaveDailyTable(selectedDate, nextAll);
+      onSaveDailyTable(selectedDate, nextAll, {
+        mode: 'replace_date_table',
+        dateKey: getDateKey(selectedDate),
+        tableName: selectedTable || DEFAULT_TABLE_NAME,
+        rows: updatedWithStt,
+      });
     } else {
       updatedWithStt.forEach((r) => onSaveItem(r, true));
     }
@@ -1266,11 +1468,17 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     }
 
     const nextAll = [...localItems, ...newItemsToAppend];
+    localItemsRef.current = nextAll;
     setLocalItems(nextAll);
     setSelectedTable(trimmed);
     if (newItemsToAppend.length > 0) {
       if (onSaveDailyTable) {
-        onSaveDailyTable(selectedDate, nextAll);
+        onSaveDailyTable(selectedDate, nextAll, {
+          mode: 'replace_date_table',
+          dateKey: getDateKey(selectedDate),
+          tableName: trimmed,
+          rows: newItemsToAppend,
+        });
       } else {
         newItemsToAppend.forEach((item) => onSaveItem(item, false));
       }
@@ -1301,17 +1509,23 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     } catch {
       // ignore
     }
-    if (onUpdateCustomTables) {
-      onUpdateCustomTables(nextCustom);
-    }
 
     const nextAll = localItems.filter(
       (i) => (i.tableName || DEFAULT_TABLE_NAME).trim() !== tableToDelete.trim()
     );
+    localItemsRef.current = nextAll;
     setLocalItems(nextAll);
     setSelectedTable(DEFAULT_TABLE_NAME);
-    if (onSaveDailyTable) {
-      onSaveDailyTable(selectedDate, nextAll);
+
+    if (onDeleteTable) {
+      onDeleteTable(tableToDelete.trim(), nextAll, nextCustom);
+    } else {
+      if (onUpdateCustomTables) {
+        onUpdateCustomTables(nextCustom);
+      }
+      if (onSaveDailyTable) {
+        onSaveDailyTable(selectedDate, nextAll);
+      }
     }
     setJustSavedBanner(true);
     setTimeout(() => setJustSavedBanner(false), 2500);
@@ -1423,34 +1637,56 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     }, 20);
   };
 
-  // Khi rời ô (onBlur), chuẩn hóa các số: tự động bỏ số 0 ở đầu (05 -> 5), loại bỏ dấu chấm ở cuối nếu gõ dở và lưu ngầm
+  // Khi rời ô (onBlur), chuẩn hóa các số: tự động bỏ số 0 ở đầu (05 -> 5), loại bỏ dấu chấm ở cuối nếu gõ dở, tính nối tiếp ngày sau và lưu ngầm
   const handleCellBlur = (id: string) => {
     activeEditingCellRef.current = null;
     snapshotBeforeEditRef.current = null;
-    setLocalItems((prev) =>
-      prev.map((r) => {
-        if (r.id !== id) return r;
-        const cleanNumber = (val?: string) => {
-          if (val === undefined || val === null) return val;
-          const formatted = formatNumericString(String(val)).replace(/\.+$/, '');
-          return formatted === '' ? '0' : formatted;
-        };
-        const cleanStock = cleanNumber(r.stockQty) || '0';
-        const cleanWaste = cleanNumber(r.wasteQty) || '0';
-        const cleanImport = cleanNumber(r.importQty) || '0';
-        const updatedRow: InventoryCheckItem = {
-          ...r,
-          importQty: cleanImport,
-          wasteQty: cleanWaste,
-          stockQty: cleanStock,
-          manualBaseStock: r.isManualStock
-            ? (parseFloat(cleanStock) || 0) + (parseFloat(cleanWaste) || 0)
-            : r.manualBaseStock,
-        };
-        onSaveItem(updatedRow, true);
-        return updatedRow;
-      })
+
+    const current = localItemsRef.current;
+    const target = current.find((r) => r.id === id);
+    if (!target) return;
+
+    const cleanNumber = (val?: string) => {
+      if (val === undefined || val === null) return val;
+      const formatted = formatNumericString(String(val)).replace(/\.+$/, '');
+      return formatted === '' ? '0' : formatted;
+    };
+    const cleanImport = cleanNumber(target.importQty) || '0';
+    const cleanWaste = cleanNumber(target.wasteQty) || '0';
+    const prevStockNum = getPreviousDayStockFromList(
+      current,
+      target.dateStr,
+      target.itemName,
+      target.tableName
     );
+    const cleanStock = target.isManualStock
+      ? cleanNumber(target.stockQty) || '0'
+      : String(roundStock((parseFloat(cleanImport) || 0) + prevStockNum - (parseFloat(cleanWaste) || 0)));
+
+    const updatedRow: InventoryCheckItem = {
+      ...target,
+      prevStock: String(prevStockNum),
+      importQty: cleanImport,
+      wasteQty: cleanWaste,
+      stockQty: cleanStock,
+      manualBaseStock: target.isManualStock
+        ? (parseFloat(cleanStock) || 0) + (parseFloat(cleanWaste) || 0)
+        : undefined,
+    };
+    if (!target.isManualStock) {
+      delete updatedRow.manualBaseStock;
+    }
+
+    const replaced = current.map((r) => (r.id === id ? updatedRow : r));
+    const { nextAll, cascadedItems } = cascadeFollowingDatesFromList(
+      replaced,
+      updatedRow.dateStr,
+      updatedRow.tableName || DEFAULT_TABLE_NAME,
+      new Set([(updatedRow.itemName || '').trim().toLowerCase()])
+    );
+    localItemsRef.current = nextAll;
+    setLocalItems(nextAll);
+    onSaveItem(updatedRow, true, cascadedItems);
   };
 
   // Đếm số lượng mặt hàng cần đặt (Tồn <= Ngưỡng Đặt) trên toàn bộ các tủ hôm nay
@@ -1532,10 +1768,31 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
 
   // Lưu toàn bộ bảng ngày đang chọn
   const handleSaveCurrentDateTable = () => {
+    const targetTable = selectedTable || DEFAULT_TABLE_NAME;
+    const { nextAll, cascadedItems } = cascadeFollowingDatesFromList(
+      localItemsRef.current,
+      selectedDate,
+      targetTable
+    );
+    localItemsRef.current = nextAll;
+    setLocalItems(nextAll);
+    const currentTableRows = nextAll.filter(
+      (i) => isSameDate(i.dateStr, selectedDate) && (i.tableName || DEFAULT_TABLE_NAME) === selectedTable
+    );
+
     if (onSaveDailyTable) {
-      onSaveDailyTable(selectedDate, localItems);
+      onSaveDailyTable(selectedDate, nextAll, {
+        mode: 'replace_date_table',
+        dateKey: getDateKey(selectedDate),
+        tableName: targetTable,
+        rows: currentTableRows,
+        cascadedItems: cascadedItems.length > 0 ? cascadedItems : undefined,
+      });
     } else {
-      rowsForSelectedDateAndTable.forEach((row) => onSaveItem(row, true));
+      currentTableRows.forEach((row) => onSaveItem(row, true));
+      if (cascadedItems.length > 0) {
+        onSaveItemsSilent?.(cascadedItems, nextAll);
+      }
     }
     setJustSavedBanner(true);
     setTimeout(() => setJustSavedBanner(false), 2500);
@@ -1831,8 +2088,9 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
     pushUndoSnapshot();
 
     let affectedCount = 0;
-    const updated = localItems.map((item) => {
-      if (item.dateStr !== selectedDate) return item;
+    const affectedTables = new Set<string>();
+    const updated = localItemsRef.current.map((item) => {
+      if (!isSameDate(item.dateStr, selectedDate)) return item;
       const itemKey = item.itemName.trim().toLowerCase();
 
       // So khớp tên nguyên liệu
@@ -1854,9 +2112,9 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
         item.tableName &&
         usedInfo.tableName.trim().toLowerCase() !== item.tableName.trim().toLowerCase()
       ) {
-        const hasExactTableMatch = localItems.some(
+        const hasExactTableMatch = localItemsRef.current.some(
           (r) =>
-            r.dateStr === selectedDate &&
+            isSameDate(r.dateStr, selectedDate) &&
             r.itemName.trim().toLowerCase() === itemKey &&
             (r.tableName || DEFAULT_TABLE_NAME).trim().toLowerCase() === usedInfo.tableName!.trim().toLowerCase()
         );
@@ -1864,7 +2122,13 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
       }
 
       affectedCount++;
-      const prevStockNum = parseFloat(item.prevStock || '0') || getPreviousDayStock(item.dateStr, item.itemName, item.tableName);
+      affectedTables.add((item.tableName || DEFAULT_TABLE_NAME).trim());
+      const prevStockNum = getPreviousDayStockFromList(
+        localItemsRef.current,
+        item.dateStr,
+        item.itemName,
+        item.tableName
+      );
       const importNum = parseFloat(item.importQty || '0') || 0;
       const currentWaste = parseFloat(item.wasteQty || '0') || 0;
 
@@ -1873,29 +2137,32 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
 
       // 2. Tính Tồn kho mới (stockQty) theo đúng công thức đã cài sẵn
       let calculatedStock: number;
-      let nextManualBase = item.manualBaseStock;
+      let nextManualBase: number | undefined;
 
-      if (item.manualBaseStock !== undefined) {
-        calculatedStock = Math.max(Math.round((item.manualBaseStock - newWaste) * 1000) / 1000, 0);
-      } else if (item.isManualStock) {
-        const currentStockNum = parseFloat(item.stockQty || '0') || 0;
-        const base = currentStockNum + currentWaste;
+      if (item.isManualStock) {
+        const base =
+          item.manualBaseStock !== undefined
+            ? item.manualBaseStock
+            : (parseFloat(item.stockQty || '0') || 0) + currentWaste;
         nextManualBase = base;
-        calculatedStock = Math.max(Math.round((base - newWaste) * 1000) / 1000, 0);
+        calculatedStock = roundStock(base - newWaste);
       } else {
-        calculatedStock = Math.max(
-          Math.round((importNum + prevStockNum - newWaste) * 1000) / 1000,
-          0
-        );
+        nextManualBase = undefined;
+        calculatedStock = roundStock(importNum + prevStockNum - newWaste);
       }
 
-      return {
+      const nextRow: InventoryCheckItem = {
         ...item,
         prevStock: String(prevStockNum),
         wasteQty: String(newWaste),
         stockQty: String(calculatedStock),
-        manualBaseStock: nextManualBase,
       };
+      if (nextManualBase !== undefined) {
+        nextRow.manualBaseStock = nextManualBase;
+      } else {
+        delete nextRow.manualBaseStock;
+      }
+      return nextRow;
     });
 
     if (affectedCount === 0) {
@@ -1903,9 +2170,32 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
       return;
     }
 
-    setLocalItems(updated);
+    let finalAll = updated;
+    const cascadedAll: InventoryCheckItem[] = [];
+    for (const tbl of affectedTables) {
+      const res = cascadeFollowingDatesFromList(finalAll, selectedDate, tbl);
+      finalAll = res.nextAll;
+      cascadedAll.push(...res.cascadedItems);
+    }
+
+    localItemsRef.current = finalAll;
+    setLocalItems(finalAll);
     if (onSaveDailyTable) {
-      onSaveDailyTable(selectedDate, updated);
+      const selectedTableRows = finalAll.filter(
+        (i) => isSameDate(i.dateStr, selectedDate) && (i.tableName || DEFAULT_TABLE_NAME) === selectedTable
+      );
+      const otherAffectedItems = finalAll.filter(
+        (i) =>
+          (isSameDate(i.dateStr, selectedDate) && (i.tableName || DEFAULT_TABLE_NAME) !== selectedTable && affectedTables.has((i.tableName || DEFAULT_TABLE_NAME).trim())) ||
+          cascadedAll.some((c) => c.id === i.id)
+      );
+      onSaveDailyTable(selectedDate, finalAll, {
+        mode: 'replace_date_table',
+        dateKey: getDateKey(selectedDate),
+        tableName: selectedTable || DEFAULT_TABLE_NAME,
+        rows: selectedTableRows,
+        cascadedItems: otherAffectedItems.length > 0 ? otherAffectedItems : undefined,
+      });
     }
 
     // 3. Set toàn bộ phiếu đã kiểm về 0 (tránh bấm trừ 2 lần vào kiểm tồn)
@@ -2544,7 +2834,7 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
               >
                 <Calendar className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                 <span className="font-bold">
-                  {selectedDate === todayStr ? `Hôm nay (${selectedDate})` : `Ngày ${selectedDate}`}
+                  {isSameDate(selectedDate, todayStr) ? `Hôm nay (${selectedDate})` : `Ngày ${selectedDate}`}
                 </span>
                 <ChevronDown
                   className={`w-3.5 h-3.5 text-zinc-400 transition-transform duration-200 ${
@@ -3167,7 +3457,17 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                             </span>
                           </div>
                         ) : (
-                          <div className="flex items-center justify-end">
+                          <div className="flex items-center justify-end gap-1">
+                            {item.isManualStock && (
+                              <button
+                                type="button"
+                                onClick={() => handleRecalculateRowStock(item.id)}
+                                className="p-0.5 rounded text-amber-600 hover:bg-amber-50 hover:text-amber-800 transition shrink-0"
+                                title="Đang nhập tồn tay — Bấm để tính lại theo công thức: Tồn = Nhập + Trước - Bán Ra"
+                              >
+                                <RotateCcw className="w-3 h-3" />
+                              </button>
+                            )}
                             <input
                               type="text"
                               inputMode="decimal"
@@ -3175,7 +3475,11 @@ export const InventoryCheckView: React.FC<InventoryCheckViewProps> = ({
                               onFocus={(e) => handleCellFocus(item.id, 'stockQty', e)}
                               onChange={(e) => handleCellChange(item.id, 'stockQty', e.target.value)}
                               onBlur={() => handleCellBlur(item.id)}
-                              className="w-12 sm:w-14 text-center sm:text-right bg-emerald-50 focus:bg-white border border-emerald-300 rounded px-1 py-0.5 font-bold text-emerald-800 outline-none focus:ring-1 focus:ring-emerald-500 text-xs"
+                              className={`w-12 sm:w-14 text-center sm:text-right border rounded px-1 py-0.5 font-bold outline-none focus:ring-1 text-xs ${
+                                item.isManualStock
+                                  ? 'bg-amber-50/70 focus:bg-white border-amber-300 text-amber-900 focus:ring-amber-500'
+                                  : 'bg-emerald-50 focus:bg-white border-emerald-300 text-emerald-800 focus:ring-emerald-500'
+                              }`}
                             />
                           </div>
                         )}
